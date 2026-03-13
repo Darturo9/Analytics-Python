@@ -36,6 +36,9 @@ cuentas_por_dia["dia"] = cuentas_por_dia["fecha_apertura"].apply(lambda x: str(x
 por_dia_tipo = df.groupby(["fecha_apertura", "tipo_cliente"]).size().reset_index(name="cuentas")
 por_dia_tipo["dia"] = por_dia_tipo["fecha_apertura"].apply(lambda x: str(x.day) if hasattr(x, 'day') else str(x)[-2:].lstrip("0") or "0")
 
+# Total por día para mostrar encima de la barra
+total_por_dia = por_dia_tipo.groupby("dia")["cuentas"].sum().reset_index()
+
 # ── Estilos ───────────────────────────────────────────────────────────────────
 card_style = {
     "backgroundColor": COLORES["blanco"],
@@ -99,7 +102,20 @@ app.layout = html.Div(
                         "Existente": COLORES["amarillo_opt"],
                     },
                     category_orders={"dia": [str(d) for d in range(1, 32)]}
-                ).update_layout(**layout_grafico)
+                ).update_layout(
+                    **layout_grafico,
+                    annotations=[
+                        dict(
+                            x=row["dia"],
+                            y=row["cuentas"],
+                            text=str(int(row["cuentas"])),
+                            showarrow=False,
+                            yanchor="bottom",
+                            font=dict(size=11, color=COLORES["azul_experto"]),
+                        )
+                        for _, row in total_por_dia.iterrows()
+                    ]
+                )
             )
         ]),
     ]
