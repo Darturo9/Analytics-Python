@@ -10,10 +10,11 @@ Ejecutar desde la raíz del proyecto:
 import sys
 sys.path.insert(0, ".")
 
+import pandas as pd
 from dash import Dash, html, dcc
-import plotly.express as px
+import plotly.graph_objects as go
 from core.db import run_query_file
-from core.colors import COLORES, PALETA
+from core.colors import COLORES
 
 # ── Cargar datos ─────────────────────────────────────────────────────────────
 print("Cargando datos...")
@@ -22,22 +23,52 @@ print(f"  {len(df)} cuentas cargadas")
 
 # ── Clasificar nuevos vs existentes ──────────────────────────────────────────
 df["tipo_cliente"] = df["dif"].apply(lambda x: "Nuevo" if x == 0 else "Existente")
+df["fecha_apertura"] = pd.to_datetime(df["fecha_apertura"])
+df["dia"] = df["fecha_apertura"].dt.day
 
 # ── Métricas ──────────────────────────────────────────────────────────────────
-total_cuentas   = len(df)
-total_nuevos    = (df["tipo_cliente"] == "Nuevo").sum()
+total_cuentas    = len(df)
+total_nuevos     = (df["tipo_cliente"] == "Nuevo").sum()
 total_existentes = (df["tipo_cliente"] == "Existente").sum()
 
-# Aperturas por día con etiqueta solo del número de día
-cuentas_por_dia = df.groupby("fecha_apertura").size().reset_index(name="cuentas")
-cuentas_por_dia["dia"] = cuentas_por_dia["fecha_apertura"].apply(lambda x: str(x.day) if hasattr(x, 'day') else str(x)[-2:].lstrip("0") or "0")
+# Pivot por día y tipo
+pivot = df.groupby(["dia", "tipo_cliente"]).size().unstack(fill_value=0)
+dias  = sorted(pivot.index.tolist())
 
-# Aperturas por día separado por tipo
-por_dia_tipo = df.groupby(["fecha_apertura", "tipo_cliente"]).size().reset_index(name="cuentas")
-por_dia_tipo["dia"] = por_dia_tipo["fecha_apertura"].apply(lambda x: str(x.day) if hasattr(x, 'day') else str(x)[-2:].lstrip("0") or "0")
+existentes = [pivot.loc[d, "Existente"] if "Existente" in pivot.columns else 0 for d in dias]
+nuevos     = [pivot.loc[d, "Nuevo"]     if "Nuevo"     in pivot.columns else 0 for d in dias]
+totales    = [e + n for e, n in zip(existentes, nuevos)]
 
-# Total por día para mostrar encima de la barra
-total_por_dia = por_dia_tipo.groupby("dia")["cuentas"].sum().reset_index()
+# ── Gráfico ───────────────────────────────────────────────────────────────────
+fig = go.Figure()
+
+fig.add_trace(go.Bar(
+    name="Existente",
+    x=dias,
+    y=existentes,
+    marker_color=COLORES["amarillo_opt"],
+))
+
+fig.add_trace(go.Bar(
+    name="Nuevo",
+    x=dias,
+    y=nuevos,
+    marker_color=COLORES["aqua_digital"],
+    text=totales,
+    textposition="outside",
+    textfont=dict(size=11, color=COLORES["azul_experto"]),
+))
+
+fig.update_layout(
+    barmode="stack",
+    plot_bgcolor=COLORES["blanco"],
+    paper_bgcolor=COLORES["blanco"],
+    font=dict(color=COLORES["azul_experto"]),
+    margin=dict(t=30, b=40, l=40, r=10),
+    xaxis=dict(title="", tickmode="linear", dtick=1),
+    yaxis=dict(title="Cuentas"),
+    legend_title_text="",
+)
 
 # ── Estilos ───────────────────────────────────────────────────────────────────
 card_style = {
@@ -49,17 +80,6 @@ card_style = {
     "flex":            "1",
 }
 
-layout_grafico = dict(
-    plot_bgcolor=COLORES["blanco"],
-    paper_bgcolor=COLORES["blanco"],
-    font=dict(color=COLORES["azul_experto"]),
-    margin=dict(t=10, b=40, l=40, r=10),
-    xaxis_title="",
-    yaxis_title="Cuentas",
-    xaxis=dict(tickmode="linear"),
-    legend_title_text="",
-)
-
 # ── App ───────────────────────────────────────────────────────────────────────
 app = Dash(__name__)
 
@@ -67,7 +87,6 @@ app.layout = html.Div(
     style={"fontFamily": "Arial", "backgroundColor": COLORES["gris_fondo"], "minHeight": "100vh", "padding": "24px"},
     children=[
 
-        # Título
         html.H2("Cuenta Digital — Marzo 2026",
                 style={"color": COLORES["azul_experto"], "marginBottom": "24px"}),
 
@@ -87,36 +106,10 @@ app.layout = html.Div(
             ]),
         ]),
 
-        # Gráfico: aperturas por día (nuevo vs existente)
+        # Gráfico
         html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "flex": "none"}, children=[
             html.H4("Aperturas por día", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(
-                figure=px.bar(
-                    por_dia_tipo,
-                    x="dia",
-                    y="cuentas",
-                    color="tipo_cliente",
-                    barmode="stack",
-                    color_discrete_map={
-                        "Nuevo":     COLORES["aqua_digital"],
-                        "Existente": COLORES["amarillo_opt"],
-                    },
-                    category_orders={"dia": [str(d) for d in range(1, 32)]}
-                ).update_layout(
-                    **layout_grafico,
-                    annotations=[
-                        dict(
-                            x=row["dia"],
-                            y=row["cuentas"],
-                            text=str(int(row["cuentas"])),
-                            showarrow=False,
-                            yanchor="bottom",
-                            font=dict(size=11, color=COLORES["azul_experto"]),
-                        )
-                        for _, row in total_por_dia.iterrows()
-                    ]
-                )
-            )
+            dcc.Graph(figure=fig)
         ]),
     ]
 )
