@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0, ".")
+
 from core.db import run_query_file
 from core.utils import exportar_excel
 
