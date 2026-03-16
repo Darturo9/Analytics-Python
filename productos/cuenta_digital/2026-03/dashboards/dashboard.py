@@ -46,7 +46,7 @@ def normalizar_genero(valor: str) -> str:
 def clasificar_generacion(fecha_nac):
     """Clasifica generación a partir del año de nacimiento."""
     if pd.isna(fecha_nac):
-        return "Sin dato"
+        return "OTRA GENERACION"
     anio = int(fecha_nac.year)
     if 1965 <= anio <= 1980:
         return "Generation X (1965-1980)"
@@ -264,7 +264,6 @@ def construir_figura_generaciones(df_mes: pd.DataFrame) -> go.Figure:
         "Gen Y - Millennials (1981-1996)",
         "Generación Z (1997-2012)",
         "OTRA GENERACION",
-        "Sin dato",
     ]
     conteos = df_mes["generacion"].value_counts().reindex(orden, fill_value=0)
     conteos = conteos[conteos > 0]
@@ -301,6 +300,51 @@ def construir_figura_generaciones(df_mes: pd.DataFrame) -> go.Figure:
         xaxis=dict(title="", tickangle=-20),
         yaxis=dict(title="Cuentas"),
         showlegend=False,
+    )
+    return fig
+
+
+def construir_figura_generaciones_pastel(df_mes: pd.DataFrame) -> go.Figure:
+    """Construye gráfico pastel por generación con conteo y porcentaje."""
+    if df_mes.empty:
+        return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
+
+    orden = [
+        "Generation X (1965-1980)",
+        "Gen Y - Millennials (1981-1996)",
+        "Generación Z (1997-2012)",
+        "OTRA GENERACION",
+    ]
+    conteos = df_mes["generacion"].value_counts().reindex(orden, fill_value=0)
+    conteos = conteos[conteos > 0]
+    if conteos.empty:
+        return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
+
+    colores = {
+        "Generation X (1965-1980)": COLORES["azul_financiero"],
+        "Gen Y - Millennials (1981-1996)": COLORES["aqua_digital"],
+        "Generación Z (1997-2012)": COLORES["amarillo_opt"],
+        "OTRA GENERACION": COLORES["azul_experto"],
+    }
+
+    fig = go.Figure(data=[
+        go.Pie(
+            labels=conteos.index.tolist(),
+            values=conteos.values.tolist(),
+            hole=0.45,
+            marker=dict(colors=[colores[label] for label in conteos.index.tolist()]),
+            texttemplate="%{value:,} (%{percent})",
+            textposition="outside",
+            hovertemplate="%{label}<br>%{value:,} cuentas (%{percent})<extra></extra>",
+        )
+    ])
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=10, b=10, l=10, r=10),
+        legend_title_text="",
+        showlegend=True,
     )
     return fig
 
@@ -407,7 +451,9 @@ app.layout = html.Div(
             ]),
             html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "minWidth": "320px"}, children=[
                 html.H4("Aperturas por generación", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-                dcc.Graph(id="grafico-generaciones")
+                dcc.Graph(id="grafico-generaciones"),
+                html.H4("Generaciones en pastel", style={"color": COLORES["azul_experto"], "marginTop": "20px"}),
+                dcc.Graph(id="grafico-generaciones-pastel")
             ]),
         ]),
 
@@ -427,6 +473,7 @@ app.layout = html.Div(
     Output("grafico-aperturas", "figure"),
     Output("grafico-genero", "figure"),
     Output("grafico-generaciones", "figure"),
+    Output("grafico-generaciones-pastel", "figure"),
     Output("grafico-departamentos", "figure"),
     Input("selector-mes", "value"),
 )
@@ -436,6 +483,7 @@ def actualizar_dashboard(periodo_mes):
     figura = construir_figura(dias, existentes, nuevos, totales)
     figura_genero = construir_figura_genero(df_mes)
     figura_generaciones = construir_figura_generaciones(df_mes)
+    figura_generaciones_pastel = construir_figura_generaciones_pastel(df_mes)
     figura_departamentos = construir_figura_departamentos(df_mes)
     titulo = f"Cuenta Digital — {format_mes_label(periodo_mes)}"
     return (
@@ -446,6 +494,7 @@ def actualizar_dashboard(periodo_mes):
         figura,
         figura_genero,
         figura_generaciones,
+        figura_generaciones_pastel,
         figura_departamentos,
     )
 
