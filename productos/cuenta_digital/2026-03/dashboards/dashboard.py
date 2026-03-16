@@ -470,12 +470,24 @@ def construir_figura_mapa_departamentos(df_mes: pd.DataFrame) -> go.Figure:
         colorbar_title="Cuentas",
         hovertemplate="%{location}<br>%{text}<extra></extra>",
     ))
-    fig.update_geos(fitbounds="geojson", visible=False, bgcolor=COLORES["blanco"])
+    fig.update_geos(
+        visible=False,
+        showcountries=False,
+        showcoastlines=False,
+        showland=True,
+        landcolor="#F5F8EE",
+        projection_type="mercator",
+        center={"lat": 14.8, "lon": -86.5},
+        lataxis_range=[12.8, 17.6],
+        lonaxis_range=[-89.6, -82.8],
+        bgcolor=COLORES["blanco"],
+    )
     fig.update_layout(
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=10, b=10, l=10, r=10),
+        height=540,
     )
     return fig
 
@@ -537,28 +549,29 @@ app.layout = html.Div(
             dcc.Graph(id="grafico-aperturas")
         ]),
 
-        html.Div(style={"display": "flex", "gap": "16px", "marginTop": "24px", "marginBottom": "24px", "flexWrap": "wrap"}, children=[
-            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "20px", "minWidth": "320px"}, children=[
-                html.H4("Género: cuentas y porcentaje", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-                dcc.Graph(id="grafico-genero")
-            ]),
-            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "minWidth": "320px"}, children=[
-                html.H4("Aperturas por generación", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-                dcc.Graph(id="grafico-generaciones"),
-                html.H4("Generaciones en pastel", style={"color": COLORES["azul_experto"], "marginTop": "20px"}),
-                dcc.Graph(id="grafico-generaciones-pastel")
-            ]),
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "20px", "marginTop": "24px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Género: cuentas y porcentaje", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-genero")
         ]),
 
-        html.Div(style={"display": "flex", "gap": "16px", "marginBottom": "24px", "flexWrap": "wrap"}, children=[
-            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "minWidth": "380px"}, children=[
-                html.H4("Top 5 departamentos con más aperturas", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-                dcc.Graph(id="grafico-departamentos")
-            ]),
-            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "minWidth": "380px"}, children=[
-                html.H4("Mapa de aperturas por departamento (Honduras)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-                dcc.Graph(id="grafico-mapa-departamentos")
-            ]),
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Aperturas por generación", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-generaciones")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Generaciones en pastel", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-generaciones-pastel")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Top 5 departamentos con más aperturas", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-departamentos")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Mapa de aperturas por departamento (Honduras)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-mapa-departamentos", style={"height": "580px"})
         ]),
     ]
 )
