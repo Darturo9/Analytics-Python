@@ -10,6 +10,7 @@ Ejecutar desde la raíz del proyecto:
 import sys
 sys.path.insert(0, ".")
 
+import calendar
 import pandas as pd
 from dash import Dash, html, dcc, Input, Output
 import plotly.graph_objects as go
@@ -59,11 +60,20 @@ def calcular_metricas(dataframe: pd.DataFrame, periodo_mes: str):
     total_nuevos = (df_mes["tipo_cliente"] == "Nuevo").sum()
     total_existentes = (df_mes["tipo_cliente"] == "Existente").sum()
 
-    pivot = df_mes.groupby(["dia", "tipo_cliente"]).size().unstack(fill_value=0)
-    dias = sorted(pivot.index.tolist())
+    anio, mes = map(int, periodo_mes.split("-"))
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    dias = list(range(1, ultimo_dia + 1))
 
-    existentes = [pivot.loc[d, "Existente"] if "Existente" in pivot.columns else 0 for d in dias]
-    nuevos = [pivot.loc[d, "Nuevo"] if "Nuevo" in pivot.columns else 0 for d in dias]
+    pivot = df_mes.groupby(["dia", "tipo_cliente"]).size().unstack(fill_value=0)
+
+    existentes = [
+        int(pivot.loc[d, "Existente"]) if d in pivot.index and "Existente" in pivot.columns else 0
+        for d in dias
+    ]
+    nuevos = [
+        int(pivot.loc[d, "Nuevo"]) if d in pivot.index and "Nuevo" in pivot.columns else 0
+        for d in dias
+    ]
     totales = [e + n for e, n in zip(existentes, nuevos)]
     return total_cuentas, total_nuevos, total_existentes, dias, existentes, nuevos, totales
 
@@ -141,7 +151,7 @@ def construir_figura(dias, existentes, nuevos, totales) -> go.Figure:
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=30, b=40, l=40, r=10),
-        xaxis=dict(title="", tickmode="linear", dtick=1),
+        xaxis=dict(title="", tickmode="linear", tick0=1, dtick=1, range=[0.5, dias[-1] + 0.5]),
         yaxis=dict(title="Cuentas", range=[0, max_total + (separacion_total * 3)]),
         legend_title_text="",
     )
