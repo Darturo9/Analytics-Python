@@ -48,17 +48,13 @@ def clasificar_generacion(fecha_nac):
     if pd.isna(fecha_nac):
         return "Sin dato"
     anio = int(fecha_nac.year)
-    if anio <= 1945:
-        return "Generación Silenciosa"
-    if anio <= 1964:
-        return "Baby Boomer"
-    if anio <= 1980:
-        return "Generación X"
-    if anio <= 1996:
-        return "Millennials"
-    if anio <= 2012:
-        return "Generación Z"
-    return "Generación Alpha"
+    if 1965 <= anio <= 1980:
+        return "Generation X (1965-1980)"
+    if 1981 <= anio <= 1996:
+        return "Gen Y - Millennials (1981-1996)"
+    if 1997 <= anio <= 2012:
+        return "Generación Z (1997-2012)"
+    return "OTRA GENERACION"
 
 
 df["genero_normalizado"] = df["genero"].apply(normalizar_genero)
@@ -264,12 +260,10 @@ def construir_figura_generaciones(df_mes: pd.DataFrame) -> go.Figure:
         return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
 
     orden = [
-        "Generación Silenciosa",
-        "Baby Boomer",
-        "Generación X",
-        "Millennials",
-        "Generación Z",
-        "Generación Alpha",
+        "Generation X (1965-1980)",
+        "Gen Y - Millennials (1981-1996)",
+        "Generación Z (1997-2012)",
+        "OTRA GENERACION",
         "Sin dato",
     ]
     conteos = df_mes["generacion"].value_counts().reindex(orden, fill_value=0)
