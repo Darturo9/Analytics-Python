@@ -320,15 +320,12 @@ df_conversion.loc[df_conversion["id_usuario"] == "", "id_usuario"] = pd.NA
 
 df_rtm["fecha_campania"] = pd.to_datetime(df_rtm["fecha_campania"], errors="coerce")
 df_rtm["codigo_cliente_usuario_campania"] = df_rtm["codigo_cliente_usuario_campania"].apply(normalizar_codigo_cliente)
-df_rtm["anio"] = df_rtm["fecha_campania"].dt.year
-df_rtm["mes"] = df_rtm["fecha_campania"].dt.month
 
 df_rtm_match = (
-    df_rtm[
-        ["codigo_cliente_usuario_campania", "anio", "mes", "fecha_campania"]
-    ]
-    .dropna(subset=["anio", "mes"]) 
-    .drop_duplicates(subset=["codigo_cliente_usuario_campania", "anio", "mes"])
+    df_rtm[["codigo_cliente_usuario_campania", "fecha_campania"]]
+    .dropna(subset=["codigo_cliente_usuario_campania"])
+    .sort_values("fecha_campania")
+    .drop_duplicates(subset=["codigo_cliente_usuario_campania"], keep="first")
     .copy()
 )
 
