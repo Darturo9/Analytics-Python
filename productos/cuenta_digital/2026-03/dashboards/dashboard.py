@@ -91,6 +91,49 @@ ALIAS_DEPARTAMENTOS = {
     "ISLAS BAHIA": "Bay Islands",
 }
 
+PATRONES_DEPARTAMENTO = {
+    "ATLANTIDA": "Atlántida",
+    "BAY ISLANDS": "Bay Islands",
+    "CHOLUTECA": "Choluteca",
+    "COLON": "Colón",
+    "COMAYAGUA": "Comayagua",
+    "COPAN": "Copán",
+    "CORTES": "Cortés",
+    "EL PARAISO": "El Paraíso",
+    "FRANCISCO MORAZAN": "Francisco Morazán",
+    "GRACIAS A DIOS": "Gracias a Dios",
+    "INTIBUCA": "Intibucá",
+    "ISLAS DE LA BAHIA": "Bay Islands",
+    "ISLAS BAHIA": "Bay Islands",
+    "LA PAZ": "La Paz",
+    "LEMPIRA": "Lempira",
+    "OCOTEPEQUE": "Ocotepeque",
+    "OLANCHO": "Olancho",
+    "SANTA BARBARA": "Santa Bárbara",
+    "VALLE": "Valle",
+    "YORO": "Yoro",
+}
+
+
+def mapear_departamento_geojson(nombre_dep: str):
+    """Mapea un valor de direccion_2 al nombre de departamento del GeoJSON."""
+    nombre_norm = normalizar_texto(nombre_dep)
+    if not nombre_norm or nombre_norm == "SIN DATO":
+        return None
+
+    exacto = DEPTOS_GEOJSON_NORM_A_REAL.get(nombre_norm)
+    if exacto:
+        return exacto
+
+    alias = ALIAS_DEPARTAMENTOS.get(nombre_norm)
+    if alias:
+        return alias
+
+    for patron, nombre_real in sorted(PATRONES_DEPARTAMENTO.items(), key=lambda item: len(item[0]), reverse=True):
+        if patron in nombre_norm:
+            return nombre_real
+    return None
+
 MESES_ES = {
     1: "Enero",
     2: "Febrero",
@@ -435,12 +478,7 @@ def construir_figura_mapa_departamentos(df_mes: pd.DataFrame) -> go.Figure:
 
     conteos_mapa = {}
     for nombre_dep, cantidad in conteos.items():
-        nombre_norm = normalizar_texto(nombre_dep)
-        nombre_geojson = (
-            DEPTOS_GEOJSON_NORM_A_REAL.get(nombre_norm)
-            or ALIAS_DEPARTAMENTOS.get(nombre_norm)
-            or DEPTOS_GEOJSON_NORM_A_REAL.get(normalizar_texto(ALIAS_DEPARTAMENTOS.get(nombre_norm, "")))
-        )
+        nombre_geojson = mapear_departamento_geojson(nombre_dep)
         if nombre_geojson:
             conteos_mapa[nombre_geojson] = conteos_mapa.get(nombre_geojson, 0) + int(cantidad)
 
@@ -451,6 +489,7 @@ def construir_figura_mapa_departamentos(df_mes: pd.DataFrame) -> go.Figure:
     ubicaciones = [f.get("properties", {}).get("shapeName") for f in GEOJSON_DEPTOS_HN.get("features", [])]
     ubicaciones = [u for u in ubicaciones if u]
     valores = [conteos_mapa.get(u, 0) for u in ubicaciones]
+    valores_plot = [v if v > 0 else None for v in valores]
     porcentajes = [((v / total) * 100) if total > 0 else 0 for v in valores]
     textos = [f"{v:,} cuentas ({p:.1f}%)" for v, p in zip(valores, porcentajes)]
 
@@ -458,13 +497,15 @@ def construir_figura_mapa_departamentos(df_mes: pd.DataFrame) -> go.Figure:
         geojson=GEOJSON_DEPTOS_HN,
         featureidkey="properties.shapeName",
         locations=ubicaciones,
-        z=valores,
+        z=valores_plot,
         text=textos,
         colorscale=[
-            [0.0, COLORES["amarillo_emp"]],
+            [0.0, "#D7E3EA"],
             [0.5, COLORES["aqua_digital"]],
             [1.0, COLORES["azul_experto"]],
         ],
+        zmin=0,
+        zmax=max(1, max(valores)),
         marker_line_color=COLORES["blanco"],
         marker_line_width=0.8,
         colorbar_title="Cuentas",
