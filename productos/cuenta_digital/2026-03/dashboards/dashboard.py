@@ -354,7 +354,8 @@ def construir_figura_departamentos(df_mes: pd.DataFrame) -> go.Figure:
     if df_mes.empty:
         return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
 
-    departamentos = df_mes["direccion_lvl_1"].fillna("Sin dato").astype(str).str.strip()
+    campo_residencia = "direccion_2" if "direccion_2" in df_mes.columns else "direccion_lvl_2"
+    departamentos = df_mes[campo_residencia].fillna("Sin dato").astype(str).str.strip()
     departamentos = departamentos.replace("", "Sin dato")
     top5 = departamentos.value_counts().head(5)
     if top5.empty:
