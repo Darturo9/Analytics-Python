@@ -11,19 +11,50 @@ import sys
 sys.path.insert(0, ".")
 
 import calendar
+import os
 import pandas as pd
+import urllib
 from dash import Dash, html, dcc, Input, Output, State
 import plotly.graph_objects as go
-from core.db import run_query_file
+from sqlalchemy import create_engine, text
 from core.colors import COLORES
 
 # ── Carga de datos ───────────────────────────────────────────────────────────
-print("Cargando datos de creación de usuario SV (conversión)...")
-df_conversion = run_query_file("productos/creacion_usuario_sv/2026-03/queries/conversion.sql")
+DB_NAME_DASHBOARD = "DWHSV"
+
+
+def run_query_hsv(sql: str, params: dict = None) -> pd.DataFrame:
+    """Ejecuta SQL forzando DB DWHSV para alinear con Tableau."""
+    db_server = os.getenv("DB_SERVER")
+    db_user = os.getenv("DB_USER")
+    db_pass = os.getenv("DB_PASS")
+    db_driver = os.getenv("DB_DRIVER", "ODBC Driver 17 for SQL Server")
+
+    conn_params = urllib.parse.quote_plus(
+        f"DRIVER={{{db_driver}}};"
+        f"SERVER={db_server};"
+        f"DATABASE={DB_NAME_DASHBOARD};"
+        f"UID={db_user};"
+        f"PWD={db_pass};"
+        "TrustServerCertificate=yes;"
+    )
+    engine = create_engine(f"mssql+pyodbc:///?odbc_connect={conn_params}", fast_executemany=True)
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params)
+
+
+def run_query_file_hsv(path: str, params: dict = None) -> pd.DataFrame:
+    with open(path, "r", encoding="utf-8") as f:
+        sql = f.read()
+    return run_query_hsv(sql, params)
+
+
+print(f"Cargando datos de creación de usuario SV (conversión) en {DB_NAME_DASHBOARD}...")
+df_conversion = run_query_file_hsv("productos/creacion_usuario_sv/2026-03/queries/conversion.sql")
 print(f"  {len(df_conversion)} registros en conversión")
 
 print("Cargando datos de campañas RTM...")
-df_rtm = run_query_file("productos/creacion_usuario_sv/2026-03/queries/comunicacionesRTM.sql")
+df_rtm = run_query_file_hsv("productos/creacion_usuario_sv/2026-03/queries/comunicacionesRTM.sql")
 print(f"  {len(df_rtm)} registros en RTM")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
