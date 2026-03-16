@@ -83,7 +83,7 @@ FROM (
 		AND agencia.empcod = 1
 		AND agencia.clagno LIKE '%servicios electronicos%'
 	WHERE
-	depositos.dw_feha_apertura >= '2026-03-01'
+	depositos.dw_feha_apertura >= '2025-01-01'
 		AND depositos.dw_producto = 'CUENTA DIGITAL'
 		--AND usuarios_bel.dw_fecha_creacion = depositos.dw_feha_apertura
 ) AS c_digitales
