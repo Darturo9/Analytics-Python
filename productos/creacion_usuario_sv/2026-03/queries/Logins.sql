@@ -1,0 +1,22 @@
+(
+SELECT
+	RIGHT('00000000' + RTRIM(LTRIM(B.LOGCLI)),8)		padded_cod_usu,
+	B.LOGSER		'DESCRIPCION TRX',
+        B.LOGMES,
+        B.LOGANO 
+FROM
+	DW_BEL_IBCLIE A INNER JOIN DW_BEL_IBLOGDQUSR B ON (A.CLCCLI=B.LOGCLI)
+        LEFT JOIN
+        DW_CIF_CLIENTES C ON (C.CLDOC=B.LOGCLI) 
+  
+WHERE
+	(
+     B.LOGANO >= 2025
+	AND
+	--B.LOGMES = 11
+	--AND
+	B.LOGTIP  IN  ( 'I'  )
+	AND
+	B.LOGSER  IN  ( 'app-login' )
+	)
+)
