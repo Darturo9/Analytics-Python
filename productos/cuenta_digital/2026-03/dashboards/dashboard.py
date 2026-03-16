@@ -22,8 +22,22 @@ print("Cargando datos de cuentas digitales...")
 df = run_query_file("productos/cuenta_digital/2026-03/queries/analisis.sql")
 print(f"  {len(df)} cuentas cargadas")
 
+print("Cargando clientes contactados por campaña...")
+df_clientes_campania = run_query_file("productos/cuenta_digital/2026-03/campaing/CampañasIniciales.sql")
+print(f"  {len(df_clientes_campania)} clientes de campaña cargados")
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+
+# ── Helpers de normalización ─────────────────────────────────────────────────
+def normalizar_codigo_cliente(valor) -> str | None:
+    """Normaliza un código cliente para comparación en formato de 8 dígitos."""
+    if pd.isna(valor):
+        return None
+    solo_digitos = "".join(c for c in str(valor).strip() if c.isdigit())
+    if not solo_digitos:
+        return None
+    return solo_digitos[-8:].zfill(8)
+
+
 def normalizar_genero(valor: str) -> str:
     """Normaliza valores de género en categorías consistentes."""
     if pd.isna(valor):
@@ -50,10 +64,154 @@ def clasificar_generacion(fecha_nac):
     return "OTRA GENERACION"
 
 
+# ── Preparación de columnas ──────────────────────────────────────────────────
+df["tipo_cliente"] = df["dif"].apply(lambda x: "Nuevo" if x == 0 else "Existente")
+df["fecha_apertura"] = pd.to_datetime(df["fecha_apertura"])
+df["dia"] = df["fecha_apertura"].dt.day
+df["periodo_mes"] = df["fecha_apertura"].dt.to_period("M").astype(str)
+df["fecha_nac"] = pd.to_datetime(df["fecha_nac"], errors="coerce")
+df["edad_apertura"] = ((df["fecha_apertura"] - df["fecha_nac"]).dt.days // 365).where(df["fecha_nac"].notna())
+df["genero_normalizado"] = df["genero"].apply(normalizar_genero)
+df["generacion"] = df["fecha_nac"].apply(clasificar_generacion)
+df["padded_codigo_cliente_norm"] = df["padded_codigo_cliente"].apply(normalizar_codigo_cliente)
+
+clientes_campania = set(
+    df_clientes_campania["padded_codigo_cliente"].apply(normalizar_codigo_cliente).dropna().tolist()
+)
+
+df["es_campania"] = df["padded_codigo_cliente_norm"].isin(clientes_campania)
+df_campania = df[df["es_campania"]].copy()
+
+print(f"  {len(df_campania)} aperturas relacionadas a clientes de campaña")
+
+MESES_ES = {
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
+}
+
+
 def format_mes_label(periodo_mes: str) -> str:
     """Convierte 'YYYY-MM' a etiqueta legible en español."""
     anio, mes = periodo_mes.split("-")
     return f"{MESES_ES[int(mes)]} {anio}"
+
+
+def calcular_metricas(dataframe: pd.DataFrame, periodo_mes: str):
+    """Retorna métricas y series por día para el mes seleccionado."""
+    df_mes = dataframe[dataframe["periodo_mes"] == periodo_mes].copy()
+    if df_mes.empty:
+        return 0, 0, 0, [], [], [], []
+
+    total_cuentas = len(df_mes)
+    total_nuevos = (df_mes["tipo_cliente"] == "Nuevo").sum()
+    total_existentes = (df_mes["tipo_cliente"] == "Existente").sum()
+
+    anio, mes = map(int, periodo_mes.split("-"))
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    dias = list(range(1, ultimo_dia + 1))
+
+    pivot = df_mes.groupby(["dia", "tipo_cliente"]).size().unstack(fill_value=0)
+
+    existentes = [
+        int(pivot.loc[d, "Existente"]) if d in pivot.index and "Existente" in pivot.columns else 0
+        for d in dias
+    ]
+    nuevos = [
+        int(pivot.loc[d, "Nuevo"]) if d in pivot.index and "Nuevo" in pivot.columns else 0
+        for d in dias
+    ]
+    totales = [e + n for e, n in zip(existentes, nuevos)]
+    return total_cuentas, total_nuevos, total_existentes, dias, existentes, nuevos, totales
+
+
+def construir_figura_aperturas(dias, existentes, nuevos, totales, titulo_vacio: str) -> go.Figure:
+    """Construye gráfica de barras apiladas con detalle por tipo y total."""
+    fig = go.Figure()
+
+    if not dias:
+        fig.update_layout(
+            plot_bgcolor=COLORES["blanco"],
+            paper_bgcolor=COLORES["blanco"],
+            font=dict(color=COLORES["azul_experto"]),
+            margin=dict(t=30, b=40, l=40, r=10),
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            annotations=[
+                dict(
+                    text=titulo_vacio,
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(size=14, color=COLORES["gris_texto"]),
+                )
+            ],
+        )
+        return fig
+
+    textos_existentes = [f"{v:,}" if v > 0 else "" for v in existentes]
+    textos_nuevos = [f"{v:,}" if v > 0 else "" for v in nuevos]
+    textos_totales = [f"{v:,}" for v in totales]
+
+    max_total = max(totales) if totales else 0
+    separacion_total = max(1, int(max_total * 0.03))
+    y_texto_total = [t + separacion_total for t in totales]
+
+    fig.add_trace(go.Bar(
+        name="Existente",
+        x=dias,
+        y=existentes,
+        marker_color=COLORES["amarillo_opt"],
+        text=textos_existentes,
+        textposition="inside",
+        textfont=dict(size=10, color=COLORES["azul_experto"]),
+        hovertemplate="Día %{x}<br>Existentes: %{y:,}<extra></extra>",
+    ))
+
+    fig.add_trace(go.Bar(
+        name="Nuevo",
+        x=dias,
+        y=nuevos,
+        marker_color=COLORES["aqua_digital"],
+        text=textos_nuevos,
+        textposition="inside",
+        textfont=dict(size=10, color=COLORES["blanco"]),
+        hovertemplate="Día %{x}<br>Nuevos: %{y:,}<extra></extra>",
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=dias,
+        y=y_texto_total,
+        mode="text",
+        text=textos_totales,
+        textposition="top center",
+        textfont=dict(size=11, color=COLORES["azul_experto"]),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    fig.update_layout(
+        barmode="stack",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=30, b=40, l=40, r=10),
+        xaxis=dict(title="", tickmode="linear", tick0=1, dtick=1, range=[0.5, dias[-1] + 0.5]),
+        yaxis=dict(title="Cuentas", range=[0, max_total + (separacion_total * 3)]),
+        legend_title_text="",
+    )
+    return fig
 
 
 def construir_figura_vacia(mensaje: str) -> go.Figure:
@@ -81,92 +239,112 @@ def construir_figura_vacia(mensaje: str) -> go.Figure:
     return fig
 
 
-def construir_figura_movimientos_por_dia(df_mes: pd.DataFrame, periodo_mes: str) -> go.Figure:
-    """Barras apiladas de cuentas con y sin movimiento por día."""
+def construir_figura_genero(df_mes: pd.DataFrame) -> go.Figure:
+    """Construye gráfico de distribución por género con conteo y porcentaje."""
     if df_mes.empty:
-        return construir_figura_vacia("No hay datos para el mes seleccionado")
+        return construir_figura_vacia("No hay datos de género para el mes seleccionado")
 
-    anio, mes = map(int, periodo_mes.split("-"))
-    ultimo_dia = calendar.monthrange(anio, mes)[1]
-    dias = list(range(1, ultimo_dia + 1))
+    orden = ["Mujer", "Hombre", "Sin dato"]
+    conteos = df_mes["genero_normalizado"].value_counts().reindex(orden, fill_value=0)
+    conteos = conteos[conteos > 0]
+    if conteos.empty:
+        return construir_figura_vacia("No hay datos de género para el mes seleccionado")
 
-    pivot = df_mes.groupby(["dia", "estado_movimiento"]).size().unstack(fill_value=0)
-    con_mov = [int(pivot.loc[d, "Con movimiento"]) if d in pivot.index and "Con movimiento" in pivot.columns else 0 for d in dias]
-    sin_mov = [int(pivot.loc[d, "Sin movimiento"]) if d in pivot.index and "Sin movimiento" in pivot.columns else 0 for d in dias]
-    totales = [a + b for a, b in zip(con_mov, sin_mov)]
+    colores = {
+        "Mujer": COLORES["aqua_digital"],
+        "Hombre": COLORES["amarillo_opt"],
+        "Sin dato": "#A0A0A0",
+    }
 
-    max_total = max(totales) if totales else 0
-    separacion_total = max(1, int(max_total * 0.03))
-    y_texto_total = [t + separacion_total for t in totales]
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        name="Sin movimiento",
-        x=dias,
-        y=sin_mov,
-        marker_color=COLORES["amarillo_opt"],
-        text=[f"{v:,}" if v > 0 else "" for v in sin_mov],
-        textposition="inside",
-        textfont=dict(size=10, color=COLORES["azul_experto"]),
-        hovertemplate="Día %{x}<br>Sin movimiento: %{y:,}<extra></extra>",
-    ))
-    fig.add_trace(go.Bar(
-        name="Con movimiento",
-        x=dias,
-        y=con_mov,
-        marker_color=COLORES["aqua_digital"],
-        text=[f"{v:,}" if v > 0 else "" for v in con_mov],
-        textposition="inside",
-        textfont=dict(size=10, color=COLORES["blanco"]),
-        hovertemplate="Día %{x}<br>Con movimiento: %{y:,}<extra></extra>",
-    ))
-    fig.add_trace(go.Scatter(
-        x=dias,
-        y=y_texto_total,
-        mode="text",
-        text=[f"{v:,}" for v in totales],
-        textposition="top center",
-        textfont=dict(size=11, color=COLORES["azul_experto"]),
-        showlegend=False,
-        hoverinfo="skip",
-    ))
-
+    fig = go.Figure(data=[
+        go.Pie(
+            labels=conteos.index.tolist(),
+            values=conteos.values.tolist(),
+            hole=0.5,
+            marker=dict(colors=[colores[label] for label in conteos.index.tolist()]),
+            texttemplate="%{label}<br>%{value:,} (%{percent})",
+            textposition="outside",
+            hovertemplate="%{label}: %{value:,} cuentas (%{percent})<extra></extra>",
+        )
+    ])
     fig.update_layout(
-        barmode="stack",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=30, b=40, l=40, r=10),
-        xaxis=dict(title="", tickmode="linear", tick0=1, dtick=1, range=[0.5, dias[-1] + 0.5]),
-        yaxis=dict(title="Cuentas", range=[0, max_total + (separacion_total * 3)]),
+        margin=dict(t=10, b=10, l=10, r=10),
         legend_title_text="",
+        showlegend=True,
     )
     return fig
 
 
-def construir_figura_barras_categoria(
-    serie: pd.Series,
-    color: str,
-    titulo_vacio: str,
-    top_n: int | None = None,
-) -> go.Figure:
-    """Construye barra horizontal con conteo + porcentaje por categoría."""
-    conteos = serie.fillna("Sin dato").astype(str).str.strip().replace("", "Sin dato").value_counts()
-    if top_n:
-        conteos = conteos.head(top_n)
-    if conteos.empty:
-        return construir_figura_vacia(titulo_vacio)
+def construir_figura_generaciones_pastel(df_mes: pd.DataFrame) -> go.Figure:
+    """Construye gráfico pastel por generación con conteo y porcentaje."""
+    if df_mes.empty:
+        return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
 
-    total = int(serie.shape[0]) if len(serie) > 0 else int(conteos.sum())
-    porcentajes = (conteos / max(total, 1)) * 100
-    textos = [f"{int(v):,} ({p:.1f}%)" for v, p in zip(conteos.values.tolist(), porcentajes.values.tolist())]
+    orden = [
+        "Generation X (1965-1980)",
+        "Gen Y - Millennials (1981-1996)",
+        "Generación Z (1997-2012)",
+        "OTRA GENERACION",
+    ]
+    conteos = df_mes["generacion"].value_counts().reindex(orden, fill_value=0)
+    conteos = conteos[conteos > 0]
+    if conteos.empty:
+        return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
+
+    colores = {
+        "Generation X (1965-1980)": COLORES["azul_financiero"],
+        "Gen Y - Millennials (1981-1996)": COLORES["aqua_digital"],
+        "Generación Z (1997-2012)": COLORES["amarillo_opt"],
+        "OTRA GENERACION": COLORES["azul_experto"],
+    }
+
+    fig = go.Figure(data=[
+        go.Pie(
+            labels=conteos.index.tolist(),
+            values=conteos.values.tolist(),
+            hole=0.45,
+            marker=dict(colors=[colores[label] for label in conteos.index.tolist()]),
+            texttemplate="%{value:,} (%{percent})",
+            textposition="outside",
+            hovertemplate="%{label}<br>%{value:,} cuentas (%{percent})<extra></extra>",
+        )
+    ])
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=10, b=10, l=10, r=10),
+        legend_title_text="",
+        showlegend=True,
+    )
+    return fig
+
+
+def construir_figura_departamentos(df_mes: pd.DataFrame) -> go.Figure:
+    """Construye gráfico Top 5 departamentos con más aperturas."""
+    if df_mes.empty:
+        return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
+
+    campo_residencia = "direccion_2" if "direccion_2" in df_mes.columns else "direccion_lvl_2"
+    departamentos = df_mes[campo_residencia].fillna("Sin dato").astype(str).str.strip()
+    departamentos = departamentos.replace("", "Sin dato")
+    top5 = departamentos.value_counts().head(5)
+    if top5.empty:
+        return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
+
+    total = int(departamentos.shape[0])
+    porcentajes = (top5 / total) * 100
+    textos = [f"{int(v):,} ({p:.1f}%)" for v, p in zip(top5.values.tolist(), porcentajes.values.tolist())]
 
     fig = go.Figure(data=[
         go.Bar(
-            y=conteos.index.tolist()[::-1],
-            x=conteos.values.tolist()[::-1],
+            y=top5.index.tolist()[::-1],
+            x=top5.values.tolist()[::-1],
             orientation="h",
-            marker_color=color,
+            marker_color=COLORES["azul_experto"],
             text=textos[::-1],
             textposition="outside",
             hovertemplate="%{y}<br>%{x:,} cuentas<extra></extra>",
@@ -176,38 +354,13 @@ def construir_figura_barras_categoria(
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=20, b=30, l=140, r=30),
+        margin=dict(t=20, b=30, l=120, r=30),
         xaxis=dict(title="Cuentas"),
         yaxis=dict(title=""),
         showlegend=False,
     )
     return fig
 
-
-# ── Preparación de columnas ──────────────────────────────────────────────────
-df["fecha_apertura"] = pd.to_datetime(df["fecha_apertura"])
-df["dia"] = df["fecha_apertura"].dt.day
-df["periodo_mes"] = df["fecha_apertura"].dt.to_period("M").astype(str)
-df["fecha_nac"] = pd.to_datetime(df["fecha_nac"], errors="coerce")
-df["genero_normalizado"] = df["genero"].apply(normalizar_genero)
-df["generacion"] = df["fecha_nac"].apply(clasificar_generacion)
-df["cant_transacciones"] = pd.to_numeric(df["cant_transacciones"], errors="coerce").fillna(0)
-df["estado_movimiento"] = df["cant_transacciones"].apply(lambda x: "Con movimiento" if x > 0 else "Sin movimiento")
-
-MESES_ES = {
-    1: "Enero",
-    2: "Febrero",
-    3: "Marzo",
-    4: "Abril",
-    5: "Mayo",
-    6: "Junio",
-    7: "Julio",
-    8: "Agosto",
-    9: "Septiembre",
-    10: "Octubre",
-    11: "Noviembre",
-    12: "Diciembre",
-}
 
 periodos_disponibles = sorted(df["periodo_mes"].unique().tolist())
 periodo_default = periodos_disponibles[-1]
@@ -242,39 +395,82 @@ app.layout = html.Div(
             ),
         ]),
 
+        # KPIs generales
         html.Div(style={"display": "flex", "gap": "16px", "marginBottom": "24px"}, children=[
             html.Div(style=card_style, children=[
                 html.P("Total cuentas", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
                 html.H1(id="kpi-total", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
             ]),
             html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}"}, children=[
-                html.P("Con movimiento", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
-                html.H1(id="kpi-con-mov", style={"margin": "8px 0 0 0", "color": COLORES["aqua_digital"]}),
+                html.P("Clientes nuevos", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                html.H1(id="kpi-nuevos", style={"margin": "8px 0 0 0", "color": COLORES["aqua_digital"]}),
             ]),
             html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}"}, children=[
-                html.P("Sin movimiento", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
-                html.H1(id="kpi-sin-mov", style={"margin": "8px 0 0 0", "color": COLORES["amarillo_opt"]}),
+                html.P("Clientes existentes", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                html.H1(id="kpi-existentes", style={"margin": "8px 0 0 0", "color": COLORES["amarillo_opt"]}),
             ]),
         ]),
 
         html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Cuentas con movimiento vs sin movimiento (por día)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(id="grafico-movimientos-dia")
+            html.H4("Aperturas por día (General)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-aperturas")
         ]),
 
-        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Género (barras)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(id="grafico-genero-barras")
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Género (General)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-genero")
         ]),
 
-        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Generaciones (barras)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(id="grafico-generaciones-barras")
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Generaciones en pastel (General)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-generaciones-pastel")
         ]),
 
         html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Departamentos más comunes (barras)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(id="grafico-departamentos-barras")
+            html.H4("Top 5 departamentos (General)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-departamentos")
+        ]),
+
+        # Sección campaña
+        html.H3("Clientes contactados por campaña", style={"color": COLORES["azul_experto"], "marginTop": "8px", "marginBottom": "16px"}),
+        html.P(
+            f"Universo campaña por match de padded_codigo_cliente (clientes únicos cargados: {len(clientes_campania):,}).",
+            style={"marginTop": 0, "marginBottom": "16px", "color": COLORES["gris_texto"]},
+        ),
+
+        html.Div(style={"display": "flex", "gap": "16px", "marginBottom": "24px"}, children=[
+            html.Div(style=card_style, children=[
+                html.P("Total cuentas campaña", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                html.H1(id="kpi-camp-total", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
+            ]),
+            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}"}, children=[
+                html.P("Nuevos campaña", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                html.H1(id="kpi-camp-nuevos", style={"margin": "8px 0 0 0", "color": COLORES["aqua_digital"]}),
+            ]),
+            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}"}, children=[
+                html.P("Existentes campaña", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                html.H1(id="kpi-camp-existentes", style={"margin": "8px 0 0 0", "color": COLORES["amarillo_opt"]}),
+            ]),
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Aperturas por día (Solo campaña)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-aperturas-campania")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Género (Solo campaña)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-genero-campania")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Generaciones en pastel (Solo campaña)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-generaciones-campania")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Top 5 departamentos (Solo campaña)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-departamentos-campania")
         ]),
     ]
 )
@@ -283,51 +479,62 @@ app.layout = html.Div(
 @app.callback(
     Output("titulo-dashboard", "children"),
     Output("kpi-total", "children"),
-    Output("kpi-con-mov", "children"),
-    Output("kpi-sin-mov", "children"),
-    Output("grafico-movimientos-dia", "figure"),
-    Output("grafico-genero-barras", "figure"),
-    Output("grafico-generaciones-barras", "figure"),
-    Output("grafico-departamentos-barras", "figure"),
+    Output("kpi-nuevos", "children"),
+    Output("kpi-existentes", "children"),
+    Output("grafico-aperturas", "figure"),
+    Output("grafico-genero", "figure"),
+    Output("grafico-generaciones-pastel", "figure"),
+    Output("grafico-departamentos", "figure"),
+    Output("kpi-camp-total", "children"),
+    Output("kpi-camp-nuevos", "children"),
+    Output("kpi-camp-existentes", "children"),
+    Output("grafico-aperturas-campania", "figure"),
+    Output("grafico-genero-campania", "figure"),
+    Output("grafico-generaciones-campania", "figure"),
+    Output("grafico-departamentos-campania", "figure"),
     Input("selector-mes", "value"),
 )
 def actualizar_dashboard(periodo_mes):
+    # General
+    total_cuentas, total_nuevos, total_existentes, dias, existentes, nuevos, totales = calcular_metricas(df, periodo_mes)
     df_mes = df[df["periodo_mes"] == periodo_mes].copy()
+    figura_aperturas = construir_figura_aperturas(dias, existentes, nuevos, totales, "No hay datos para el mes seleccionado")
+    figura_genero = construir_figura_genero(df_mes)
+    figura_generaciones_pastel = construir_figura_generaciones_pastel(df_mes)
+    figura_departamentos = construir_figura_departamentos(df_mes)
 
-    total_cuentas = len(df_mes)
-    total_con_mov = int((df_mes["estado_movimiento"] == "Con movimiento").sum())
-    total_sin_mov = int((df_mes["estado_movimiento"] == "Sin movimiento").sum())
-
-    figura_mov_dia = construir_figura_movimientos_por_dia(df_mes, periodo_mes)
-    figura_genero = construir_figura_barras_categoria(
-        df_mes["genero_normalizado"],
-        COLORES["aqua_digital"],
-        "No hay datos de género para el mes seleccionado",
+    # Campaña
+    camp_total, camp_nuevos, camp_existentes, camp_dias, camp_exis, camp_nuev, camp_tot = calcular_metricas(df_campania, periodo_mes)
+    df_mes_campania = df_campania[df_campania["periodo_mes"] == periodo_mes].copy()
+    figura_aperturas_camp = construir_figura_aperturas(
+        camp_dias,
+        camp_exis,
+        camp_nuev,
+        camp_tot,
+        "No hay cuentas de campaña para el mes seleccionado",
     )
-    figura_generaciones = construir_figura_barras_categoria(
-        df_mes["generacion"],
-        COLORES["azul_financiero"],
-        "No hay datos de generaciones para el mes seleccionado",
-    )
-    campo_residencia = "direccion_2" if "direccion_2" in df_mes.columns else "direccion_lvl_2"
-    figura_departamentos = construir_figura_barras_categoria(
-        df_mes[campo_residencia],
-        COLORES["azul_experto"],
-        "No hay datos de residencia para el mes seleccionado",
-        top_n=10,
-    )
+    figura_genero_camp = construir_figura_genero(df_mes_campania)
+    figura_generaciones_camp = construir_figura_generaciones_pastel(df_mes_campania)
+    figura_departamentos_camp = construir_figura_departamentos(df_mes_campania)
 
     titulo = f"Cuenta Digital — {format_mes_label(periodo_mes)}"
 
     return (
         titulo,
         f"{total_cuentas:,}",
-        f"{total_con_mov:,}",
-        f"{total_sin_mov:,}",
-        figura_mov_dia,
+        f"{total_nuevos:,}",
+        f"{total_existentes:,}",
+        figura_aperturas,
         figura_genero,
-        figura_generaciones,
+        figura_generaciones_pastel,
         figura_departamentos,
+        f"{camp_total:,}",
+        f"{camp_nuevos:,}",
+        f"{camp_existentes:,}",
+        figura_aperturas_camp,
+        figura_genero_camp,
+        figura_generaciones_camp,
+        figura_departamentos_camp,
     )
 
 
