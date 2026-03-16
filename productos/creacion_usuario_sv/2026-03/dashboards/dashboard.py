@@ -281,10 +281,11 @@ df_conversion["genero_normalizado"] = df_conversion["genero_cliente"].apply(norm
 df_conversion["generacion"] = df_conversion["fecha_nacimiento_usuario"].apply(clasificar_generacion)
 df_conversion["departamento"] = df_conversion["direccion_lvl_2"].apply(normalizar_departamento)
 
-# id_usuario para conteo distinto (equivalente COUNTD de Tableau)
-df_conversion["id_usuario"] = df_conversion["nombre_usuario"].fillna("").astype(str).str.strip()
-mascara_vacio = df_conversion["id_usuario"] == ""
-df_conversion.loc[mascara_vacio, "id_usuario"] = df_conversion.loc[mascara_vacio, "codigo_cliente_usuario_creado"]
+# id_usuario para conteo distinto (equivalente COUNTD/RECDIST de Tableau)
+# Tableau no cuenta nulos en COUNTD, por eso vacíos se convierten a NA.
+df_conversion["id_usuario"] = df_conversion["nombre_usuario"].astype(str).str.strip()
+df_conversion.loc[df_conversion["nombre_usuario"].isna(), "id_usuario"] = pd.NA
+df_conversion.loc[df_conversion["id_usuario"] == "", "id_usuario"] = pd.NA
 
 df_rtm["fecha_campania"] = pd.to_datetime(df_rtm["fecha_campania"], errors="coerce")
 df_rtm["codigo_cliente_usuario_campania"] = df_rtm["codigo_cliente_usuario_campania"].apply(normalizar_codigo_cliente)
@@ -300,12 +301,12 @@ df_rtm_match = (
     .copy()
 )
 
-# match por cliente + mismo año/mes de creación para definir origen
+# match por cliente para definir origen (mismo criterio de IF ISNULL(fecha_campania))
 _df = df_conversion.merge(
     df_rtm_match,
     how="left",
-    left_on=["codigo_cliente_usuario_creado", "anio", "mes"],
-    right_on=["codigo_cliente_usuario_campania", "anio", "mes"],
+    left_on=["codigo_cliente_usuario_creado"],
+    right_on=["codigo_cliente_usuario_campania"],
 )
 
 _df["origen_creacion"] = _df["fecha_campania"].apply(
@@ -324,6 +325,9 @@ df = (
         origen_creacion=("origen_creacion", lambda s: "Medios propios" if (s == "Medios propios").any() else "Producto"),
     )
 )
+
+# Mantener solo usuarios válidos para replicar RECDIST(nombre_usuario) de Tableau.
+df = df[df["id_usuario"].notna()].copy()
 
 print(f"  {df['id_usuario'].nunique():,} usuarios distintos consolidados")
 
