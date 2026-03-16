@@ -27,6 +27,42 @@ df["tipo_cliente"] = df["dif"].apply(lambda x: "Nuevo" if x == 0 else "Existente
 df["fecha_apertura"] = pd.to_datetime(df["fecha_apertura"])
 df["dia"] = df["fecha_apertura"].dt.day
 df["periodo_mes"] = df["fecha_apertura"].dt.to_period("M").astype(str)
+df["fecha_nac"] = pd.to_datetime(df["fecha_nac"], errors="coerce")
+df["edad_apertura"] = ((df["fecha_apertura"] - df["fecha_nac"]).dt.days // 365).where(df["fecha_nac"].notna())
+
+
+def normalizar_genero(valor: str) -> str:
+    """Normaliza valores de género en categorías consistentes."""
+    if pd.isna(valor):
+        return "Sin dato"
+    genero = str(valor).strip().upper()
+    if genero in {"F", "FEMENINO", "MUJER"}:
+        return "Mujer"
+    if genero in {"M", "MASCULINO", "H", "HOMBRE"}:
+        return "Hombre"
+    return "Sin dato"
+
+
+def clasificar_generacion(fecha_nac):
+    """Clasifica generación a partir del año de nacimiento."""
+    if pd.isna(fecha_nac):
+        return "Sin dato"
+    anio = int(fecha_nac.year)
+    if anio <= 1945:
+        return "Generación Silenciosa"
+    if anio <= 1964:
+        return "Baby Boomer"
+    if anio <= 1980:
+        return "Generación X"
+    if anio <= 1996:
+        return "Millennials"
+    if anio <= 2012:
+        return "Generación Z"
+    return "Generación Alpha"
+
+
+df["genero_normalizado"] = df["genero"].apply(normalizar_genero)
+df["generacion"] = df["fecha_nac"].apply(clasificar_generacion)
 
 MESES_ES = {
     1: "Enero",
@@ -158,6 +194,161 @@ def construir_figura(dias, existentes, nuevos, totales) -> go.Figure:
     return fig
 
 
+def construir_figura_vacia(mensaje: str) -> go.Figure:
+    """Crea figura de fallback cuando no hay información para mostrar."""
+    fig = go.Figure()
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=30, b=40, l=40, r=10),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        annotations=[
+            dict(
+                text=mensaje,
+                x=0.5,
+                y=0.5,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                font=dict(size=14, color=COLORES["gris_texto"]),
+            )
+        ],
+    )
+    return fig
+
+
+def construir_figura_genero(df_mes: pd.DataFrame) -> go.Figure:
+    """Construye gráfico de distribución por género con conteo y porcentaje."""
+    if df_mes.empty:
+        return construir_figura_vacia("No hay datos de género para el mes seleccionado")
+
+    orden = ["Mujer", "Hombre", "Sin dato"]
+    conteos = df_mes["genero_normalizado"].value_counts().reindex(orden, fill_value=0)
+    conteos = conteos[conteos > 0]
+    if conteos.empty:
+        return construir_figura_vacia("No hay datos de género para el mes seleccionado")
+
+    colores = {
+        "Mujer": COLORES["aqua_digital"],
+        "Hombre": COLORES["amarillo_opt"],
+        "Sin dato": "#A0A0A0",
+    }
+
+    fig = go.Figure(data=[
+        go.Pie(
+            labels=conteos.index.tolist(),
+            values=conteos.values.tolist(),
+            hole=0.5,
+            marker=dict(colors=[colores[label] for label in conteos.index.tolist()]),
+            texttemplate="%{label}<br>%{value:,} (%{percent})",
+            textposition="outside",
+            hovertemplate="%{label}: %{value:,} cuentas (%{percent})<extra></extra>",
+        )
+    ])
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=10, b=10, l=10, r=10),
+        legend_title_text="",
+        showlegend=True,
+    )
+    return fig
+
+
+def construir_figura_generaciones(df_mes: pd.DataFrame) -> go.Figure:
+    """Construye gráfico por generación calculada desde fecha de nacimiento."""
+    if df_mes.empty:
+        return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
+
+    orden = [
+        "Generación Silenciosa",
+        "Baby Boomer",
+        "Generación X",
+        "Millennials",
+        "Generación Z",
+        "Generación Alpha",
+        "Sin dato",
+    ]
+    conteos = df_mes["generacion"].value_counts().reindex(orden, fill_value=0)
+    conteos = conteos[conteos > 0]
+    if conteos.empty:
+        return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
+
+    total = int(conteos.sum())
+    porcentajes = (conteos / total) * 100
+    textos = [f"{int(v):,} ({p:.1f}%)" for v, p in zip(conteos.values.tolist(), porcentajes.values.tolist())]
+    edad_promedio = (
+        df_mes[df_mes["generacion"].isin(conteos.index)]
+        .groupby("generacion")["edad_apertura"]
+        .mean()
+        .reindex(conteos.index)
+    )
+    edad_promedio_texto = [f"{v:.1f}" if pd.notna(v) else "N/D" for v in edad_promedio.values.tolist()]
+
+    fig = go.Figure(data=[
+        go.Bar(
+            x=conteos.index.tolist(),
+            y=conteos.values.tolist(),
+            marker_color=COLORES["azul_financiero"],
+            text=textos,
+            textposition="outside",
+            customdata=edad_promedio_texto,
+            hovertemplate="%{x}<br>%{y:,} cuentas<br>Edad promedio: %{customdata} años<extra></extra>",
+        )
+    ])
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=20, b=80, l=40, r=20),
+        xaxis=dict(title="", tickangle=-20),
+        yaxis=dict(title="Cuentas"),
+        showlegend=False,
+    )
+    return fig
+
+
+def construir_figura_departamentos(df_mes: pd.DataFrame) -> go.Figure:
+    """Construye gráfico Top 5 departamentos con más aperturas."""
+    if df_mes.empty:
+        return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
+
+    departamentos = df_mes["direccion_lvl_1"].fillna("Sin dato").astype(str).str.strip()
+    departamentos = departamentos.replace("", "Sin dato")
+    top5 = departamentos.value_counts().head(5)
+    if top5.empty:
+        return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
+
+    total = int(departamentos.shape[0])
+    porcentajes = (top5 / total) * 100
+    textos = [f"{int(v):,} ({p:.1f}%)" for v, p in zip(top5.values.tolist(), porcentajes.values.tolist())]
+
+    fig = go.Figure(data=[
+        go.Bar(
+            y=top5.index.tolist()[::-1],
+            x=top5.values.tolist()[::-1],
+            orientation="h",
+            marker_color=COLORES["azul_experto"],
+            text=textos[::-1],
+            textposition="outside",
+            hovertemplate="%{y}<br>%{x:,} cuentas<extra></extra>",
+        )
+    ])
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=20, b=30, l=120, r=30),
+        xaxis=dict(title="Cuentas"),
+        yaxis=dict(title=""),
+        showlegend=False,
+    )
+    return fig
+
+
 periodos_disponibles = sorted(df["periodo_mes"].unique().tolist())
 periodo_default = periodos_disponibles[-1]
 opciones_periodo = [{"label": format_mes_label(p), "value": p} for p in reversed(periodos_disponibles)]
@@ -214,6 +405,22 @@ app.layout = html.Div(
             html.H4("Aperturas por día", style={"color": COLORES["azul_experto"], "marginTop": 0}),
             dcc.Graph(id="grafico-aperturas")
         ]),
+
+        html.Div(style={"display": "flex", "gap": "16px", "marginTop": "24px", "marginBottom": "24px", "flexWrap": "wrap"}, children=[
+            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "20px", "minWidth": "320px"}, children=[
+                html.H4("Género: cuentas y porcentaje", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+                dcc.Graph(id="grafico-genero")
+            ]),
+            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "minWidth": "320px"}, children=[
+                html.H4("Aperturas por generación", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+                dcc.Graph(id="grafico-generaciones")
+            ]),
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "flex": "none"}, children=[
+            html.H4("Top 5 departamentos con más aperturas", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-departamentos")
+        ]),
     ]
 )
 
@@ -224,13 +431,29 @@ app.layout = html.Div(
     Output("kpi-nuevos", "children"),
     Output("kpi-existentes", "children"),
     Output("grafico-aperturas", "figure"),
+    Output("grafico-genero", "figure"),
+    Output("grafico-generaciones", "figure"),
+    Output("grafico-departamentos", "figure"),
     Input("selector-mes", "value"),
 )
 def actualizar_dashboard(periodo_mes):
     total_cuentas, total_nuevos, total_existentes, dias, existentes, nuevos, totales = calcular_metricas(df, periodo_mes)
+    df_mes = df[df["periodo_mes"] == periodo_mes].copy()
     figura = construir_figura(dias, existentes, nuevos, totales)
+    figura_genero = construir_figura_genero(df_mes)
+    figura_generaciones = construir_figura_generaciones(df_mes)
+    figura_departamentos = construir_figura_departamentos(df_mes)
     titulo = f"Cuenta Digital — {format_mes_label(periodo_mes)}"
-    return titulo, f"{total_cuentas:,}", f"{total_nuevos:,}", f"{total_existentes:,}", figura
+    return (
+        titulo,
+        f"{total_cuentas:,}",
+        f"{total_nuevos:,}",
+        f"{total_existentes:,}",
+        figura,
+        figura_genero,
+        figura_generaciones,
+        figura_departamentos,
+    )
 
 
 if __name__ == "__main__":
