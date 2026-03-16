@@ -11,6 +11,9 @@ import sys
 sys.path.insert(0, ".")
 
 import calendar
+import json
+import unicodedata
+from pathlib import Path
 import pandas as pd
 from dash import Dash, html, dcc, Input, Output
 import plotly.graph_objects as go
@@ -59,6 +62,34 @@ def clasificar_generacion(fecha_nac):
 
 df["genero_normalizado"] = df["genero"].apply(normalizar_genero)
 df["generacion"] = df["fecha_nac"].apply(clasificar_generacion)
+
+RUTA_GEOJSON_DEPTOS = Path(__file__).resolve().parent / "assets" / "honduras_departamentos.geojson"
+try:
+    with open(RUTA_GEOJSON_DEPTOS, "r", encoding="utf-8") as geo_file:
+        GEOJSON_DEPTOS_HN = json.load(geo_file)
+except FileNotFoundError:
+    GEOJSON_DEPTOS_HN = None
+
+
+def normalizar_texto(valor: str) -> str:
+    """Normaliza texto para comparar nombres independientemente de acentos."""
+    texto = "" if pd.isna(valor) else str(valor)
+    texto = " ".join(texto.strip().upper().split())
+    texto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in texto if not unicodedata.combining(c))
+
+
+DEPTOS_GEOJSON_NORM_A_REAL = {}
+if GEOJSON_DEPTOS_HN:
+    for feature in GEOJSON_DEPTOS_HN.get("features", []):
+        nombre = feature.get("properties", {}).get("shapeName")
+        if nombre:
+            DEPTOS_GEOJSON_NORM_A_REAL[normalizar_texto(nombre)] = nombre
+
+ALIAS_DEPARTAMENTOS = {
+    "ISLAS DE LA BAHIA": "Bay Islands",
+    "ISLAS BAHIA": "Bay Islands",
+}
 
 MESES_ES = {
     1: "Enero",
@@ -388,6 +419,67 @@ def construir_figura_departamentos(df_mes: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def construir_figura_mapa_departamentos(df_mes: pd.DataFrame) -> go.Figure:
+    """Construye mapa de Honduras por departamento usando direccion_2."""
+    if GEOJSON_DEPTOS_HN is None:
+        return construir_figura_vacia("No se encontró el archivo de mapa de Honduras")
+    if df_mes.empty:
+        return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
+
+    campo_residencia = "direccion_2" if "direccion_2" in df_mes.columns else "direccion_lvl_2"
+    departamentos = df_mes[campo_residencia].fillna("Sin dato").astype(str).str.strip()
+    departamentos = departamentos.replace("", "Sin dato")
+    conteos = departamentos.value_counts()
+    if conteos.empty:
+        return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
+
+    conteos_mapa = {}
+    for nombre_dep, cantidad in conteos.items():
+        nombre_norm = normalizar_texto(nombre_dep)
+        nombre_geojson = (
+            DEPTOS_GEOJSON_NORM_A_REAL.get(nombre_norm)
+            or ALIAS_DEPARTAMENTOS.get(nombre_norm)
+            or DEPTOS_GEOJSON_NORM_A_REAL.get(normalizar_texto(ALIAS_DEPARTAMENTOS.get(nombre_norm, "")))
+        )
+        if nombre_geojson:
+            conteos_mapa[nombre_geojson] = conteos_mapa.get(nombre_geojson, 0) + int(cantidad)
+
+    if not conteos_mapa:
+        return construir_figura_vacia("No se pudieron mapear departamentos para el mapa")
+
+    total = sum(conteos_mapa.values())
+    ubicaciones = [f.get("properties", {}).get("shapeName") for f in GEOJSON_DEPTOS_HN.get("features", [])]
+    ubicaciones = [u for u in ubicaciones if u]
+    valores = [conteos_mapa.get(u, 0) for u in ubicaciones]
+    porcentajes = [((v / total) * 100) if total > 0 else 0 for v in valores]
+    textos = [f"{v:,} cuentas ({p:.1f}%)" for v, p in zip(valores, porcentajes)]
+
+    fig = go.Figure(data=go.Choropleth(
+        geojson=GEOJSON_DEPTOS_HN,
+        featureidkey="properties.shapeName",
+        locations=ubicaciones,
+        z=valores,
+        text=textos,
+        colorscale=[
+            [0.0, COLORES["amarillo_emp"]],
+            [0.5, COLORES["aqua_digital"]],
+            [1.0, COLORES["azul_experto"]],
+        ],
+        marker_line_color=COLORES["blanco"],
+        marker_line_width=0.8,
+        colorbar_title="Cuentas",
+        hovertemplate="%{location}<br>%{text}<extra></extra>",
+    ))
+    fig.update_geos(fitbounds="geojson", visible=False, bgcolor=COLORES["blanco"])
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=10, b=10, l=10, r=10),
+    )
+    return fig
+
+
 periodos_disponibles = sorted(df["periodo_mes"].unique().tolist())
 periodo_default = periodos_disponibles[-1]
 opciones_periodo = [{"label": format_mes_label(p), "value": p} for p in reversed(periodos_disponibles)]
@@ -458,9 +550,15 @@ app.layout = html.Div(
             ]),
         ]),
 
-        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "flex": "none"}, children=[
-            html.H4("Top 5 departamentos con más aperturas", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(id="grafico-departamentos")
+        html.Div(style={"display": "flex", "gap": "16px", "marginBottom": "24px", "flexWrap": "wrap"}, children=[
+            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "minWidth": "380px"}, children=[
+                html.H4("Top 5 departamentos con más aperturas", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+                dcc.Graph(id="grafico-departamentos")
+            ]),
+            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "minWidth": "380px"}, children=[
+                html.H4("Mapa de aperturas por departamento (Honduras)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+                dcc.Graph(id="grafico-mapa-departamentos")
+            ]),
         ]),
     ]
 )
@@ -476,6 +574,7 @@ app.layout = html.Div(
     Output("grafico-generaciones", "figure"),
     Output("grafico-generaciones-pastel", "figure"),
     Output("grafico-departamentos", "figure"),
+    Output("grafico-mapa-departamentos", "figure"),
     Input("selector-mes", "value"),
 )
 def actualizar_dashboard(periodo_mes):
@@ -486,6 +585,7 @@ def actualizar_dashboard(periodo_mes):
     figura_generaciones = construir_figura_generaciones(df_mes)
     figura_generaciones_pastel = construir_figura_generaciones_pastel(df_mes)
     figura_departamentos = construir_figura_departamentos(df_mes)
+    figura_mapa_departamentos = construir_figura_mapa_departamentos(df_mes)
     titulo = f"Cuenta Digital — {format_mes_label(periodo_mes)}"
     return (
         titulo,
@@ -497,6 +597,7 @@ def actualizar_dashboard(periodo_mes):
         figura_generaciones,
         figura_generaciones_pastel,
         figura_departamentos,
+        figura_mapa_departamentos,
     )
 
 
