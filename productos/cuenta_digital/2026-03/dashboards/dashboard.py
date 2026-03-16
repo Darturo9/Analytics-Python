@@ -11,9 +11,6 @@ import sys
 sys.path.insert(0, ".")
 
 import calendar
-import json
-import unicodedata
-from pathlib import Path
 import pandas as pd
 from dash import Dash, html, dcc, Input, Output
 import plotly.graph_objects as go
@@ -21,17 +18,24 @@ from core.db import run_query_file
 from core.colors import COLORES
 
 # ── Cargar datos ─────────────────────────────────────────────────────────────
-print("Cargando datos...")
+print("Cargando datos de cuentas digitales...")
 df = run_query_file("productos/cuenta_digital/2026-03/queries/analisis.sql")
 print(f"  {len(df)} cuentas cargadas")
 
-# ── Clasificar nuevos vs existentes ──────────────────────────────────────────
-df["tipo_cliente"] = df["dif"].apply(lambda x: "Nuevo" if x == 0 else "Existente")
-df["fecha_apertura"] = pd.to_datetime(df["fecha_apertura"])
-df["dia"] = df["fecha_apertura"].dt.day
-df["periodo_mes"] = df["fecha_apertura"].dt.to_period("M").astype(str)
-df["fecha_nac"] = pd.to_datetime(df["fecha_nac"], errors="coerce")
-df["edad_apertura"] = ((df["fecha_apertura"] - df["fecha_nac"]).dt.days // 365).where(df["fecha_nac"].notna())
+print("Cargando clientes contactados por campaña...")
+df_clientes_campania = run_query_file("productos/cuenta_digital/2026-03/campaing/CampañasIniciales.sql")
+print(f"  {len(df_clientes_campania)} clientes de campaña cargados")
+
+
+# ── Helpers de normalización ─────────────────────────────────────────────────
+def normalizar_codigo_cliente(valor) -> str | None:
+    """Normaliza un código cliente para comparación en formato de 8 dígitos."""
+    if pd.isna(valor):
+        return None
+    solo_digitos = "".join(c for c in str(valor).strip() if c.isdigit())
+    if not solo_digitos:
+        return None
+    return solo_digitos[-8:].zfill(8)
 
 
 def normalizar_genero(valor: str) -> str:
@@ -60,79 +64,25 @@ def clasificar_generacion(fecha_nac):
     return "OTRA GENERACION"
 
 
+# ── Preparación de columnas ──────────────────────────────────────────────────
+df["tipo_cliente"] = df["dif"].apply(lambda x: "Nuevo" if x == 0 else "Existente")
+df["fecha_apertura"] = pd.to_datetime(df["fecha_apertura"])
+df["dia"] = df["fecha_apertura"].dt.day
+df["periodo_mes"] = df["fecha_apertura"].dt.to_period("M").astype(str)
+df["fecha_nac"] = pd.to_datetime(df["fecha_nac"], errors="coerce")
+df["edad_apertura"] = ((df["fecha_apertura"] - df["fecha_nac"]).dt.days // 365).where(df["fecha_nac"].notna())
 df["genero_normalizado"] = df["genero"].apply(normalizar_genero)
 df["generacion"] = df["fecha_nac"].apply(clasificar_generacion)
+df["padded_codigo_cliente_norm"] = df["padded_codigo_cliente"].apply(normalizar_codigo_cliente)
 
-RUTA_GEOJSON_DEPTOS = Path(__file__).resolve().parent / "assets" / "honduras_departamentos.geojson"
-try:
-    with open(RUTA_GEOJSON_DEPTOS, "r", encoding="utf-8") as geo_file:
-        GEOJSON_DEPTOS_HN = json.load(geo_file)
-except FileNotFoundError:
-    GEOJSON_DEPTOS_HN = None
+clientes_campania = set(
+    df_clientes_campania["padded_codigo_cliente"].apply(normalizar_codigo_cliente).dropna().tolist()
+)
 
+df["es_campania"] = df["padded_codigo_cliente_norm"].isin(clientes_campania)
+df_campania = df[df["es_campania"]].copy()
 
-def normalizar_texto(valor: str) -> str:
-    """Normaliza texto para comparar nombres independientemente de acentos."""
-    texto = "" if pd.isna(valor) else str(valor)
-    texto = " ".join(texto.strip().upper().split())
-    texto = unicodedata.normalize("NFKD", texto)
-    return "".join(c for c in texto if not unicodedata.combining(c))
-
-
-DEPTOS_GEOJSON_NORM_A_REAL = {}
-if GEOJSON_DEPTOS_HN:
-    for feature in GEOJSON_DEPTOS_HN.get("features", []):
-        nombre = feature.get("properties", {}).get("shapeName")
-        if nombre:
-            DEPTOS_GEOJSON_NORM_A_REAL[normalizar_texto(nombre)] = nombre
-
-ALIAS_DEPARTAMENTOS = {
-    "ISLAS DE LA BAHIA": "Bay Islands",
-    "ISLAS BAHIA": "Bay Islands",
-}
-
-PATRONES_DEPARTAMENTO = {
-    "ATLANTIDA": "Atlántida",
-    "BAY ISLANDS": "Bay Islands",
-    "CHOLUTECA": "Choluteca",
-    "COLON": "Colón",
-    "COMAYAGUA": "Comayagua",
-    "COPAN": "Copán",
-    "CORTES": "Cortés",
-    "EL PARAISO": "El Paraíso",
-    "FRANCISCO MORAZAN": "Francisco Morazán",
-    "GRACIAS A DIOS": "Gracias a Dios",
-    "INTIBUCA": "Intibucá",
-    "ISLAS DE LA BAHIA": "Bay Islands",
-    "ISLAS BAHIA": "Bay Islands",
-    "LA PAZ": "La Paz",
-    "LEMPIRA": "Lempira",
-    "OCOTEPEQUE": "Ocotepeque",
-    "OLANCHO": "Olancho",
-    "SANTA BARBARA": "Santa Bárbara",
-    "VALLE": "Valle",
-    "YORO": "Yoro",
-}
-
-
-def mapear_departamento_geojson(nombre_dep: str):
-    """Mapea un valor de direccion_2 al nombre de departamento del GeoJSON."""
-    nombre_norm = normalizar_texto(nombre_dep)
-    if not nombre_norm or nombre_norm == "SIN DATO":
-        return None
-
-    exacto = DEPTOS_GEOJSON_NORM_A_REAL.get(nombre_norm)
-    if exacto:
-        return exacto
-
-    alias = ALIAS_DEPARTAMENTOS.get(nombre_norm)
-    if alias:
-        return alias
-
-    for patron, nombre_real in sorted(PATRONES_DEPARTAMENTO.items(), key=lambda item: len(item[0]), reverse=True):
-        if patron in nombre_norm:
-            return nombre_real
-    return None
+print(f"  {len(df_campania)} aperturas relacionadas a clientes de campaña")
 
 MESES_ES = {
     1: "Enero",
@@ -184,8 +134,8 @@ def calcular_metricas(dataframe: pd.DataFrame, periodo_mes: str):
     return total_cuentas, total_nuevos, total_existentes, dias, existentes, nuevos, totales
 
 
-def construir_figura(dias, existentes, nuevos, totales) -> go.Figure:
-    """Construye la gráfica de barras apiladas con detalle por tipo y total."""
+def construir_figura_aperturas(dias, existentes, nuevos, totales, titulo_vacio: str) -> go.Figure:
+    """Construye gráfica de barras apiladas con detalle por tipo y total."""
     fig = go.Figure()
 
     if not dias:
@@ -198,7 +148,7 @@ def construir_figura(dias, existentes, nuevos, totales) -> go.Figure:
             yaxis=dict(visible=False),
             annotations=[
                 dict(
-                    text="No hay datos para el mes seleccionado",
+                    text=titulo_vacio,
                     x=0.5,
                     y=0.5,
                     xref="paper",
@@ -328,56 +278,6 @@ def construir_figura_genero(df_mes: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def construir_figura_generaciones(df_mes: pd.DataFrame) -> go.Figure:
-    """Construye gráfico por generación calculada desde fecha de nacimiento."""
-    if df_mes.empty:
-        return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
-
-    orden = [
-        "Generation X (1965-1980)",
-        "Gen Y - Millennials (1981-1996)",
-        "Generación Z (1997-2012)",
-        "OTRA GENERACION",
-    ]
-    conteos = df_mes["generacion"].value_counts().reindex(orden, fill_value=0)
-    conteos = conteos[conteos > 0]
-    if conteos.empty:
-        return construir_figura_vacia("No hay datos de generaciones para el mes seleccionado")
-
-    total = int(conteos.sum())
-    porcentajes = (conteos / total) * 100
-    textos = [f"{int(v):,} ({p:.1f}%)" for v, p in zip(conteos.values.tolist(), porcentajes.values.tolist())]
-    edad_promedio = (
-        df_mes[df_mes["generacion"].isin(conteos.index)]
-        .groupby("generacion")["edad_apertura"]
-        .mean()
-        .reindex(conteos.index)
-    )
-    edad_promedio_texto = [f"{v:.1f}" if pd.notna(v) else "N/D" for v in edad_promedio.values.tolist()]
-
-    fig = go.Figure(data=[
-        go.Bar(
-            x=conteos.index.tolist(),
-            y=conteos.values.tolist(),
-            marker_color=COLORES["azul_financiero"],
-            text=textos,
-            textposition="outside",
-            customdata=edad_promedio_texto,
-            hovertemplate="%{x}<br>%{y:,} cuentas<br>Edad promedio: %{customdata} años<extra></extra>",
-        )
-    ])
-    fig.update_layout(
-        plot_bgcolor=COLORES["blanco"],
-        paper_bgcolor=COLORES["blanco"],
-        font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=20, b=80, l=40, r=20),
-        xaxis=dict(title="", tickangle=-20),
-        yaxis=dict(title="Cuentas"),
-        showlegend=False,
-    )
-    return fig
-
-
 def construir_figura_generaciones_pastel(df_mes: pd.DataFrame) -> go.Figure:
     """Construye gráfico pastel por generación con conteo y porcentaje."""
     if df_mes.empty:
@@ -462,77 +362,6 @@ def construir_figura_departamentos(df_mes: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def construir_figura_mapa_departamentos(df_mes: pd.DataFrame) -> go.Figure:
-    """Construye mapa de Honduras por departamento usando direccion_2."""
-    if GEOJSON_DEPTOS_HN is None:
-        return construir_figura_vacia("No se encontró el archivo de mapa de Honduras")
-    if df_mes.empty:
-        return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
-
-    campo_residencia = "direccion_2" if "direccion_2" in df_mes.columns else "direccion_lvl_2"
-    departamentos = df_mes[campo_residencia].fillna("Sin dato").astype(str).str.strip()
-    departamentos = departamentos.replace("", "Sin dato")
-    conteos = departamentos.value_counts()
-    if conteos.empty:
-        return construir_figura_vacia("No hay datos de residencia para el mes seleccionado")
-
-    conteos_mapa = {}
-    for nombre_dep, cantidad in conteos.items():
-        nombre_geojson = mapear_departamento_geojson(nombre_dep)
-        if nombre_geojson:
-            conteos_mapa[nombre_geojson] = conteos_mapa.get(nombre_geojson, 0) + int(cantidad)
-
-    if not conteos_mapa:
-        return construir_figura_vacia("No se pudieron mapear departamentos para el mapa")
-
-    total = sum(conteos_mapa.values())
-    ubicaciones = [f.get("properties", {}).get("shapeName") for f in GEOJSON_DEPTOS_HN.get("features", [])]
-    ubicaciones = [u for u in ubicaciones if u]
-    valores = [conteos_mapa.get(u, 0) for u in ubicaciones]
-    valores_plot = [v if v > 0 else None for v in valores]
-    porcentajes = [((v / total) * 100) if total > 0 else 0 for v in valores]
-    textos = [f"{v:,} cuentas ({p:.1f}%)" for v, p in zip(valores, porcentajes)]
-
-    fig = go.Figure(data=go.Choropleth(
-        geojson=GEOJSON_DEPTOS_HN,
-        featureidkey="properties.shapeName",
-        locations=ubicaciones,
-        z=valores_plot,
-        text=textos,
-        colorscale=[
-            [0.0, "#D7E3EA"],
-            [0.5, COLORES["aqua_digital"]],
-            [1.0, COLORES["azul_experto"]],
-        ],
-        zmin=0,
-        zmax=max(1, max(valores)),
-        marker_line_color=COLORES["blanco"],
-        marker_line_width=0.8,
-        colorbar_title="Cuentas",
-        hovertemplate="%{location}<br>%{text}<extra></extra>",
-    ))
-    fig.update_geos(
-        visible=False,
-        showcountries=False,
-        showcoastlines=False,
-        showland=True,
-        landcolor="#F5F8EE",
-        projection_type="mercator",
-        center={"lat": 14.8, "lon": -86.5},
-        lataxis_range=[12.8, 17.6],
-        lonaxis_range=[-89.6, -82.8],
-        bgcolor=COLORES["blanco"],
-    )
-    fig.update_layout(
-        plot_bgcolor=COLORES["blanco"],
-        paper_bgcolor=COLORES["blanco"],
-        font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=10, b=10, l=10, r=10),
-        height=540,
-    )
-    return fig
-
-
 periodos_disponibles = sorted(df["periodo_mes"].unique().tolist())
 periodo_default = periodos_disponibles[-1]
 opciones_periodo = [{"label": format_mes_label(p), "value": p} for p in reversed(periodos_disponibles)]
@@ -540,11 +369,11 @@ opciones_periodo = [{"label": format_mes_label(p), "value": p} for p in reversed
 # ── Estilos ───────────────────────────────────────────────────────────────────
 card_style = {
     "backgroundColor": COLORES["blanco"],
-    "borderRadius":    "8px",
-    "padding":         "24px 32px",
-    "boxShadow":       "0 1px 4px rgba(0,0,0,0.08)",
-    "borderTop":       f"4px solid {COLORES['aqua_digital']}",
-    "flex":            "1",
+    "borderRadius": "8px",
+    "padding": "24px 32px",
+    "boxShadow": "0 1px 4px rgba(0,0,0,0.08)",
+    "borderTop": f"4px solid {COLORES['aqua_digital']}",
+    "flex": "1",
 }
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -553,9 +382,7 @@ app = Dash(__name__)
 app.layout = html.Div(
     style={"fontFamily": "Arial", "backgroundColor": COLORES["gris_fondo"], "minHeight": "100vh", "padding": "24px"},
     children=[
-
-        html.H2(id="titulo-dashboard",
-                style={"color": COLORES["azul_experto"], "marginBottom": "24px"}),
+        html.H2(id="titulo-dashboard", style={"color": COLORES["azul_experto"], "marginBottom": "24px"}),
 
         html.Div(style={"marginBottom": "20px", "maxWidth": "340px"}, children=[
             html.P("Mes de análisis", style={"margin": "0 0 8px 0", "color": COLORES["gris_texto"], "fontSize": "14px"}),
@@ -568,7 +395,7 @@ app.layout = html.Div(
             ),
         ]),
 
-        # KPIs
+        # KPIs generales
         html.Div(style={"display": "flex", "gap": "16px", "marginBottom": "24px"}, children=[
             html.Div(style=card_style, children=[
                 html.P("Total cuentas", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
@@ -584,35 +411,66 @@ app.layout = html.Div(
             ]),
         ]),
 
-        # Gráfico
-        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "flex": "none"}, children=[
-            html.H4("Aperturas por día", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Aperturas por día (General)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
             dcc.Graph(id="grafico-aperturas")
         ]),
 
-        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "20px", "marginTop": "24px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Género: cuentas y porcentaje", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Género (General)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
             dcc.Graph(id="grafico-genero")
         ]),
 
         html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Aperturas por generación", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(id="grafico-generaciones")
-        ]),
-
-        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Generaciones en pastel", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            html.H4("Generaciones en pastel (General)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
             dcc.Graph(id="grafico-generaciones-pastel")
         ]),
 
         html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Top 5 departamentos con más aperturas", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            html.H4("Top 5 departamentos (General)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
             dcc.Graph(id="grafico-departamentos")
         ]),
 
+        # Sección campaña
+        html.H3("Clientes contactados por campaña", style={"color": COLORES["azul_experto"], "marginTop": "8px", "marginBottom": "16px"}),
+        html.P(
+            f"Universo campaña por match de padded_codigo_cliente (clientes únicos cargados: {len(clientes_campania):,}).",
+            style={"marginTop": 0, "marginBottom": "16px", "color": COLORES["gris_texto"]},
+        ),
+
+        html.Div(style={"display": "flex", "gap": "16px", "marginBottom": "24px"}, children=[
+            html.Div(style=card_style, children=[
+                html.P("Total cuentas campaña", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                html.H1(id="kpi-camp-total", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
+            ]),
+            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}"}, children=[
+                html.P("Nuevos campaña", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                html.H1(id="kpi-camp-nuevos", style={"margin": "8px 0 0 0", "color": COLORES["aqua_digital"]}),
+            ]),
+            html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}"}, children=[
+                html.P("Existentes campaña", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                html.H1(id="kpi-camp-existentes", style={"margin": "8px 0 0 0", "color": COLORES["amarillo_opt"]}),
+            ]),
+        ]),
+
         html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
-            html.H4("Mapa de aperturas por departamento (Honduras)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(id="grafico-mapa-departamentos", style={"height": "580px"})
+            html.H4("Aperturas por día (Solo campaña)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-aperturas-campania")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Género (Solo campaña)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-genero-campania")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}", "padding": "20px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Generaciones en pastel (Solo campaña)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-generaciones-campania")
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "padding": "24px", "marginBottom": "24px", "flex": "none"}, children=[
+            html.H4("Top 5 departamentos (Solo campaña)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            dcc.Graph(id="grafico-departamentos-campania")
         ]),
     ]
 )
@@ -625,33 +483,58 @@ app.layout = html.Div(
     Output("kpi-existentes", "children"),
     Output("grafico-aperturas", "figure"),
     Output("grafico-genero", "figure"),
-    Output("grafico-generaciones", "figure"),
     Output("grafico-generaciones-pastel", "figure"),
     Output("grafico-departamentos", "figure"),
-    Output("grafico-mapa-departamentos", "figure"),
+    Output("kpi-camp-total", "children"),
+    Output("kpi-camp-nuevos", "children"),
+    Output("kpi-camp-existentes", "children"),
+    Output("grafico-aperturas-campania", "figure"),
+    Output("grafico-genero-campania", "figure"),
+    Output("grafico-generaciones-campania", "figure"),
+    Output("grafico-departamentos-campania", "figure"),
     Input("selector-mes", "value"),
 )
 def actualizar_dashboard(periodo_mes):
+    # General
     total_cuentas, total_nuevos, total_existentes, dias, existentes, nuevos, totales = calcular_metricas(df, periodo_mes)
     df_mes = df[df["periodo_mes"] == periodo_mes].copy()
-    figura = construir_figura(dias, existentes, nuevos, totales)
+    figura_aperturas = construir_figura_aperturas(dias, existentes, nuevos, totales, "No hay datos para el mes seleccionado")
     figura_genero = construir_figura_genero(df_mes)
-    figura_generaciones = construir_figura_generaciones(df_mes)
     figura_generaciones_pastel = construir_figura_generaciones_pastel(df_mes)
     figura_departamentos = construir_figura_departamentos(df_mes)
-    figura_mapa_departamentos = construir_figura_mapa_departamentos(df_mes)
+
+    # Campaña
+    camp_total, camp_nuevos, camp_existentes, camp_dias, camp_exis, camp_nuev, camp_tot = calcular_metricas(df_campania, periodo_mes)
+    df_mes_campania = df_campania[df_campania["periodo_mes"] == periodo_mes].copy()
+    figura_aperturas_camp = construir_figura_aperturas(
+        camp_dias,
+        camp_exis,
+        camp_nuev,
+        camp_tot,
+        "No hay cuentas de campaña para el mes seleccionado",
+    )
+    figura_genero_camp = construir_figura_genero(df_mes_campania)
+    figura_generaciones_camp = construir_figura_generaciones_pastel(df_mes_campania)
+    figura_departamentos_camp = construir_figura_departamentos(df_mes_campania)
+
     titulo = f"Cuenta Digital — {format_mes_label(periodo_mes)}"
+
     return (
         titulo,
         f"{total_cuentas:,}",
         f"{total_nuevos:,}",
         f"{total_existentes:,}",
-        figura,
+        figura_aperturas,
         figura_genero,
-        figura_generaciones,
         figura_generaciones_pastel,
         figura_departamentos,
-        figura_mapa_departamentos,
+        f"{camp_total:,}",
+        f"{camp_nuevos:,}",
+        f"{camp_existentes:,}",
+        figura_aperturas_camp,
+        figura_genero_camp,
+        figura_generaciones_camp,
+        figura_departamentos_camp,
     )
 
 
