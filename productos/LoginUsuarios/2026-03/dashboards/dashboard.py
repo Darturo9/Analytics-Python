@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, ".")
 
 from pathlib import Path
+import calendar
 
 import pandas as pd
 from dash import Dash, html, dcc, dash_table
@@ -173,23 +174,43 @@ def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
     if df_logins.empty:
         return construir_figura_vacia("No hay logins de clientes del Excel para el período")
 
+    anio = int(df_logins["fecha_inicio"].dt.year.mode().iloc[0])
+    mes = int(df_logins["fecha_inicio"].dt.month.mode().iloc[0])
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    dias = list(range(1, ultimo_dia + 1))
+
     pivot = (
-        df_logins.groupby(["dia", "canal_contacto"]) 
+        df_logins.groupby(["dia", "canal_contacto"])
         .size()
         .unstack(fill_value=0)
-        .sort_index()
+        .reindex(dias, fill_value=0)
     )
+
+    totales_dia = pivot.sum(axis=1).tolist()
+    max_total = max(totales_dia) if totales_dia else 0
+    separacion = max(1, int(max_total * 0.04))
 
     fig = go.Figure()
     colores = [COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_financiero"], COLORES["azul_experto"]]
     for idx, columna in enumerate(pivot.columns.tolist()):
         fig.add_trace(go.Bar(
             name=columna,
-            x=pivot.index.tolist(),
+            x=dias,
             y=pivot[columna].tolist(),
             marker_color=colores[idx % len(colores)],
             hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} eventos<extra></extra>",
         ))
+
+    fig.add_trace(go.Scatter(
+        x=dias,
+        y=[t + separacion for t in totales_dia],
+        mode="text",
+        text=[f"{t:,}" if t > 0 else "" for t in totales_dia],
+        textposition="top center",
+        textfont=dict(size=11, color=COLORES["azul_experto"]),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
 
     fig.update_layout(
         barmode="stack",
@@ -197,8 +218,8 @@ def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=20, b=40, l=40, r=10),
-        xaxis=dict(title="Día"),
-        yaxis=dict(title="Eventos de login"),
+        xaxis=dict(title="Día", tickmode="linear", tick0=1, dtick=1, range=[0.5, ultimo_dia + 0.5]),
+        yaxis=dict(title="Eventos de login", range=[0, max_total + (separacion * 3)]),
         legend_title_text="Canal contacto (Excel)",
     )
     return fig
