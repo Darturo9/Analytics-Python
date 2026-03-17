@@ -539,5 +539,14 @@ def actualizar_dashboard(periodo_mes):
 
 
 if __name__ == "__main__":
-    print("Dashboard corriendo en http://127.0.0.1:8050")
-    app.run(debug=True, use_reloader=False)
+    import socket
+
+    port = 8050
+    try:
+        ip_red = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        ip_red = "IP_NO_DISPONIBLE"
+
+    print(f"Dashboard corriendo en local: http://127.0.0.1:{port}")
+    print(f"Dashboard expuesto en red: http://{ip_red}:{port}")
+    app.run(debug=False, use_reloader=False, host="0.0.0.0", port=port)
