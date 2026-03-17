@@ -1,31 +1,30 @@
-   select u.Codigo_Cliente,Fecha_Rebote,bouncesubtype as Motivo_Rebote, 
-    CASE
-    when fecha_rebote is null then 'SI'
-    WHEN FECHA_REBOTE IS NOT NULL THEN 'NO'
-    END as Entregado,
-    fecha_open,
-    case
-    when fecha_open is null then 'NO'
-    when fecha_open is not null then 'SI'
-    END AS Abrio,
-    Fecha_click,
-    case
-    when fecha_click is null then 'NO'
-    when fecha_click is not null then 'SI'
-    END AS Hizo_click
-    from
-    (
-    SELECT u.Codigo_Cliente,MIN(cli.bounceDate) Fecha_rebote, cli.bouncetype, cli.bouncesubtype, min(o.opendate) Fecha_Open, min(c.clickdate) as Fecha_click
-    FROM
-    RTM_APP_HisCampaignUniverso u WITH (NOLOCK) 
-    --left join TBL_Mongo_DB_deliveries op WITH (NOLOCK) on op.EmailLogID=u.SmsID 
-    left join VW_RTM_TBL_Mongo_DB_Bounce cli WITH (NOLOCK) on cli.EmailLogID=u.SmsID 
-    left join VW_RTM_TBL_Mongo_DB_Opens o WITH (NOLOCK) on o.EmailLogID=u.SmsID
-    left join VW_RTM_TBL_Mongo_DB_clicks c WITH (NOLOCK) on c.EmailLogID=u.SmsID
-    WHERE
-    u.CampaignID in (43106)
-    and 
-    Codigo_Cliente not in ('26642381', '27875271', '40345491', '50142391', '41542421')
-    group by 
-    u.Codigo_Cliente,cli.bouncetype,cli.bouncesubtype
-    )u
+/*
+Conteo consolidado (sin detalle 1 a 1) para campaña 43106
+*/
+
+WITH base_clientes AS (
+    SELECT
+        u.Codigo_Cliente,
+        MIN(cli.bounceDate) AS Fecha_Rebote,
+        MIN(o.opendate) AS Fecha_Open,
+        MIN(c.clickdate) AS Fecha_Click
+    FROM RTM_APP_HisCampaignUniverso u WITH (NOLOCK)
+    LEFT JOIN VW_RTM_TBL_Mongo_DB_Bounce cli WITH (NOLOCK)
+        ON cli.EmailLogID = u.SmsID
+    LEFT JOIN VW_RTM_TBL_Mongo_DB_Opens o WITH (NOLOCK)
+        ON o.EmailLogID = u.SmsID
+    LEFT JOIN VW_RTM_TBL_Mongo_DB_clicks c WITH (NOLOCK)
+        ON c.EmailLogID = u.SmsID
+    WHERE u.CampaignID IN (43106)
+      AND u.Codigo_Cliente NOT IN ('26642381', '27875271', '40345491', '50142391', '41542421')
+    GROUP BY u.Codigo_Cliente
+)
+SELECT
+    COUNT(*) AS total_clientes,
+    SUM(CASE WHEN Fecha_Rebote IS NULL THEN 1 ELSE 0 END) AS entregados,
+    SUM(CASE WHEN Fecha_Rebote IS NOT NULL THEN 1 ELSE 0 END) AS rebotados,
+    SUM(CASE WHEN Fecha_Open IS NOT NULL THEN 1 ELSE 0 END) AS abrieron,
+    SUM(CASE WHEN Fecha_Open IS NULL THEN 1 ELSE 0 END) AS no_abrieron,
+    SUM(CASE WHEN Fecha_Click IS NOT NULL THEN 1 ELSE 0 END) AS hicieron_click,
+    SUM(CASE WHEN Fecha_Click IS NULL THEN 1 ELSE 0 END) AS no_hicieron_click
+FROM base_clientes;
