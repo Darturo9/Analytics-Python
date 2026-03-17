@@ -16,8 +16,6 @@ FROM
 	INNER JOIN DW_CIF_CLIENTES info_clientes ON (RIGHT('00000000' + RTRIM(LTRIM(usuarios.CLCCLI)), 8) = RIGHT('00000000' + RTRIM(LTRIM(info_clientes.CLDOC)), 8))
 	LEFT JOIN  dw_cif_direcciones_principal direcciones ON (RTRIM(LTRIM(info_clientes.cltdoc)) = RTRIM(LTRIM(direcciones.cldoc)))
 WHERE
-usuarios.dw_fecha_creacion >= '2026-03-01 00:00:00'
-AND
-usuarios.dw_fecha_creacion < '2026-03-16 00:00:00'
+usuarios.dw_fecha_creacion >= '2024-01-01 00:00:00'
 AND
 clientes_bel.cltipe = 'N'
