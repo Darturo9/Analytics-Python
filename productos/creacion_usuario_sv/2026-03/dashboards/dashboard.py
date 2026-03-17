@@ -114,6 +114,22 @@ def normalizar_departamento(valor) -> str:
     return texto if texto else "Sin dato"
 
 
+def es_usuario_activo(valor) -> bool:
+    """Clasifica si el estado de usuario corresponde a activo."""
+    if pd.isna(valor):
+        return False
+
+    estado = str(valor).strip().upper()
+    if estado.endswith(".0") and estado[:-2].isdigit():
+        estado = estado[:-2]
+
+    if "INACT" in estado:
+        return False
+
+    activos = {"A", "ACTIVO", "ACTIVE", "1", "TRUE", "T", "HABILITADO", "VIGENTE"}
+    return estado in activos or ("ACT" in estado and "INACT" not in estado)
+
+
 def primer_no_default(series: pd.Series, default: str) -> str:
     for val in series:
         if pd.notna(val) and str(val).strip() and str(val).strip() != default:
@@ -311,6 +327,7 @@ df_conversion["dia"] = df_conversion["fecha_creacion_usuario"].dt.day
 df_conversion["genero_normalizado"] = df_conversion["genero_cliente"].apply(normalizar_genero)
 df_conversion["generacion"] = df_conversion["fecha_nacimiento_usuario"].apply(clasificar_generacion)
 df_conversion["departamento"] = df_conversion["direccion_lvl_2"].apply(normalizar_departamento)
+df_conversion["es_usuario_activo"] = df_conversion["estado_usuario"].apply(es_usuario_activo)
 
 # id_usuario para conteo distinto (equivalente COUNTD/RECDIST de Tableau)
 # Tableau no cuenta nulos en COUNTD, por eso vacíos se convierten a NA.
@@ -357,6 +374,7 @@ df = (
         genero_normalizado=("genero_normalizado", lambda s: primer_no_default(s, "Sin dato")),
         generacion=("generacion", lambda s: primer_no_default(s, "OTRA GENERACION")),
         departamento=("departamento", lambda s: primer_no_default(s, "Sin dato")),
+        es_usuario_activo=("es_usuario_activo", lambda s: bool(s.fillna(False).any())),
         origen_creacion=("match_campania", lambda s: "Medios propios" if s.fillna(False).any() else "Producto"),
     )
 )
@@ -460,6 +478,10 @@ app.layout = html.Div(
                     html.P("Producto", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
                     html.H2(id="kpi-producto", style={"margin": "8px 0 0 0", "color": COLORES["amarillo_opt"]}),
                 ]),
+                html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_experto']}"}, children=[
+                    html.P("Usuarios activos", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                    html.H2(id="kpi-activos", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
+                ]),
                 html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}"}, children=[
                     html.P("Mujeres", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
                     html.H2(id="kpi-mujeres", style={"margin": "8px 0 0 0", "color": COLORES["aqua_digital"]}),
@@ -524,6 +546,7 @@ def actualizar_meses(anio, mes_actual):
     Output("kpi-total", "children"),
     Output("kpi-medios", "children"),
     Output("kpi-producto", "children"),
+    Output("kpi-activos", "children"),
     Output("kpi-mujeres", "children"),
     Output("kpi-hombres", "children"),
     Output("kpi-sin-dato", "children"),
@@ -546,6 +569,7 @@ def actualizar_dashboard(anio, mes, origen):
             "0",
             "0",
             "0",
+            "0",
             fig_vacia,
             fig_vacia,
             fig_vacia,
@@ -562,6 +586,7 @@ def actualizar_dashboard(anio, mes, origen):
     total = int(df_visual["id_usuario"].nunique())
     medios = int(df_periodo.loc[df_periodo["origen_creacion"] == "Medios propios", "id_usuario"].nunique())
     producto = int(df_periodo.loc[df_periodo["origen_creacion"] == "Producto", "id_usuario"].nunique())
+    activos = int(df_visual.loc[df_visual["es_usuario_activo"] == True, "id_usuario"].nunique())
     mujeres = int(df_visual.loc[df_visual["genero_normalizado"] == "Mujer", "id_usuario"].nunique())
     hombres = int(df_visual.loc[df_visual["genero_normalizado"] == "Hombre", "id_usuario"].nunique())
     sin_dato = int(df_visual.loc[df_visual["genero_normalizado"] == "Sin dato", "id_usuario"].nunique())
@@ -574,6 +599,7 @@ def actualizar_dashboard(anio, mes, origen):
         f"{total:,}",
         f"{medios:,}",
         f"{producto:,}",
+        f"{activos:,}",
         f"{mujeres:,}",
         f"{hombres:,}",
         f"{sin_dato:,}",
