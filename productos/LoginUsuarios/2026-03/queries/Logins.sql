@@ -4,5 +4,6 @@ SELECT clccli as codigo_usuario,
            secode as canal_login,
 	   dw_fecha_trx as fecha_inicio
 FROM dw_bel_IBSTTRA_VIEW
-WHERE dw_fecha_trx between '2026-01-01' and '2026-02-10'
+WHERE dw_fecha_trx >= '2026-03-01'
+AND dw_fecha_trx < '2026-04-01'
 AND SECODE  in ('app-login','web-login','login')
