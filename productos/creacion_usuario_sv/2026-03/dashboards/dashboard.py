@@ -323,13 +323,14 @@ df_rtm["codigo_cliente_usuario_campania"] = df_rtm["codigo_cliente_usuario_campa
 
 df_rtm_match = (
     df_rtm[["codigo_cliente_usuario_campania", "fecha_campania"]]
-    .dropna(subset=["codigo_cliente_usuario_campania"])
-    .sort_values("fecha_campania")
-    .drop_duplicates(subset=["codigo_cliente_usuario_campania"], keep="first")
+    .dropna(subset=["codigo_cliente_usuario_campania", "fecha_campania"])
+    .drop_duplicates(subset=["codigo_cliente_usuario_campania", "fecha_campania"])
     .copy()
 )
 
-# match por cliente para definir origen (mismo criterio de IF ISNULL(fecha_campania))
+# LEFT JOIN con regla Tableau:
+# codigo_cliente_usuario_creado = codigo_cliente_usuario_campania
+# y fecha_creacion_usuario entre fecha_campania y fecha_campania + 3 meses.
 _df = df_conversion.merge(
     df_rtm_match,
     how="left",
@@ -337,8 +338,14 @@ _df = df_conversion.merge(
     right_on=["codigo_cliente_usuario_campania"],
 )
 
-_df["origen_creacion"] = _df["fecha_campania"].apply(
-    lambda x: "Medios propios" if pd.notna(x) else "Producto"
+fecha_creacion = _df["fecha_creacion_usuario"].dt.normalize()
+fecha_campania = _df["fecha_campania"].dt.normalize()
+fecha_campania_mas_3m = fecha_campania + pd.DateOffset(months=3)
+
+_df["match_campania"] = (
+    fecha_campania.notna()
+    & (fecha_creacion >= fecha_campania)
+    & (fecha_creacion <= fecha_campania_mas_3m)
 )
 
 # consolidación por usuario distinto dentro de año/mes (evita sobreconteo por joins)
@@ -350,7 +357,7 @@ df = (
         genero_normalizado=("genero_normalizado", lambda s: primer_no_default(s, "Sin dato")),
         generacion=("generacion", lambda s: primer_no_default(s, "OTRA GENERACION")),
         departamento=("departamento", lambda s: primer_no_default(s, "Sin dato")),
-        origen_creacion=("origen_creacion", lambda s: "Medios propios" if (s == "Medios propios").any() else "Producto"),
+        origen_creacion=("match_campania", lambda s: "Medios propios" if s.fillna(False).any() else "Producto"),
     )
 )
 
