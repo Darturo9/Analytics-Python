@@ -12,8 +12,8 @@ python3 productos/LoginUsuarios/2026-03/dashboards/dashboard.py
 
 El dashboard busca automáticamente un archivo en:
 
-- `productos/LoginUsuarios/2026-03/data/Contactados.xlsx`
-- o `productos/LoginUsuarios/2026-03/data/Contactados.csv`
+- `productos/LoginUsuarios/2026-03/archivoExcel/Contactados.xlsx`
+- o `productos/LoginUsuarios/2026-03/archivoExcel/Contactados.csv`
 
 Columnas esperadas:
 

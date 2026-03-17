@@ -21,7 +21,7 @@ from core.colors import COLORES
 
 
 RUTA_QUERY_LOGINS = "productos/LoginUsuarios/2026-03/queries/Logins.sql"
-RUTA_DATA_CONTACTADOS = Path("productos/LoginUsuarios/2026-03/data")
+RUTA_DATA_CONTACTADOS = Path("productos/LoginUsuarios/2026-03/archivoExcel")
 
 
 def normalizar_codigo(valor) -> str | None:
