@@ -132,7 +132,9 @@ def build_queries() -> dict[str, str]:
         "pagadores": """
             WITH pagos_toda_transaccion AS (
                 SELECT DISTINCT
-                    RIGHT('00000000' + RTRIM(LTRIM(txn_bxi.clccli)), 8) AS cif_toda_transaccion
+                    RIGHT('00000000' + RTRIM(LTRIM(txn_bxi.clccli)), 8) AS cif_toda_transaccion,
+                    'BXI' AS origen_pago,
+                    COALESCE(NULLIF(LTRIM(RTRIM(descripcion_servicio.inserv)), ''), 'SIN_DATO') AS canal_pago
                 FROM dw_bel_ibjour txn_bxi
                 INNER JOIN dw_bel_ibserv descripcion_servicio
                     ON txn_bxi.secode = descripcion_servicio.secode
@@ -164,7 +166,9 @@ def build_queries() -> dict[str, str]:
                                 ELSE datos_pago.spinus
                             END
                         )), 8
-                    ) AS cif_toda_transaccion
+                    ) AS cif_toda_transaccion,
+                    'MULTIPAGO' AS origen_pago,
+                    COALESCE(NULLIF(LTRIM(RTRIM(datos_pago.spcpde)), ''), 'SIN_DATO') AS canal_pago
                 FROM dw_mul_sppadat datos_pago
                 INNER JOIN dw_mul_spmaco maestro_multipago
                     ON datos_pago.spcodc = maestro_multipago.spcodc
@@ -179,7 +183,9 @@ def build_queries() -> dict[str, str]:
                   )
             )
             SELECT DISTINCT
-                cif_toda_transaccion
+                cif_toda_transaccion,
+                origen_pago,
+                canal_pago
             FROM pagos_toda_transaccion
             WHERE cif_toda_transaccion IS NOT NULL;
         """,
@@ -292,6 +298,15 @@ def main() -> None:
     print("-" * 80)
     print("Resumen:")
     print(f"- clientes_sin_pago: {len(df_sin_pago.index):,}")
+    print("-" * 80)
+    print("Distribucion de pagadores por origen/canal:")
+    dist_canal = (
+        df_pagadores.groupby(["origen_pago", "canal_pago"], dropna=False)
+        .size()
+        .reset_index(name="total")
+        .sort_values("total", ascending=False)
+    )
+    print(dist_canal.to_string(index=False))
 
     preferred_cols = [
         "codigo_cliente",
