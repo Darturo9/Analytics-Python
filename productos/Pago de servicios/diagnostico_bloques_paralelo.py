@@ -3,12 +3,14 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from pathlib import Path
 
 import pandas as pd
 
 sys.path.insert(0, ".")
 
 from core.db import run_query
+from core.utils import exportar_excel
 
 
 @dataclass
@@ -201,6 +203,16 @@ def main() -> None:
     parser.add_argument("--fecha-fin", default="2026-03-11", help="Fecha fin exclusiva (YYYY-MM-DD)")
     parser.add_argument("--workers", type=int, default=2, help="Cantidad de hilos paralelos")
     parser.add_argument(
+        "--no-export",
+        action="store_true",
+        help="No exporta Excel al finalizar",
+    )
+    parser.add_argument(
+        "--output",
+        default="",
+        help="Ruta completa de salida Excel (opcional)",
+    )
+    parser.add_argument(
         "--top",
         type=int,
         default=10,
@@ -276,19 +288,32 @@ def main() -> None:
     print(f"- pagadores: {len(df_pagadores.index):,}")
     print(f"- clientes_sin_pago: {len(df_sin_pago.index):,}")
 
+    preferred_cols = [
+        "codigo_cliente",
+        "padded_codigo_cliente",
+        "nombre_cliente",
+        "anio_nac",
+        "numero_telefono",
+        "fuente_telefono",
+        "nombre_operador",
+        "correo",
+    ]
+    export_cols = [c for c in preferred_cols if c in df_sin_pago.columns]
+    df_export = df_sin_pago[export_cols].sort_values("padded_codigo_cliente").reset_index(drop=True)
+
+    if not args.no_export:
+        if args.output.strip():
+            output_path = Path(args.output.strip())
+        else:
+            base_dir = Path("productos/Pago de servicios/exports")
+            file_name = f"clientes_sin_pago_contacto_{args.fecha_inicio}_a_{args.fecha_fin}.xlsx"
+            output_path = base_dir / file_name
+        exportar_excel(df_export, str(output_path), hoja="ClientesSinPago")
+        print(f"- Excel exportado: {output_path}")
+
     if args.top > 0:
         print("-" * 80)
         print(f"Top {args.top} clientes sin pago:")
-        preferred_cols = [
-            "codigo_cliente",
-            "padded_codigo_cliente",
-            "nombre_cliente",
-            "anio_nac",
-            "numero_telefono",
-            "fuente_telefono",
-            "nombre_operador",
-            "correo",
-        ]
         cols = [c for c in preferred_cols if c in df_sin_pago.columns]
         print(df_sin_pago[cols].head(args.top).to_string(index=False))
 
