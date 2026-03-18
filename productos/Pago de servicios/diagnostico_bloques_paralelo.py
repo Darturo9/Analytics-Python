@@ -345,7 +345,7 @@ def main() -> None:
     # Normaliza nombres y valores para evitar errores de ancho al exportar en distintos pandas.
     df_export.columns = [str(c) for c in df_export.columns]
     df_export = df_export.where(pd.notna(df_export), "")
-    df_export = df_export.applymap(lambda x: str(x) if not isinstance(x, str) else x)
+    df_export = df_export.astype(str)
 
     if not args.no_export:
         if args.output.strip():
