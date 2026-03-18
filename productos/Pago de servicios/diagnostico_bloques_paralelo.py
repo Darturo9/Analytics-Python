@@ -118,11 +118,12 @@ def build_queries() -> dict[str, str]:
         "pagadores": """
             WITH pagos_toda_transaccion AS (
                 SELECT DISTINCT
-                    RIGHT('00000000' + RTRIM(LTRIM(txn_bxi.clccli)), 8) AS cif_toda_transaccion
+                    RIGHT('00000000' + RTRIM(LTRIM(txn_bxi.clccli)), 8) AS cif_toda_transaccion,
+                    'BXI' AS origen_pago,
+                    COALESCE(NULLIF(LTRIM(RTRIM(descripcion_servicio.inserv)), ''), 'SIN_DATO') AS canal_pago
                 FROM dw_bel_ibjour txn_bxi
                 INNER JOIN dw_bel_ibserv descripcion_servicio
                     ON txn_bxi.secode = descripcion_servicio.secode
-                   AND descripcion_servicio.inserv = 'APP'
                    AND descripcion_servicio.tiserv = 'O'
                    AND descripcion_servicio.seuspr = 'S'
                    AND descripcion_servicio.secode IN (
@@ -151,13 +152,14 @@ def build_queries() -> dict[str, str]:
                                 ELSE datos_pago.spinus
                             END
                         )), 8
-                    ) AS cif_toda_transaccion
+                    ) AS cif_toda_transaccion,
+                    'MULTIPAGO' AS origen_pago,
+                    COALESCE(NULLIF(LTRIM(RTRIM(datos_pago.spcpde)), ''), 'SIN_DATO') AS canal_pago
                 FROM dw_mul_sppadat datos_pago
                 INNER JOIN dw_mul_spmaco maestro_multipago
                     ON datos_pago.spcodc = maestro_multipago.spcodc
                 WHERE datos_pago.dw_fecha_operacion_sp >= :fecha_inicio
                   AND datos_pago.dw_fecha_operacion_sp <  :fecha_fin
-                  AND datos_pago.spcpde = 'App'
                   AND datos_pago.sppafr = 'N'
                   AND datos_pago.spcodc IN (
                         '866','882','130','143','184','227','237','238','309','368','371',
@@ -167,7 +169,9 @@ def build_queries() -> dict[str, str]:
                   )
             )
             SELECT DISTINCT
-                cif_toda_transaccion
+                cif_toda_transaccion,
+                origen_pago,
+                canal_pago
             FROM pagos_toda_transaccion
             WHERE cif_toda_transaccion IS NOT NULL;
         """,
@@ -262,9 +266,33 @@ def main() -> None:
 
     df_base["padded_codigo_cliente"] = df_base["padded_codigo_cliente"].astype(str).str.strip()
     df_pagadores["cif_toda_transaccion"] = df_pagadores["cif_toda_transaccion"].astype(str).str.strip()
+    if "canal_pago" in df_pagadores.columns:
+        df_pagadores["canal_pago"] = df_pagadores["canal_pago"].astype(str).str.strip()
+    if "origen_pago" in df_pagadores.columns:
+        df_pagadores["origen_pago"] = df_pagadores["origen_pago"].astype(str).str.strip()
+
+    df_pagadores_unicos = df_pagadores[["cif_toda_transaccion"]].drop_duplicates()
+    df_pagadores_canal = (
+        df_pagadores.groupby("cif_toda_transaccion", as_index=False)
+        .agg(
+            canales_pago_detectados=("canal_pago", lambda s: " | ".join(sorted({x for x in s if pd.notna(x) and x != ""}))),
+            origenes_pago_detectados=("origen_pago", lambda s: " | ".join(sorted({x for x in s if pd.notna(x) and x != ""}))),
+        )
+    )
 
     t_cross = time.perf_counter()
-    df_sin_pago = df_base[~df_base["padded_codigo_cliente"].isin(df_pagadores["cif_toda_transaccion"])].copy()
+    df_resultado = df_base.merge(
+        df_pagadores_canal,
+        how="left",
+        left_on="padded_codigo_cliente",
+        right_on="cif_toda_transaccion",
+    )
+    df_resultado["realizo_pago_servicios"] = df_resultado["cif_toda_transaccion"].notna().map({True: "SI", False: "NO"})
+    df_resultado["canales_pago_detectados"] = df_resultado["canales_pago_detectados"].fillna("SIN_PAGO")
+    df_resultado["origenes_pago_detectados"] = df_resultado["origenes_pago_detectados"].fillna("SIN_PAGO")
+    df_resultado.drop(columns=["cif_toda_transaccion"], inplace=True)
+
+    df_sin_pago = df_resultado[df_resultado["realizo_pago_servicios"] == "NO"].copy()
     cross_seconds = time.perf_counter() - t_cross
 
     total_seconds = time.perf_counter() - started
@@ -285,8 +313,19 @@ def main() -> None:
     print("-" * 80)
     print("Resumen:")
     print(f"- clientes_base: {len(df_base.index):,}")
-    print(f"- pagadores: {len(df_pagadores.index):,}")
+    print(f"- pagadores (registros): {len(df_pagadores.index):,}")
+    print(f"- pagadores (clientes unicos): {len(df_pagadores_unicos.index):,}")
     print(f"- clientes_sin_pago: {len(df_sin_pago.index):,}")
+
+    print("-" * 80)
+    print("Distribucion de pagadores por origen/canal:")
+    dist_canal = (
+        df_pagadores.groupby(["origen_pago", "canal_pago"], dropna=False)
+        .size()
+        .reset_index(name="total")
+        .sort_values("total", ascending=False)
+    )
+    print(dist_canal.head(20).to_string(index=False))
 
     preferred_cols = [
         "codigo_cliente",
@@ -297,6 +336,9 @@ def main() -> None:
         "fuente_telefono",
         "nombre_operador",
         "correo",
+        "realizo_pago_servicios",
+        "canales_pago_detectados",
+        "origenes_pago_detectados",
     ]
     export_cols = [c for c in preferred_cols if c in df_sin_pago.columns]
     df_export = df_sin_pago[export_cols].sort_values("padded_codigo_cliente").reset_index(drop=True)
