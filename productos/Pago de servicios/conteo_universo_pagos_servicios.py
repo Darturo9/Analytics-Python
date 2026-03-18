@@ -5,7 +5,7 @@ sys.path.insert(0, ".")
 from core.db import run_query_file
 
 
-QUERY_PATH = "productos/Pago de servicios/Queries/ConteoUniversoPagosServicios.sql"
+QUERY_PATH = "productos/Pago de servicios/Queries/ConteoUniversoPagosServicios_v2.sql"
 
 
 def main() -> None:
