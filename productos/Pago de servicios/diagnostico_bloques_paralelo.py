@@ -24,24 +24,34 @@ class BlockResult:
 def build_queries() -> dict[str, str]:
     return {
         "clientes_base": """
-            SELECT DISTINCT
+            SELECT
                 LTRIM(RTRIM(c.cldoc)) AS codigo_cliente,
                 RIGHT('00000000' + LTRIM(RTRIM(c.cldoc)), 8) AS padded_codigo_cliente,
                 c.clnomb AS nombre_cliente
             FROM dw_cif_clientes c
-            INNER JOIN dw_bel_ibclie ibc
-                ON LTRIM(RTRIM(ibc.clccli)) = LTRIM(RTRIM(c.cldoc))
-               AND ibc.clstat = 'A'
-            INNER JOIN dw_bel_ibuser ibu
-                ON LTRIM(RTRIM(ibu.clccli)) = LTRIM(RTRIM(c.cldoc))
-               AND ibu.usstat = 'A'
-            INNER JOIN dw_dep_depositos d
-                ON LTRIM(RTRIM(d.cldoc)) = LTRIM(RTRIM(c.cldoc))
-               AND d.dw_estado_cuenta = 'ACTIVA'
             WHERE c.estatu = 'A'
               AND c.cltipe = 'N'
               AND c.clclco <> 10
-              AND COALESCE(c.dw_sms_cnt, 0) >= 1;
+              AND COALESCE(c.dw_sms_cnt, 0) >= 1
+              AND c.cldoc IS NOT NULL
+              AND EXISTS (
+                    SELECT 1
+                    FROM dw_bel_ibclie ibc
+                    WHERE LTRIM(RTRIM(ibc.clccli)) = LTRIM(RTRIM(c.cldoc))
+                      AND ibc.clstat = 'A'
+              )
+              AND EXISTS (
+                    SELECT 1
+                    FROM dw_bel_ibuser ibu
+                    WHERE LTRIM(RTRIM(ibu.clccli)) = LTRIM(RTRIM(c.cldoc))
+                      AND ibu.usstat = 'A'
+              )
+              AND EXISTS (
+                    SELECT 1
+                    FROM dw_dep_depositos d
+                    WHERE LTRIM(RTRIM(d.cldoc)) = LTRIM(RTRIM(c.cldoc))
+                      AND d.dw_estado_cuenta = 'ACTIVA'
+              );
         """,
         "pagadores": """
             WITH pagos_toda_transaccion AS (
