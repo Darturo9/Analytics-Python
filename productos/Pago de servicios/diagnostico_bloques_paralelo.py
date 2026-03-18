@@ -24,34 +24,94 @@ class BlockResult:
 def build_queries() -> dict[str, str]:
     return {
         "clientes_base": """
+            WITH clientes_elegibles AS (
+                SELECT
+                    LTRIM(RTRIM(c.cldoc)) AS codigo_cliente,
+                    RIGHT('00000000' + LTRIM(RTRIM(c.cldoc)), 8) AS padded_codigo_cliente,
+                    c.clnomb AS nombre_cliente,
+                    YEAR(c.DW_FECHA_NACIMIENTO) AS anio_nac
+                FROM dw_cif_clientes c
+                WHERE c.estatu = 'A'
+                  AND c.cltipe = 'N'
+                  AND c.clclco <> 10
+                  AND COALESCE(c.dw_sms_cnt, 0) >= 1
+                  AND c.cldoc IS NOT NULL
+                  AND EXISTS (
+                        SELECT 1
+                        FROM dw_bel_ibclie ibc
+                        WHERE LTRIM(RTRIM(ibc.clccli)) = LTRIM(RTRIM(c.cldoc))
+                          AND ibc.clstat = 'A'
+                  )
+                  AND EXISTS (
+                        SELECT 1
+                        FROM dw_bel_ibuser ibu
+                        WHERE LTRIM(RTRIM(ibu.clccli)) = LTRIM(RTRIM(c.cldoc))
+                          AND ibu.usstat = 'A'
+                  )
+                  AND EXISTS (
+                        SELECT 1
+                        FROM dw_dep_depositos d
+                        WHERE LTRIM(RTRIM(d.cldoc)) = LTRIM(RTRIM(c.cldoc))
+                          AND d.dw_estado_cuenta = 'ACTIVA'
+                  )
+            ),
+            contacto_base AS (
+                SELECT
+                    ce.codigo_cliente,
+                    ce.padded_codigo_cliente,
+                    ce.nombre_cliente,
+                    ce.anio_nac,
+                    CASE
+                        WHEN sms.telefono_sms IS NOT NULL THEN sms.telefono_sms
+                        WHEN COALESCE(LEN(telefonos.cltel1), 0) = 8
+                             AND SUBSTRING(telefonos.cltel1, 1, 1) IN ('3', '7', '8', '9')
+                            THEN telefonos.cltel1
+                        WHEN COALESCE(LEN(telefonos.cltel2), 0) = 8
+                             AND SUBSTRING(telefonos.cltel2, 1, 1) IN ('3', '7', '8', '9')
+                            THEN telefonos.cltel2
+                    END AS numero_telefono,
+                    CASE
+                        WHEN sms.telefono_sms IS NOT NULL THEN 'SMS_PERFIL'
+                        WHEN COALESCE(LEN(telefonos.cltel1), 0) = 8
+                             AND SUBSTRING(telefonos.cltel1, 1, 1) IN ('3', '7', '8', '9')
+                            THEN 'DIRECCION_CLTEL1'
+                        WHEN COALESCE(LEN(telefonos.cltel2), 0) = 8
+                             AND SUBSTRING(telefonos.cltel2, 1, 1) IN ('3', '7', '8', '9')
+                            THEN 'DIRECCION_CLTEL2'
+                        ELSE 'SIN_DATO'
+                    END AS fuente_telefono,
+                    sms.dw_nombre_operador AS nombre_operador,
+                    LOWER(RTRIM(LTRIM(correos.cldire))) AS correo,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ce.codigo_cliente
+                        ORDER BY sms.telefono_sms, telefonos.cltel1, telefonos.cltel2, correos.cldire
+                    ) AS rn
+                FROM clientes_elegibles ce
+                LEFT JOIN dwhbi.dbo.dw_sms_perfil_usuario sms
+                    ON ce.padded_codigo_cliente = RTRIM(LTRIM(sms.cif))
+                   AND sms.dw_descripcion_status = 'ACTIVO'
+                   AND sms.dw_nombre_operador IN ('Claro H', 'Hondutel', 'Tigo H')
+                   AND LEN(sms.telefono_sms) = 8
+                   AND SUBSTRING(sms.telefono_sms, 1, 1) IN ('3', '7', '8', '9')
+                LEFT JOIN dw_cif_direcciones_principal telefonos
+                    ON ce.codigo_cliente = RTRIM(LTRIM(telefonos.cldoc))
+                LEFT JOIN dw_cif_direcciones correos
+                    ON ce.codigo_cliente = RTRIM(LTRIM(correos.cldoc))
+                   AND correos.cldico = 4
+                   AND correos.cldire LIKE '%_@_%.__%'
+            )
             SELECT
-                LTRIM(RTRIM(c.cldoc)) AS codigo_cliente,
-                RIGHT('00000000' + LTRIM(RTRIM(c.cldoc)), 8) AS padded_codigo_cliente,
-                c.clnomb AS nombre_cliente
-            FROM dw_cif_clientes c
-            WHERE c.estatu = 'A'
-              AND c.cltipe = 'N'
-              AND c.clclco <> 10
-              AND COALESCE(c.dw_sms_cnt, 0) >= 1
-              AND c.cldoc IS NOT NULL
-              AND EXISTS (
-                    SELECT 1
-                    FROM dw_bel_ibclie ibc
-                    WHERE LTRIM(RTRIM(ibc.clccli)) = LTRIM(RTRIM(c.cldoc))
-                      AND ibc.clstat = 'A'
-              )
-              AND EXISTS (
-                    SELECT 1
-                    FROM dw_bel_ibuser ibu
-                    WHERE LTRIM(RTRIM(ibu.clccli)) = LTRIM(RTRIM(c.cldoc))
-                      AND ibu.usstat = 'A'
-              )
-              AND EXISTS (
-                    SELECT 1
-                    FROM dw_dep_depositos d
-                    WHERE LTRIM(RTRIM(d.cldoc)) = LTRIM(RTRIM(c.cldoc))
-                      AND d.dw_estado_cuenta = 'ACTIVA'
-              );
+                codigo_cliente,
+                padded_codigo_cliente,
+                nombre_cliente,
+                anio_nac,
+                numero_telefono,
+                fuente_telefono,
+                nombre_operador,
+                correo
+            FROM contacto_base
+            WHERE rn = 1
+              AND NOT (numero_telefono IS NULL AND correo IS NULL);
         """,
         "pagadores": """
             WITH pagos_toda_transaccion AS (
@@ -219,7 +279,17 @@ def main() -> None:
     if args.top > 0:
         print("-" * 80)
         print(f"Top {args.top} clientes sin pago:")
-        cols = ["codigo_cliente", "padded_codigo_cliente", "nombre_cliente"]
+        preferred_cols = [
+            "codigo_cliente",
+            "padded_codigo_cliente",
+            "nombre_cliente",
+            "anio_nac",
+            "numero_telefono",
+            "fuente_telefono",
+            "nombre_operador",
+            "correo",
+        ]
+        cols = [c for c in preferred_cols if c in df_sin_pago.columns]
         print(df_sin_pago[cols].head(args.top).to_string(index=False))
 
 
