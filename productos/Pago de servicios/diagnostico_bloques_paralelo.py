@@ -31,7 +31,17 @@ def build_queries() -> dict[str, str]:
                     LTRIM(RTRIM(c.cldoc)) AS codigo_cliente,
                     RIGHT('00000000' + LTRIM(RTRIM(c.cldoc)), 8) AS padded_codigo_cliente,
                     c.clnomb AS nombre_cliente,
-                    YEAR(c.DW_FECHA_NACIMIENTO) AS anio_nac
+                    YEAR(c.DW_FECHA_NACIMIENTO) AS anio_nac,
+                    CASE
+                        WHEN c.DW_FECHA_NACIMIENTO IS NULL THEN NULL
+                        ELSE
+                            DATEDIFF(YEAR, c.DW_FECHA_NACIMIENTO, CAST(GETDATE() AS DATE))
+                            - CASE
+                                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.DW_FECHA_NACIMIENTO, CAST(GETDATE() AS DATE)), c.DW_FECHA_NACIMIENTO) > CAST(GETDATE() AS DATE)
+                                    THEN 1
+                                    ELSE 0
+                              END
+                    END AS edad
                 FROM dw_cif_clientes c
                 WHERE c.estatu = 'A'
                   AND c.cltipe = 'N'
@@ -63,6 +73,7 @@ def build_queries() -> dict[str, str]:
                     ce.padded_codigo_cliente,
                     ce.nombre_cliente,
                     ce.anio_nac,
+                    ce.edad,
                     CASE
                         WHEN sms.telefono_sms IS NOT NULL THEN sms.telefono_sms
                         WHEN COALESCE(LEN(telefonos.cltel1), 0) = 8
@@ -84,6 +95,7 @@ def build_queries() -> dict[str, str]:
                     END AS fuente_telefono,
                     sms.dw_nombre_operador AS nombre_operador,
                     LOWER(RTRIM(LTRIM(correos.cldire))) AS correo,
+                    COALESCE(NULLIF(LTRIM(RTRIM(telefonos.dw_nivel_geo2)), ''), 'SIN_DATO') AS departamento,
                     ROW_NUMBER() OVER (
                         PARTITION BY ce.codigo_cliente
                         ORDER BY sms.telefono_sms, telefonos.cltel1, telefonos.cltel2, correos.cldire
@@ -107,10 +119,12 @@ def build_queries() -> dict[str, str]:
                 padded_codigo_cliente,
                 nombre_cliente,
                 anio_nac,
+                edad,
                 numero_telefono,
                 fuente_telefono,
                 nombre_operador,
-                correo
+                correo,
+                departamento
             FROM contacto_base
             WHERE rn = 1
               AND NOT (numero_telefono IS NULL AND correo IS NULL);
@@ -332,10 +346,12 @@ def main() -> None:
         "padded_codigo_cliente",
         "nombre_cliente",
         "anio_nac",
+        "edad",
         "numero_telefono",
         "fuente_telefono",
         "nombre_operador",
         "correo",
+        "departamento",
         "realizo_pago_servicios",
         "canales_pago_detectados",
         "origenes_pago_detectados",
