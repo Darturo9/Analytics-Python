@@ -342,6 +342,10 @@ def main() -> None:
     ]
     export_cols = [c for c in preferred_cols if c in df_sin_pago.columns]
     df_export = df_sin_pago[export_cols].sort_values("padded_codigo_cliente").reset_index(drop=True)
+    # Normaliza nombres y valores para evitar errores de ancho al exportar en distintos pandas.
+    df_export.columns = [str(c) for c in df_export.columns]
+    df_export = df_export.where(pd.notna(df_export), "")
+    df_export = df_export.applymap(lambda x: str(x) if not isinstance(x, str) else x)
 
     if not args.no_export:
         if args.output.strip():
