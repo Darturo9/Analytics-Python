@@ -27,7 +27,7 @@ pagos_parametros AS (
             'app-achtrf','app-trach','app-transf','app-transh','app-transt',
             'app-tcpago','app-pagotc','app-paptmo','pago-ptmos','ope-psarah'
        )
-    WHERE j.dw_fecha_journal >= '2025-01-01'
+    WHERE (:fecha_inicio IS NULL OR j.dw_fecha_journal >= :fecha_inicio)
       AND j.jostat = 1
       AND j.josecu = 1
       AND j.jovalo > 0
@@ -50,7 +50,7 @@ pagos_parametros AS (
     ) x
     INNER JOIN universo u
         ON LTRIM(RTRIM(x.cif_raw)) = u.codigo_cliente_raw
-    WHERE p.dw_fecha_operacion_sp >= '2025-01-01'
+    WHERE (:fecha_inicio IS NULL OR p.dw_fecha_operacion_sp >= :fecha_inicio)
       AND p.spcpde = 'App'
       AND p.sppafr = 'N'
       AND p.spcodc IN (
