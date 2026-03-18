@@ -224,7 +224,7 @@ def clientes_sin_pago(df_base: pd.DataFrame, df_pagadores: pd.DataFrame) -> pd.D
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Listado de clientes sin pago de servicios (export) y conteos por fecha."
+        description="Listado de clientes sin pago de servicios (export) y conteos por fechas."
     )
     parser.add_argument(
         "--fecha-listado",
@@ -235,6 +235,11 @@ def main() -> None:
         "--fecha-conteo",
         default="2026-01-01",
         help="Fecha inicio para conteo adicional (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--fecha-conteo-2",
+        default="2026-03-16",
+        help="Segunda fecha de inicio para conteo adicional (YYYY-MM-DD)",
     )
     parser.add_argument(
         "--fecha-fin",
@@ -259,17 +264,20 @@ def main() -> None:
     print("Calculando clientes sin pago de servicios...")
     print(f"- Listado desde: {args.fecha_listado}")
     print(f"- Conteo adicional desde: {args.fecha_conteo}")
+    print(f"- Conteo adicional 2 desde: {args.fecha_conteo_2}")
     print(f"- Fecha fin exclusiva: {args.fecha_fin}")
     print("-" * 80)
 
     params_listado = {"fecha_inicio": args.fecha_listado, "fecha_fin": args.fecha_fin}
     params_conteo = {"fecha_inicio": args.fecha_conteo, "fecha_fin": args.fecha_fin}
+    params_conteo_2 = {"fecha_inicio": args.fecha_conteo_2, "fecha_fin": args.fecha_fin}
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         future_map = {
             executor.submit(run_block, "clientes_base", queries["clientes_base"], {}): "clientes_base",
             executor.submit(run_block, "pagadores_listado", queries["pagadores"], params_listado): "pagadores_listado",
             executor.submit(run_block, "pagadores_conteo", queries["pagadores"], params_conteo): "pagadores_conteo",
+            executor.submit(run_block, "pagadores_conteo_2", queries["pagadores"], params_conteo_2): "pagadores_conteo_2",
         }
         results: dict[str, BlockResult] = {}
         for future in as_completed(future_map):
@@ -281,7 +289,7 @@ def main() -> None:
                 print(f"[ERR] {result.name:<18} {result.seconds:>8.2f}s  error={result.error}")
 
     failed = [r for r in results.values() if not r.ok]
-    required = {"clientes_base", "pagadores_listado", "pagadores_conteo"}
+    required = {"clientes_base", "pagadores_listado", "pagadores_conteo", "pagadores_conteo_2"}
     if failed or not required.issubset(results.keys()):
         print("-" * 80)
         print("Finalizado con errores. Corrige los bloques en error y vuelve a ejecutar.")
@@ -290,13 +298,17 @@ def main() -> None:
     df_base = results["clientes_base"].df.copy()
     df_pagadores_listado = results["pagadores_listado"].df.copy()
     df_pagadores_conteo = results["pagadores_conteo"].df.copy()
+    df_pagadores_conteo_2 = results["pagadores_conteo_2"].df.copy()
 
     df_sin_pago_listado = clientes_sin_pago(df_base, df_pagadores_listado)
     df_sin_pago_conteo = clientes_sin_pago(df_base, df_pagadores_conteo)
+    df_sin_pago_conteo_2 = clientes_sin_pago(df_base, df_pagadores_conteo_2)
 
     print("Conteos:")
+    print(f"- Clientes activos/naturales con banca (base): {len(df_base.index):,}")
     print(f"- Clientes sin pago desde {args.fecha_listado}: {len(df_sin_pago_listado.index):,}")
     print(f"- Clientes sin pago desde {args.fecha_conteo}: {len(df_sin_pago_conteo.index):,}")
+    print(f"- Clientes sin pago desde {args.fecha_conteo_2}: {len(df_sin_pago_conteo_2.index):,}")
     print("-" * 80)
 
     preferred_cols = [
