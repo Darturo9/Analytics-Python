@@ -6,5 +6,5 @@ Nombre esperado:
 Encabezado obligatorio:
 - Cliente
 
-Ejemplo de ruta:
-- productos/cuenta_digital/2026-03/archivoExcel/clientes_para_excluir.xlsx
+Ruta:
+- productos/Negativizacion/2026-03/archivoExcel/clientes_para_excluir.xlsx
