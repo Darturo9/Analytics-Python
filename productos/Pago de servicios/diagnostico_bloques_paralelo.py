@@ -213,13 +213,35 @@ def run_block(name: str, sql: str, params: dict[str, str]) -> BlockResult:
         )
 
 
+def clientes_sin_pago(df_base: pd.DataFrame, df_pagadores: pd.DataFrame) -> pd.DataFrame:
+    base = df_base.copy()
+    pag = df_pagadores.copy()
+    base["padded_codigo_cliente"] = base["padded_codigo_cliente"].astype(str).str.strip()
+    pag["cif_toda_transaccion"] = pag["cif_toda_transaccion"].astype(str).str.strip()
+    pag_unicos = pag[["cif_toda_transaccion"]].drop_duplicates()
+    return base[~base["padded_codigo_cliente"].isin(pag_unicos["cif_toda_transaccion"])].copy()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Diagnostico paralelo de bloques SQL para pagos de servicios."
+        description="Listado de clientes sin pago de servicios (export) y conteos por fecha."
     )
-    parser.add_argument("--fecha-inicio", default="2026-03-10", help="Fecha inicio (YYYY-MM-DD)")
-    parser.add_argument("--fecha-fin", default="2026-03-11", help="Fecha fin exclusiva (YYYY-MM-DD)")
-    parser.add_argument("--workers", type=int, default=2, help="Cantidad de hilos paralelos")
+    parser.add_argument(
+        "--fecha-listado",
+        default="2025-01-01",
+        help="Fecha inicio para listado/export Excel (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--fecha-conteo",
+        default="2026-01-01",
+        help="Fecha inicio para conteo adicional (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--fecha-fin",
+        default="2100-01-01",
+        help="Fecha fin exclusiva para ambos cortes (YYYY-MM-DD)",
+    )
+    parser.add_argument("--workers", type=int, default=3, help="Cantidad de hilos paralelos")
     parser.add_argument(
         "--no-export",
         action="store_true",
@@ -232,81 +254,50 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    params = {"fecha_inicio": args.fecha_inicio, "fecha_fin": args.fecha_fin}
     queries = build_queries()
 
-    print("Iniciando diagnostico paralelo por etapas...")
-    print(f"Rango: [{args.fecha_inicio}, {args.fecha_fin})")
-    print(f"Bloques: {', '.join(queries.keys())}")
+    print("Calculando clientes sin pago de servicios...")
+    print(f"- Listado desde: {args.fecha_listado}")
+    print(f"- Conteo adicional desde: {args.fecha_conteo}")
+    print(f"- Fecha fin exclusiva: {args.fecha_fin}")
     print("-" * 80)
 
-    started = time.perf_counter()
-    results: list[BlockResult] = []
+    params_listado = {"fecha_inicio": args.fecha_listado, "fecha_fin": args.fecha_fin}
+    params_conteo = {"fecha_inicio": args.fecha_conteo, "fecha_fin": args.fecha_fin}
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         future_map = {
-            executor.submit(run_block, name, sql, params): name
-            for name, sql in queries.items()
+            executor.submit(run_block, "clientes_base", queries["clientes_base"], {}): "clientes_base",
+            executor.submit(run_block, "pagadores_listado", queries["pagadores"], params_listado): "pagadores_listado",
+            executor.submit(run_block, "pagadores_conteo", queries["pagadores"], params_conteo): "pagadores_conteo",
         }
+        results: dict[str, BlockResult] = {}
         for future in as_completed(future_map):
             result = future.result()
-            results.append(result)
+            results[result.name] = result
             if result.ok:
-                print(
-                    f"[OK]  {result.name:<18} "
-                    f"{result.seconds:>8.2f}s  filas={result.rows:,}"
-                )
+                print(f"[OK]  {result.name:<18} {result.seconds:>8.2f}s")
             else:
-                print(
-                    f"[ERR] {result.name:<18} "
-                    f"{result.seconds:>8.2f}s  error={result.error}"
-                )
+                print(f"[ERR] {result.name:<18} {result.seconds:>8.2f}s  error={result.error}")
 
-    failed = [r for r in results if not r.ok]
-    if failed:
+    failed = [r for r in results.values() if not r.ok]
+    required = {"clientes_base", "pagadores_listado", "pagadores_conteo"}
+    if failed or not required.issubset(results.keys()):
         print("-" * 80)
         print("Finalizado con errores. Corrige los bloques en error y vuelve a ejecutar.")
         return
 
-    by_name = {r.name: r for r in results}
-    df_base = by_name["clientes_base"].df.copy()
-    df_pagadores = by_name["pagadores"].df.copy()
+    df_base = results["clientes_base"].df.copy()
+    df_pagadores_listado = results["pagadores_listado"].df.copy()
+    df_pagadores_conteo = results["pagadores_conteo"].df.copy()
 
-    df_base["padded_codigo_cliente"] = df_base["padded_codigo_cliente"].astype(str).str.strip()
-    df_pagadores["cif_toda_transaccion"] = df_pagadores["cif_toda_transaccion"].astype(str).str.strip()
-    df_pagadores_unicos = df_pagadores[["cif_toda_transaccion"]].drop_duplicates()
+    df_sin_pago_listado = clientes_sin_pago(df_base, df_pagadores_listado)
+    df_sin_pago_conteo = clientes_sin_pago(df_base, df_pagadores_conteo)
 
-    t_cross = time.perf_counter()
-    df_sin_pago = df_base[~df_base["padded_codigo_cliente"].isin(df_pagadores_unicos["cif_toda_transaccion"])].copy()
-    cross_seconds = time.perf_counter() - t_cross
-
-    total_seconds = time.perf_counter() - started
-
-    print(
-        f"[OK]  {'cruce_python':<18} "
-        f"{cross_seconds:>8.2f}s  filas={len(df_sin_pago.index):,}"
-    )
+    print("Conteos:")
+    print(f"- Clientes sin pago desde {args.fecha_listado}: {len(df_sin_pago_listado.index):,}")
+    print(f"- Clientes sin pago desde {args.fecha_conteo}: {len(df_sin_pago_conteo.index):,}")
     print("-" * 80)
-    print(f"Tiempo total del diagnostico: {total_seconds:.2f}s")
-    print("Ranking etapas (mas rapido -> mas lento):")
-    ranking = sorted(results + [BlockResult("cruce_python", True, cross_seconds, len(df_sin_pago.index))], key=lambda x: x.seconds)
-    for item in ranking:
-        status = "OK" if item.ok else "ERR"
-        extra = f"filas={item.rows:,}" if item.ok else "error"
-        print(f"  - {item.name:<18} {item.seconds:>8.2f}s [{status}] {extra}")
-
-    print("-" * 80)
-    print("Resumen:")
-    print(f"- clientes_sin_pago: {len(df_sin_pago.index):,}")
-    print("-" * 80)
-    print("Distribucion de pagadores por origen/canal:")
-    dist_canal = (
-        df_pagadores.groupby(["origen_pago", "canal_pago"], dropna=False)
-        .size()
-        .reset_index(name="total")
-        .sort_values("total", ascending=False)
-    )
-    print(dist_canal.to_string(index=False))
 
     preferred_cols = [
         "codigo_cliente",
@@ -320,8 +311,12 @@ def main() -> None:
         "correo",
         "departamento",
     ]
-    export_cols = [c for c in preferred_cols if c in df_sin_pago.columns]
-    df_export = df_sin_pago[export_cols].sort_values("padded_codigo_cliente").reset_index(drop=True)
+    export_cols = [c for c in preferred_cols if c in df_sin_pago_listado.columns]
+    df_export = (
+        df_sin_pago_listado[export_cols]
+        .sort_values("padded_codigo_cliente")
+        .reset_index(drop=True)
+    )
     # Normaliza nombres y valores para evitar errores de ancho al exportar en distintos pandas.
     df_export.columns = [str(c) for c in df_export.columns]
     df_export = df_export.where(pd.notna(df_export), "")
@@ -332,7 +327,7 @@ def main() -> None:
             output_path = Path(args.output.strip())
         else:
             base_dir = Path("productos/Pago de servicios/exports")
-            file_name = f"clientes_sin_pago_contacto_{args.fecha_inicio}_a_{args.fecha_fin}.xlsx"
+            file_name = f"clientes_sin_pago_contacto_desde_{args.fecha_listado}.xlsx"
             output_path = base_dir / file_name
         exportar_excel(df_export, str(output_path), hoja="ClientesSinPago")
         print(f"- Excel exportado: {output_path}")
