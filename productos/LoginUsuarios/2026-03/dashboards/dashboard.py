@@ -451,7 +451,7 @@ app.layout = html.Div(
 
         html.Div(style={**card_style, "marginBottom": "20px", "borderTop": f"4px solid {COLORES['azul_financiero']}"}, children=[
             html.H4(
-                "Clientes únicos por día (si un cliente entra 9 veces en el día, cuenta 1)",
+                "Clientes únicos por día",
                 style={"color": COLORES["azul_experto"], "marginTop": 0},
             ),
             dcc.Graph(figure=construir_figura_clientes_unicos_dia(df_filtrado)),
