@@ -259,7 +259,7 @@ def construir_figura_clientes_unicos_dia(df_logins: pd.DataFrame) -> go.Figure:
     separacion = max(1, int(max_total * 0.04))
 
     fig = go.Figure()
-    colores = [COLORES["azul_financiero"], COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_experto"]]
+    colores = [COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_financiero"], COLORES["azul_experto"]]
     for idx, columna in enumerate(pivot.columns.tolist()):
         fig.add_trace(go.Bar(
             name=columna,
