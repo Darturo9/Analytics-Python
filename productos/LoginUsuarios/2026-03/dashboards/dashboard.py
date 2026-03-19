@@ -92,6 +92,14 @@ def consolidar_canal_contacto(series: pd.Series) -> str:
     return "Mixto"
 
 
+def usuario_representativo(series: pd.Series) -> str:
+    s = series.fillna("").astype(str).str.strip()
+    s = s[s != ""]
+    if s.empty:
+        return ""
+    return s.value_counts().index[0]
+
+
 def cargar_contactados() -> tuple[pd.DataFrame, str | None]:
     archivos_preferidos = [
         RUTA_DATA_CONTACTADOS / "Contactados.xlsx",
@@ -317,9 +325,21 @@ usuarios_unicos = int(df_filtrado["id_usuario"].nunique())
 clientes_excel = int(contactados["padded_codigo_usuario"].nunique())
 clientes_excel_con_login = int(df_filtrado["padded_codigo_usuario"].nunique())
 
-# para tabla
-_df_tabla = df_filtrado.copy().sort_values("fecha_inicio", ascending=False).head(200)
-_df_tabla["fecha_inicio"] = _df_tabla["fecha_inicio"].dt.strftime("%Y-%m-%d %H:%M:%S")
+# para tabla (1 fila por cliente)
+_df_tabla = (
+    df_filtrado.groupby("padded_codigo_usuario", as_index=False)
+    .agg(
+        total_logins=("fecha_inicio", "count"),
+        primer_login=("fecha_inicio", "min"),
+        ultimo_login=("fecha_inicio", "max"),
+        usuario=("id_usuario", usuario_representativo),
+        canal_contacto=("canal_contacto", consolidar_canal_contacto),
+    )
+    .sort_values("total_logins", ascending=False)
+)
+if not _df_tabla.empty:
+    _df_tabla["primer_login"] = _df_tabla["primer_login"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    _df_tabla["ultimo_login"] = _df_tabla["ultimo_login"].dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -384,17 +404,18 @@ app.layout = html.Div(
         ),
 
         html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}"}, children=[
-            html.H4("Últimos logins (solo clientes del Excel, top 200)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
+            html.H4("Clientes con login (1 fila por cliente)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
             dash_table.DataTable(
                 columns=[
-                    {"name": "Fecha login", "id": "fecha_inicio"},
                     {"name": "Código cliente", "id": "padded_codigo_usuario"},
-                    {"name": "Usuario", "id": "nombre_usuario"},
+                    {"name": "Usuario", "id": "usuario"},
                     {"name": "Canal contacto (Excel)", "id": "canal_contacto"},
-                    {"name": "Canal login", "id": "canal_login"},
+                    {"name": "Total logins", "id": "total_logins"},
+                    {"name": "Primer login", "id": "primer_login"},
+                    {"name": "Último login", "id": "ultimo_login"},
                 ],
                 data=_df_tabla[
-                    ["fecha_inicio", "padded_codigo_usuario", "nombre_usuario", "canal_contacto", "canal_login"]
+                    ["padded_codigo_usuario", "usuario", "canal_contacto", "total_logins", "primer_login", "ultimo_login"]
                 ].to_dict("records"),
                 page_size=12,
                 style_table={"overflowX": "auto"},
