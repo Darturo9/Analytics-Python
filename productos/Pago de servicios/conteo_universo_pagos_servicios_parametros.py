@@ -6,6 +6,7 @@ from core.db import run_query_file
 
 
 QUERY_PATH = "productos/Pago de servicios/Queries/ConteoUniversoPagosServicios_parametros.sql"
+RESUMEN_PATH = "productos/Pago de servicios/Queries/ResumenPagosPorNombre_parametros.sql"
 
 
 def ejecutar_escenario(etiqueta: str, fecha_inicio: str | None) -> None:
@@ -14,6 +15,7 @@ def ejecutar_escenario(etiqueta: str, fecha_inicio: str | None) -> None:
     if df.empty:
         print(f"{etiqueta}: sin resultados")
         return
+    df_resumen = run_query_file(RESUMEN_PATH, params=params)
 
     row = df.iloc[0]
     print(f"\n{etiqueta}")
@@ -27,6 +29,11 @@ def ejecutar_escenario(etiqueta: str, fecha_inicio: str | None) -> None:
         "- Clientes sin pago (parametros PagosdeServicios): "
         f"{int(row['clientes_sin_pago_parametros_pagosdeservicios']):,}"
     )
+    print("- Resumen por nombre de pago (transacciones):")
+    if df_resumen.empty:
+        print("  (sin transacciones)")
+    else:
+        print(df_resumen.to_string(index=False))
 
 
 def main() -> None:
