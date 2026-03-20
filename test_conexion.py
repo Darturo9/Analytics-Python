@@ -11,7 +11,7 @@ from core.db import run_query
 
 print("Conectando a SQL Server...")
 
-df = run_query("SELECT TOP 10 * FROM DW_CIF_Clientes")
+df = run_query("SELECT  top 10 CLDOC FROM DW_CIF_Clientes")
 
 print(df.to_string())
 print(f"\n[OK] {len(df)} filas, {len(df.columns)} columnas")
