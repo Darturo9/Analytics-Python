@@ -24,43 +24,47 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    params = {"fecha_inicio": args.fecha_inicio}
-
     print("Calculando universo con/sin pagos de servicios (agrupado)...")
-    print(f"- Filtro fecha inicio de pago: {args.fecha_inicio}")
+    def ejecutar_escenario(etiqueta: str, fecha_inicio: str | None) -> None:
+        params = {"fecha_inicio": fecha_inicio}
+        print(f"\n{etiqueta}")
+        print(f"- Filtro fecha inicio de pago: {fecha_inicio if fecha_inicio else 'SIN FECHA (historico completo)'}")
 
-    t0 = time.perf_counter()
-    df_count = run_query_file(COUNT_QUERY_PATH, params=params)
-    t1 = time.perf_counter()
+        t0 = time.perf_counter()
+        df_count = run_query_file(COUNT_QUERY_PATH, params=params)
+        t1 = time.perf_counter()
 
-    if df_count.empty:
-        print("No se obtuvieron resultados para el conteo.")
-        return
+        if df_count.empty:
+            print("No se obtuvieron resultados para el conteo.")
+            return
 
-    row = df_count.iloc[0]
-    universo = int(row["universo_clientes"])
-    con_pago = int(row["clientes_con_pago"])
-    sin_pago = int(row["clientes_sin_pago"])
-    pct_con_pago = (con_pago / universo * 100.0) if universo else 0.0
-    pct_sin_pago = (sin_pago / universo * 100.0) if universo else 0.0
+        row = df_count.iloc[0]
+        universo = int(row["universo_clientes"])
+        con_pago = int(row["clientes_con_pago"])
+        sin_pago = int(row["clientes_sin_pago"])
+        pct_con_pago = (con_pago / universo * 100.0) if universo else 0.0
+        pct_sin_pago = (sin_pago / universo * 100.0) if universo else 0.0
 
-    print("\nResumen clientes:")
-    print(f"- Universo clientes: {universo:,}")
-    print(f"- Clientes con pago: {con_pago:,} ({pct_con_pago:.2f}%)")
-    print(f"- Clientes sin pago: {sin_pago:,} ({pct_sin_pago:.2f}%)")
-    print(f"- Tiempo query conteo: {(t1 - t0):.2f}s")
+        print("Resumen clientes:")
+        print(f"- Universo clientes: {universo:,}")
+        print(f"- Clientes con pago: {con_pago:,} ({pct_con_pago:.2f}%)")
+        print(f"- Clientes sin pago: {sin_pago:,} ({pct_sin_pago:.2f}%)")
+        print(f"- Tiempo query conteo: {(t1 - t0):.2f}s")
 
-    t2 = time.perf_counter()
-    df_breakdown = run_query_file(BREAKDOWN_QUERY_PATH, params=params)
-    t3 = time.perf_counter()
+        t2 = time.perf_counter()
+        df_breakdown = run_query_file(BREAKDOWN_QUERY_PATH, params=params)
+        t3 = time.perf_counter()
 
-    print("\nDesglose por tipo/origen:")
-    if df_breakdown.empty:
-        print("(sin transacciones clasificadas)")
-    else:
-        print(df_breakdown.to_string(index=False))
-    print(f"- Tiempo query desglose: {(t3 - t2):.2f}s")
-    print(f"- Tiempo total: {(t3 - t0):.2f}s")
+        print("Desglose por tipo/origen:")
+        if df_breakdown.empty:
+            print("(sin transacciones clasificadas)")
+        else:
+            print(df_breakdown.to_string(index=False))
+        print(f"- Tiempo query desglose: {(t3 - t2):.2f}s")
+        print(f"- Tiempo total escenario: {(t3 - t0):.2f}s")
+
+    ejecutar_escenario("Escenario 1 (desde fecha indicada)", args.fecha_inicio)
+    ejecutar_escenario("Escenario 2 (sin fecha de inicio)", None)
 
 
 if __name__ == "__main__":

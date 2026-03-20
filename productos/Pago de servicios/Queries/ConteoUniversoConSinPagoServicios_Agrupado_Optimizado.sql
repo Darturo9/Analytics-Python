@@ -41,7 +41,7 @@ pagos_bxi AS (
     ) AS n(padded_codigo_cliente)
     INNER JOIN universo_clientes u
         ON u.padded_codigo_cliente = n.padded_codigo_cliente
-    WHERE j.dw_fecha_journal >= :fecha_inicio
+    WHERE (:fecha_inicio IS NULL OR j.dw_fecha_journal >= :fecha_inicio)
       AND j.jostat = 1
       AND j.josecu = 1
       AND j.jovalo > 0
@@ -78,7 +78,7 @@ pagos_multi_raw AS (
     ) AS cv(codigo_int, categoria_int)
     INNER JOIN universo_clientes u
         ON u.padded_codigo_cliente = n.padded_codigo_cliente
-    WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
+    WHERE (:fecha_inicio IS NULL OR p.dw_fecha_operacion_sp >= :fecha_inicio)
       AND p.sppafr = 'N'
       AND (
           cv.codigo_int IN (481, 907, 693, 524, 572, 573, 732, 498, 866, 882, 513, 868, 869)
