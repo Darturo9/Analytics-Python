@@ -1,0 +1,37 @@
+IF [codigo_multi] = 'ap-pagclar' or [codigo_multi] = 'app-pagcla' or [codigo_multi] = 'ope-rccl' or [codigo_multi] = 'app-reccla' THEN
+'Claro'
+ELSEIF [codigo_multi] = 'app-ptigo' or [codigo_multi] = 'pag-tigo' or [codigo_multi]  = 'app-rectig' or [codigo_multi] = 'ope-rctg' THEN
+'Tigo'
+ELSEIF [codigo_multi] = 'app-paenee' or [codigo_multi] = 'pag-enee' THEN
+'Electricidad'
+ELSEIF [codigo_multi] = 'app-asps' or [codigo_multi] = 'pag-asps' THEN
+'Agua'
+ELSEIF [maestro_multi_cat] = 3 THEN
+"Educación"
+ELSEIF [codigo] = 481 or [codigo] = 907 THEN
+'Electricidad'
+ELSEIF [codigo] = 693 THEN
+'Licencia'
+ELSEIF [codigo] = 524 THEN
+'Tigo'
+ELSEIF [codigo] = 572 or [codigo] = 573 or [codigo] = 732 THEN
+'Cable'
+ELSEIF [codigo] = 498 THEN
+'Claro'
+ELSEIF [codigo] = 866 or [codigo] = 882 THEN
+'Impuestos'
+ELSEIF [maestro_multi_cat] = 11 THEN
+    'Agua'
+ELSEIF [codigo_multi] = "app-achtrf" or [codigo_multi]= "app-trach" or [codigo_multi] = "app-transh" THEN
+    'Transferencias ACH'
+ELSEIF [codigo_multi] = "app-transf" THEN
+    'Transferencias Propias'
+ELSEIF [codigo_multi] = "app-transt" THEN
+    'Transferencias a terceros'
+ELSEIF [codigo_multi] =  "app-pagotc" THEN
+    'Pago de Tarjeta de Crédito Terceros'
+ELSEIF [codigo_multi] = "app-tcpago" THEN
+    'Pago de Tarjeta de Crédito'
+ELSEIF [codigo] = 513 or [codigo] = 868 or [codigo] = 869 THEN
+    'Matrícula de vehículos'
+END
