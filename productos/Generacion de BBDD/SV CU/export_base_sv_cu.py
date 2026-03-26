@@ -22,6 +22,15 @@ QUERY_BY_TYPE = {
 EXPECTED_COLUMNS = ["codigo_cliente", "nombre_cliente", "correo"]
 
 
+def normalizar_codigo_cliente(series: pd.Series) -> pd.Series:
+    codigos = (
+        series.astype(str)
+        .str.strip()
+        .str.replace(r"\.0$", "", regex=True)
+    )
+    return codigos.apply(lambda codigo: codigo.zfill(8) if codigo else codigo)
+
+
 def build_output_path(tipo: str, output_arg: str, multiple: bool = False) -> Path:
     if output_arg.strip():
         base_output = Path(output_arg.strip())
@@ -57,7 +66,7 @@ def export_tipo(tipo: str, output_arg: str = "", multiple: bool = False) -> None
 
     df = df[EXPECTED_COLUMNS].copy()
     df = df.where(pd.notna(df), "")
-    df["codigo_cliente"] = df["codigo_cliente"].astype(str).str.strip()
+    df["codigo_cliente"] = normalizar_codigo_cliente(df["codigo_cliente"])
     df["nombre_cliente"] = df["nombre_cliente"].astype(str).str.strip()
     df["correo"] = df["correo"].astype(str).str.strip().str.lower()
 
