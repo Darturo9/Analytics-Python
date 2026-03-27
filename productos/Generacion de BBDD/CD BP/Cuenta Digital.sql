@@ -6,9 +6,11 @@ WITH clientes_excluidos_campania AS (
     FROM DWHBI.dbo.DW_RTM_APP_CAMPAIGN cam
     INNER JOIN DWHBI.dbo.DW_RTM_APP_HISCAMPAIGNUNIVERSO his ON (his.CampaignID = cam.CampaignID)
     WHERE cam.Start_date >= '2026-01-01'
-      AND cam.Name LIKE '%CD HN - 72049 (B)%'
-      AND cam.Description LIKE '%REG SQVD%'
-      AND cam.Description LIKE '%BPA015%'
+     -- AND cam.Name LIKE '%CD HN - 72049 (B)%'
+    --  AND cam.Description LIKE '%REG SQVD%'
+    --  AND cam.Description LIKE '%BPA015%'
+		AND cam.Name LIKE '%CD HN%'
+	    AND cam.Name LIKE '%Inicial%'
 ),
 clientes_filtrados AS (
     -- Universo base en DWHBP
