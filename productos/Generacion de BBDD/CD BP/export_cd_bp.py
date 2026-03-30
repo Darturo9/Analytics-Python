@@ -80,6 +80,18 @@ def preparar_base(df: pd.DataFrame) -> pd.DataFrame:
     df["correo"] = df["correo"].astype(str).str.strip().str.lower()
     df["segmentacion_generacional"] = df["segmentacion_generacional"].astype(str).str.strip()
 
+    # Se excluyen clientes fuera del target generacional de campana.
+    mask_otra_generacion = (
+        df["segmentacion_generacional"]
+        .str.upper()
+        .str.strip()
+        .isin({"OTRA GENERACION", "OTRA GENERACIÓN"})
+    )
+    total_excluidos = int(mask_otra_generacion.sum())
+    if total_excluidos > 0:
+        df = df.loc[~mask_otra_generacion].copy()
+        print(f"- Excluidos por 'OTRA GENERACION': {total_excluidos:,}")
+
     duplicated_rows = int(df.duplicated(subset=["cif"]).sum())
     if duplicated_rows > 0:
         df = df.drop_duplicates(subset=["cif"], keep="first")
@@ -89,14 +101,12 @@ def preparar_base(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def limitar_por_generacion(df: pd.DataFrame, random_seed: int) -> pd.DataFrame:
-    def take_group(group: pd.DataFrame) -> pd.DataFrame:
-        if len(group.index) <= MAX_POR_GENERACION:
-            return group
-        return group.sample(n=MAX_POR_GENERACION, random_state=random_seed)
-
+    # En algunas versiones de pandas, groupby.apply puede excluir la columna de agrupación.
+    # Mezclamos todo con semilla fija y tomamos head por grupo para mantener estabilidad.
+    mezclado = df.sample(frac=1, random_state=random_seed)
     limitado = (
-        df.groupby("segmentacion_generacional", group_keys=False)
-        .apply(take_group)
+        mezclado.groupby("segmentacion_generacional", group_keys=False)
+        .head(MAX_POR_GENERACION)
         .reset_index(drop=True)
     )
     return limitado
@@ -106,6 +116,10 @@ def imprimir_resumen(df_completa: pd.DataFrame, df_limitada: pd.DataFrame) -> No
     print(f"- Total base completa: {len(df_completa.index):,}")
     print(f"- Total base limitada: {len(df_limitada.index):,}")
     print("- Conteo por generacion (base limitada):")
+
+    if "segmentacion_generacional" not in df_limitada.columns:
+        print("  * No se pudo calcular (falta columna segmentacion_generacional).")
+        return
 
     conteo = (
         df_limitada.groupby("segmentacion_generacional")["cif"]
