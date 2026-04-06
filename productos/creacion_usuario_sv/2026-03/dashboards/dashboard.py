@@ -277,6 +277,57 @@ def construir_figura_generaciones(df_mes: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def construir_figura_generaciones_barras(df_mes: pd.DataFrame) -> go.Figure:
+    if df_mes.empty:
+        return construir_figura_vacia("No hay datos de generaciones para el período seleccionado")
+
+    orden = [
+        "Generation X (1965-1980)",
+        "Gen Y - Millennials (1981-1996)",
+        "Generación Z (1997-2012)",
+        "OTRA GENERACION",
+    ]
+    conteos = df_mes.groupby("generacion")["id_usuario"].nunique().reindex(orden, fill_value=0)
+    conteos = conteos[conteos > 0].sort_values(ascending=False)
+    if conteos.empty:
+        return construir_figura_vacia("No hay datos de generaciones para el período seleccionado")
+
+    colores = {
+        "Generation X (1965-1980)": COLORES["azul_financiero"],
+        "Gen Y - Millennials (1981-1996)": COLORES["aqua_digital"],
+        "Generación Z (1997-2012)": COLORES["amarillo_opt"],
+        "OTRA GENERACION": COLORES["azul_experto"],
+    }
+
+    etiquetas = conteos.index.tolist()
+    valores = conteos.values.tolist()
+    textos = [f"{int(v):,}" for v in valores]
+    max_x = max(valores) if valores else 0
+
+    fig = go.Figure(data=[
+        go.Bar(
+            y=etiquetas,
+            x=valores,
+            orientation="h",
+            marker_color=[colores.get(g, COLORES["azul_experto"]) for g in etiquetas],
+            text=textos,
+            textposition="outside",
+            hovertemplate="%{y}<br>%{x:,} usuarios distintos<extra></extra>",
+        )
+    ])
+
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=20, b=20, l=190, r=30),
+        xaxis=dict(title="Usuarios distintos", range=[0, max_x + max(1, int(max_x * 0.15))]),
+        yaxis=dict(title="", autorange="reversed"),
+        showlegend=False,
+    )
+    return fig
+
+
 def construir_figura_departamentos(df_mes: pd.DataFrame) -> go.Figure:
     if df_mes.empty:
         return construir_figura_vacia("No hay datos de ubicación para el período seleccionado")
@@ -512,6 +563,11 @@ app.layout = html.Div(
                 html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}"}, children=[
                     html.H4("Generaciones", style={"color": COLORES["azul_experto"], "marginTop": 0}),
                     dcc.Graph(id="grafico-generaciones"),
+                    html.H4(
+                        "Generaciones (de mayor a menor)",
+                        style={"color": COLORES["azul_experto"], "marginTop": "12px", "marginBottom": "0"},
+                    ),
+                    dcc.Graph(id="grafico-generaciones-barras"),
                 ]),
             ],
         ),
@@ -553,6 +609,7 @@ def actualizar_meses(anio, mes_actual):
     Output("grafico-diario", "figure"),
     Output("grafico-genero", "figure"),
     Output("grafico-generaciones", "figure"),
+    Output("grafico-generaciones-barras", "figure"),
     Output("grafico-departamentos", "figure"),
     Input("selector-anio", "value"),
     Input("selector-mes", "value"),
@@ -570,6 +627,7 @@ def actualizar_dashboard(anio, mes, origen):
             "0",
             "0",
             "0",
+            fig_vacia,
             fig_vacia,
             fig_vacia,
             fig_vacia,
@@ -606,6 +664,7 @@ def actualizar_dashboard(anio, mes, origen):
         construir_figura_diaria(df_visual, int(anio), int(mes)),
         construir_figura_genero(df_visual),
         construir_figura_generaciones(df_visual),
+        construir_figura_generaciones_barras(df_visual),
         construir_figura_departamentos(df_visual),
     )
 
