@@ -12,7 +12,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Rutas de archivos
 # ---------------------------------------------------------------------------
-RUTA_POTENCIALES    = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\baselimpiaPotencialesMarzo.xlsx"
+RUTA_POTENCIALES    = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\baselimpiaPotenciales.xlsx"
 RUTA_CUENTA_DIGITAL = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\cuenta_digital_2026.xlsx"
 RUTA_SALIDA         = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\coincidencias_cuenta_digital.xlsx"
 RUTA_DESCARTADOS    = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\descartando_convertidos.xlsx"
