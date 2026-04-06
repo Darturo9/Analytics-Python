@@ -19,6 +19,7 @@ EXPORT_DIR = BASE_DIR / "exports"
 
 EXPECTED_COLUMNS = [
     "fecha_informacion",
+    "cuentas_creadas_periodo",
     "cuentas_reportadas_dia",
     "cuentas_con_fondos_dia",
     "cuentas_acumuladas_con_fondos",
@@ -115,7 +116,11 @@ def imprimir_resumen(df: pd.DataFrame, inicio: date, fin: date, salida: Path) ->
         return
 
     ultimo = df.iloc[-1]
+    cuentas_creadas = int(ultimo["cuentas_creadas_periodo"])
     max_acumulado = int(df["cuentas_acumuladas_con_fondos"].max())
+    porcentaje = (max_acumulado / cuentas_creadas * 100) if cuentas_creadas > 0 else 0
+    print(f"- Cuentas creadas en el periodo: {cuentas_creadas:,}")
+    print(f"- Creadas en periodo con fondos en periodo: {max_acumulado:,} ({porcentaje:.1f}%)")
     print(f"- Maximo acumulado del mes: {max_acumulado:,}")
     print(
         "- Ultimo dia -> "
@@ -130,7 +135,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Genera historico diario de cuentas con fondos y acumulado mensual "
-            "para Cuenta Digital (PRCODP=1, PRSUBP=51)."
+            "para cuentas de Cuenta Digital abiertas en el periodo "
+            "(PRCODP=1, PRSUBP=51)."
         )
     )
     parser.add_argument("--fecha-inicio", help="Fecha inicio (YYYY-MM-DD).")

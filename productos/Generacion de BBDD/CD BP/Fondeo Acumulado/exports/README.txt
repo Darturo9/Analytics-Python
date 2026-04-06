@@ -7,11 +7,13 @@ Salida por defecto:
 
 Columnas principales:
 - fecha_informacion
+- cuentas_creadas_periodo
 - cuentas_reportadas_dia
 - cuentas_con_fondos_dia
 - cuentas_acumuladas_con_fondos
 
 Regla de fondeo:
+- Universo: solo cuentas de Cuenta Digital abiertas dentro del rango evaluado.
 - Una cuenta se considera con fondos en el dia si ctt001 > 0 o dw_saldo_promedio > 0.
 - El acumulado mensual cuenta las cuentas que tuvieron fondos al menos una vez hasta ese dia.
 
