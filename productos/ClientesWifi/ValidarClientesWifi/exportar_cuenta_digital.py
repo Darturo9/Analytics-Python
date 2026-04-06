@@ -104,7 +104,7 @@ FROM (
 		AND agencia.clagno LIKE '%servicios electronicos%'
 	WHERE
 		depositos.dw_feha_apertura >= '2026-02-01'
-		AND depositos.dw_feha_apertura < '2026-04-01'
+		AND depositos.dw_feha_apertura < '2026-04-05'
 		AND depositos.dw_producto = 'CUENTA DIGITAL'
 ) AS c_digitales
 WHERE
