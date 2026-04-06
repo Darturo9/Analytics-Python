@@ -1,7 +1,7 @@
 """
 validar_wifi_correo_telefono.py
 ===============================
-Valida si contactos (correo/telefono) aparecen en la base de cuentas creadas.
+Valida contactos por separado (correo y telefono) contra cuentas creadas.
 
 Entradas fijas (misma carpeta del script):
 - Correo.xlsx (columna: Email)
@@ -11,8 +11,10 @@ Fuente de cuentas:
 - cuenta_digital_2026.xlsx (primero en esta carpeta, fallback a carpeta padre)
 
 Salidas:
-- Coinciden_CuentasCreadas.xlsx
-- NoCoinciden_CuentasCreadas.xlsx
+- Coinciden_Correo.xlsx
+- NoCoinciden_Correo.xlsx
+- Coinciden_Telefono.xlsx
+- NoCoinciden_Telefono.xlsx
 """
 
 from pathlib import Path
@@ -28,8 +30,10 @@ RUTA_TELEFONO = BASE_DIR / "Telefono.xlsx"
 RUTA_CUENTA_LOCAL = BASE_DIR / "cuenta_digital_2026.xlsx"
 RUTA_CUENTA_PARENT = PARENT_DIR / "cuenta_digital_2026.xlsx"
 
-RUTA_SALIDA_COINCIDEN = BASE_DIR / "Coinciden_CuentasCreadas.xlsx"
-RUTA_SALIDA_NO_COINCIDEN = BASE_DIR / "NoCoinciden_CuentasCreadas.xlsx"
+RUTA_SALIDA_COINCIDEN_CORREO = BASE_DIR / "Coinciden_Correo.xlsx"
+RUTA_SALIDA_NO_COINCIDEN_CORREO = BASE_DIR / "NoCoinciden_Correo.xlsx"
+RUTA_SALIDA_COINCIDEN_TELEFONO = BASE_DIR / "Coinciden_Telefono.xlsx"
+RUTA_SALIDA_NO_COINCIDEN_TELEFONO = BASE_DIR / "NoCoinciden_Telefono.xlsx"
 
 
 def quitar_tildes(texto: str) -> str:
@@ -99,24 +103,6 @@ def validar_archivo_columna(path: Path, columna: str) -> pd.DataFrame:
     return df[[columna]].copy()
 
 
-def construir_base_entrada() -> pd.DataFrame:
-    """Construye un dataframe unico a partir de Correo.xlsx y Telefono.xlsx."""
-    df_correo = validar_archivo_columna(RUTA_CORREO, "Email")
-    df_telefono = validar_archivo_columna(RUTA_TELEFONO, "Telefono")
-
-    max_len = max(len(df_correo), len(df_telefono))
-    df_correo = df_correo.reindex(range(max_len))
-    df_telefono = df_telefono.reindex(range(max_len))
-
-    df = pd.DataFrame(
-        {
-            "Email": df_correo["Email"],
-            "Telefono": df_telefono["Telefono"],
-        }
-    )
-    return df
-
-
 def obtener_contactos_cuentas(df_cuentas: pd.DataFrame) -> tuple[set[str], set[str]]:
     """Obtiene sets normalizados de correos y telefonos desde la base de cuentas."""
     if "correo" in df_cuentas.columns:
@@ -154,39 +140,34 @@ def obtener_contactos_cuentas(df_cuentas: pd.DataFrame) -> tuple[set[str], set[s
     return set_correos, set_telefonos
 
 
-def marcar_coincidencias(df_entrada: pd.DataFrame, set_correos: set[str], set_telefonos: set[str]) -> pd.DataFrame:
-    """Marca coincidencias por Correo O Telefono y clasifica el tipo."""
-    df = df_entrada.copy()
+def evaluar_correos(df_correo: pd.DataFrame, set_correos: set[str]) -> pd.DataFrame:
+    """Valida solamente correos, sin relacionarlo con telefonos."""
+    df = df_correo.copy()
     df["_correo_norm"] = normalizar_correo(df["Email"])
-    df["_telefono_norm"] = normalizar_telefono(df["Telefono"])
-
-    def tiene_coincidencia(row: pd.Series) -> bool:
-        correo = row["_correo_norm"]
-        telefono = row["_telefono_norm"]
-        correo_match = pd.notna(correo) and correo in set_correos
-        telefono_match = pd.notna(telefono) and telefono in set_telefonos
-        return correo_match or telefono_match
-
-    def tipo_coincidencia(row: pd.Series) -> str:
-        correo = row["_correo_norm"]
-        telefono = row["_telefono_norm"]
-        correo_match = pd.notna(correo) and correo in set_correos
-        telefono_match = pd.notna(telefono) and telefono in set_telefonos
-        if correo_match and telefono_match:
-            return "Correo y Telefono"
-        if correo_match:
-            return "Solo Correo"
-        if telefono_match:
-            return "Solo Telefono"
-        return "Sin coincidencia"
-
-    df["coincide"] = df.apply(tiene_coincidencia, axis=1)
-    df["tipo_coincidencia"] = df.apply(tipo_coincidencia, axis=1)
+    df["coincide"] = df["_correo_norm"].apply(lambda x: pd.notna(x) and x in set_correos)
+    df["tipo_coincidencia"] = df["coincide"].map(
+        {True: "Solo Correo", False: "Sin coincidencia"}
+    )
     return df
 
 
-def exportar_resultados(df_resultado: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Exporta dos archivos: coinciden y no coinciden."""
+def evaluar_telefonos(df_telefono: pd.DataFrame, set_telefonos: set[str]) -> pd.DataFrame:
+    """Valida solamente telefonos, sin relacionarlo con correos."""
+    df = df_telefono.copy()
+    df["_telefono_norm"] = normalizar_telefono(df["Telefono"])
+    df["coincide"] = df["_telefono_norm"].apply(
+        lambda x: pd.notna(x) and x in set_telefonos
+    )
+    df["tipo_coincidencia"] = df["coincide"].map(
+        {True: "Solo Telefono", False: "Sin coincidencia"}
+    )
+    return df
+
+
+def exportar_corte(
+    df_resultado: pd.DataFrame, ruta_coinciden: Path, ruta_no_coinciden: Path
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Exporta coincidencias y no coincidencias para un solo tipo de validacion."""
     df_coinciden = df_resultado[df_resultado["coincide"]].copy()
     df_no_coinciden = df_resultado[~df_resultado["coincide"]].copy()
 
@@ -194,19 +175,19 @@ def exportar_resultados(df_resultado: pd.DataFrame) -> tuple[pd.DataFrame, pd.Da
     df_coinciden = df_coinciden[columnas_salida]
     df_no_coinciden = df_no_coinciden[columnas_salida]
 
-    df_coinciden.to_excel(RUTA_SALIDA_COINCIDEN, index=False)
-    df_no_coinciden.to_excel(RUTA_SALIDA_NO_COINCIDEN, index=False)
+    df_coinciden.to_excel(ruta_coinciden, index=False)
+    df_no_coinciden.to_excel(ruta_no_coinciden, index=False)
     return df_coinciden, df_no_coinciden
 
 
-def imprimir_resumen(df_resultado: pd.DataFrame) -> None:
-    """Imprime resumen general y desglose por tipo de coincidencia."""
+def imprimir_resumen(nombre: str, df_resultado: pd.DataFrame) -> None:
+    """Imprime resumen para una validacion especifica."""
     total = len(df_resultado)
     coinciden = int(df_resultado["coincide"].sum())
     no_coinciden = total - coinciden
 
     print("\n============================================")
-    print("RESULTADOS DE VALIDACION")
+    print(f"RESULTADOS DE VALIDACION - {nombre}")
     print("============================================")
     print(f"Total evaluado:       {total:,}")
     print(f"Coinciden:            {coinciden:,}")
@@ -215,31 +196,49 @@ def imprimir_resumen(df_resultado: pd.DataFrame) -> None:
         print(f"Porcentaje coincide:  {(coinciden / total) * 100:,.1f}%")
     else:
         print("Porcentaje coincide:  0.0%")
-    print("============================================")
-    print("Desglose por tipo:")
-    for tipo, cant in df_resultado["tipo_coincidencia"].value_counts().items():
-        print(f"- {tipo}: {cant:,}")
 
 
 def main() -> None:
     """Punto de entrada."""
     try:
         print("Cargando archivos de entrada...")
-        df_entrada = construir_base_entrada()
+        df_correo = validar_archivo_columna(RUTA_CORREO, "Email")
+        df_telefono = validar_archivo_columna(RUTA_TELEFONO, "Telefono")
 
         ruta_cuentas = resolver_ruta_cuenta_digital()
         print(f"Cargando cuentas creadas: {ruta_cuentas}")
         df_cuentas = pd.read_excel(ruta_cuentas, dtype=str)
 
         set_correos, set_telefonos = obtener_contactos_cuentas(df_cuentas)
-        df_resultado = marcar_coincidencias(df_entrada, set_correos, set_telefonos)
-        df_coinciden, df_no_coinciden = exportar_resultados(df_resultado)
+        df_resultado_correo = evaluar_correos(df_correo, set_correos)
+        df_resultado_telefono = evaluar_telefonos(df_telefono, set_telefonos)
 
-        imprimir_resumen(df_resultado)
-        print(f"\n[OK] Archivo generado: {RUTA_SALIDA_COINCIDEN}")
-        print(f"[OK] Archivo generado: {RUTA_SALIDA_NO_COINCIDEN}")
-        print(f"[OK] Coinciden: {len(df_coinciden):,}")
-        print(f"[OK] No coinciden: {len(df_no_coinciden):,}")
+        df_coinciden_correo, df_no_coinciden_correo = exportar_corte(
+            df_resultado_correo,
+            RUTA_SALIDA_COINCIDEN_CORREO,
+            RUTA_SALIDA_NO_COINCIDEN_CORREO,
+        )
+        df_coinciden_telefono, df_no_coinciden_telefono = exportar_corte(
+            df_resultado_telefono,
+            RUTA_SALIDA_COINCIDEN_TELEFONO,
+            RUTA_SALIDA_NO_COINCIDEN_TELEFONO,
+        )
+
+        imprimir_resumen("Correo", df_resultado_correo)
+        imprimir_resumen("Telefono", df_resultado_telefono)
+
+        print(f"\n[OK] Archivo generado: {RUTA_SALIDA_COINCIDEN_CORREO}")
+        print(f"[OK] Archivo generado: {RUTA_SALIDA_NO_COINCIDEN_CORREO}")
+        print(f"[OK] Archivo generado: {RUTA_SALIDA_COINCIDEN_TELEFONO}")
+        print(f"[OK] Archivo generado: {RUTA_SALIDA_NO_COINCIDEN_TELEFONO}")
+        print(
+            "[OK] Correo - Coinciden/No coinciden: "
+            f"{len(df_coinciden_correo):,}/{len(df_no_coinciden_correo):,}"
+        )
+        print(
+            "[OK] Telefono - Coinciden/No coinciden: "
+            f"{len(df_coinciden_telefono):,}/{len(df_no_coinciden_telefono):,}"
+        )
 
     except Exception as exc:
         print(f"[ERROR] {exc}")
