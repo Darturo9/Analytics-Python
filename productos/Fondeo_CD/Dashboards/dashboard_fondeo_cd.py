@@ -9,7 +9,7 @@ python3 productos/Fondeo_CD/Dashboards/dashboard_fondeo_cd.py --fecha-inicio 202
 
 import argparse
 import sys
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -25,15 +25,8 @@ from core.db import run_query_file
 BASE_DIR = Path(__file__).resolve().parents[1]
 QUERY_RESUMEN = BASE_DIR / "Queries" / "FondeoResumenCuentas.sql"
 QUERY_DIARIO = BASE_DIR / "Queries" / "FondeoDiaro.sql"
-
-
-def mes_anterior_completo(hoy: date | None = None) -> tuple[date, date]:
-    if hoy is None:
-        hoy = date.today()
-    primer_dia_mes_actual = hoy.replace(day=1)
-    fin = primer_dia_mes_actual - timedelta(days=1)
-    inicio = fin.replace(day=1)
-    return inicio, fin
+DEFAULT_FECHA_INICIO = date(2026, 3, 1)
+DEFAULT_FECHA_FIN = date(2026, 3, 31)
 
 
 def parsear_fecha(valor: str, nombre: str) -> date:
@@ -50,7 +43,7 @@ def resolver_rango(args: argparse.Namespace) -> tuple[date, date]:
     elif args.fecha_inicio or args.fecha_fin:
         raise ValueError("Debes enviar ambos parametros: --fecha-inicio y --fecha-fin.")
     else:
-        inicio, fin = mes_anterior_completo()
+        inicio, fin = DEFAULT_FECHA_INICIO, DEFAULT_FECHA_FIN
     if inicio > fin:
         raise ValueError("fecha_inicio no puede ser mayor que fecha_fin.")
     return inicio, fin
