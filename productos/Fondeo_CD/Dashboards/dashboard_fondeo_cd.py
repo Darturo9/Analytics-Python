@@ -1,7 +1,8 @@
 """
 dashboard_fondeo_cd.py
 ----------------------
-Dashboard ejecutivo de Fondeo Cuenta Digital usando solo FondeoDiaro.sql.
+Dashboard ejecutivo de Fondeo Cuenta Digital.
+Usa FondeoDiaro.sql (datos por cuenta) y TopDiasFondeo.sql (actividad diaria).
 
 Ejecucion:
     python3 productos/Fondeo_CD/Dashboards/dashboard_fondeo_cd.py
@@ -21,6 +22,7 @@ from core.db import run_query_file
 
 
 QUERY_PATH = "productos/Fondeo_CD/Queries/FondeoDiaro.sql"
+QUERY_TOP_DIAS = "productos/Fondeo_CD/Queries/TopDiasFondeo.sql"
 
 
 def cargar_datos() -> pd.DataFrame:
@@ -28,7 +30,9 @@ def cargar_datos() -> pd.DataFrame:
     df.columns = [str(c) for c in df.columns]
 
     df["fecha_apertura"] = pd.to_datetime(df.get("fecha_apertura"), errors="coerce")
+    df["primer_dia_fondeo"] = pd.to_datetime(df.get("primer_dia_fondeo"), errors="coerce")
     df["saldo_maximo_mes"] = pd.to_numeric(df.get("saldo_maximo_mes"), errors="coerce").fillna(0.0)
+    df["saldo_promedio_dias_fondeados"] = pd.to_numeric(df.get("saldo_promedio_dias_fondeados"), errors="coerce").fillna(0.0)
     df["dias_con_fondos"] = (
         pd.to_numeric(df.get("dias_con_fondos"), errors="coerce")
         .fillna(0)
@@ -38,9 +42,19 @@ def cargar_datos() -> pd.DataFrame:
     df["padded_codigo_cliente"] = df.get("padded_codigo_cliente", "").astype(str).str.strip()
     df["moneda"] = df.get("moneda", "Sin dato").astype(str).str.strip().replace("", "Sin dato")
 
+    df["dias_hasta_fondeo"] = (df["primer_dia_fondeo"] - df["fecha_apertura"]).dt.days.clip(lower=0)
+
     bins = [-1, 5, 10, 20, 1000]
     labels = ["1-5", "6-10", "11-20", "21+"]
     df["rango_dias_fondeo"] = pd.cut(df["dias_con_fondos"], bins=bins, labels=labels)
+    return df
+
+
+def cargar_top_dias() -> pd.DataFrame:
+    df = run_query_file(QUERY_TOP_DIAS)
+    df.columns = [str(c) for c in df.columns]
+    df["fecha"] = pd.to_datetime(df.get("fecha"), errors="coerce")
+    df["cuentas_fondeadas"] = pd.to_numeric(df.get("cuentas_fondeadas"), errors="coerce").fillna(0).astype(int)
     return df
 
 
@@ -175,6 +189,36 @@ def grafico_moneda(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def grafico_top_dias(df_dias: pd.DataFrame) -> go.Figure:
+    if df_dias.empty:
+        return figura_vacia("Sin datos de actividad diaria")
+    top = df_dias.nlargest(10, "cuentas_fondeadas").sort_values("cuentas_fondeadas")
+    etiquetas = top["fecha"].dt.strftime("%d %b").tolist()
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=top["cuentas_fondeadas"],
+                y=etiquetas,
+                orientation="h",
+                marker_color=COLORES["azul_experto"],
+                text=[f"{v:,}" for v in top["cuentas_fondeadas"]],
+                textposition="outside",
+                hovertemplate="Fecha: %{y}<br>Cuentas fondeadas: %{x:,}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Top 10 dias del mes con mas cuentas fondeadas",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=45, b=30, l=70, r=40),
+        xaxis=dict(title="Cuentas fondeadas"),
+        yaxis=dict(title="Dia"),
+    )
+    return fig
+
+
 def construir_layout(df: pd.DataFrame) -> html.Div:
     monedas = sorted(df["moneda"].dropna().unique().tolist())
     opciones_moneda = [{"label": "Todos", "value": "Todos"}] + [
@@ -206,13 +250,14 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
                     dcc.Graph(id="g-hist-dias", style={"width": "100%"}),
                     dcc.Graph(id="g-rangos-dias", style={"width": "100%"}),
                     dcc.Graph(id="g-moneda", style={"width": "100%"}),
+                    dcc.Graph(id="g-top-dias", style={"width": "100%"}),
                 ],
             ),
         ],
     )
 
 
-def construir_app(df_base: pd.DataFrame) -> Dash:
+def construir_app(df_base: pd.DataFrame, df_dias: pd.DataFrame) -> Dash:
     app = Dash(__name__)
     app.layout = construir_layout(df_base)
 
@@ -221,22 +266,27 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
         Output("g-hist-dias", "figure"),
         Output("g-rangos-dias", "figure"),
         Output("g-moneda", "figure"),
+        Output("g-top-dias", "figure"),
         Input("filtro-moneda", "value"),
     )
     def actualizar_vista(moneda: str):
         df = filtrar_df(df_base, moneda)
 
         total_cuentas = int(df["cuenta"].nunique())
-        saldo_prom = float(df["saldo_maximo_mes"].mean()) if total_cuentas > 0 else 0.0
+        saldo_prom_max = float(df["saldo_maximo_mes"].mean()) if total_cuentas > 0 else 0.0
+        saldo_prom_real = float(df["saldo_promedio_dias_fondeados"].mean()) if total_cuentas > 0 else 0.0
         promedio_dias = float(df["dias_con_fondos"].mean()) if total_cuentas > 0 else 0.0
         mediana_dias = float(df["dias_con_fondos"].median()) if total_cuentas > 0 else 0.0
         pct_10 = float((df["dias_con_fondos"] >= 10).mean() * 100) if total_cuentas > 0 else 0.0
+        dias_activacion = float(df["dias_hasta_fondeo"].mean()) if total_cuentas > 0 else 0.0
 
         kpis = [
             kpi_card("Cuentas fondeadas", f"{total_cuentas:,}", COLORES["azul_experto"]),
-            kpi_card("Saldo maximo promedio", f"{saldo_prom:,.2f}", COLORES["aqua_digital"]),
+            kpi_card("Saldo promedio (dias fondeados)", f"{saldo_prom_real:,.2f}", COLORES["aqua_digital"]),
+            kpi_card("Saldo maximo promedio", f"{saldo_prom_max:,.2f}", COLORES["azul_financiero"]),
             kpi_card("Promedio dias con fondos", f"{promedio_dias:,.1f}", COLORES["amarillo_opt"]),
             kpi_card("Mediana dias con fondos", f"{mediana_dias:,.1f}", COLORES["aqua_digital"]),
+            kpi_card("Dias promedio hasta primer fondeo", f"{dias_activacion:,.1f}", COLORES["azul_experto"]),
             kpi_card("% cuentas >=10 dias", f"{pct_10:,.1f}%", COLORES["azul_financiero"]),
         ]
 
@@ -245,23 +295,29 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
             grafico_hist_dias(df),
             grafico_rangos_dias(df),
             grafico_moneda(df),
+            grafico_top_dias(df_dias),
         )
 
     return app
 
 
 def main():
-    print(f"Cargando datos desde: {QUERY_PATH}")
     try:
+        print(f"Cargando datos desde: {QUERY_PATH}")
         df = cargar_datos()
+        print(f"Registros cargados: {len(df):,}")
+
+        print(f"Cargando top dias desde: {QUERY_TOP_DIAS}")
+        df_dias = cargar_top_dias()
+        print(f"Dias cargados: {len(df_dias):,}")
     except SQLAlchemyError as exc:
         print(f"[ERROR] No se pudo ejecutar la query en SQL Server: {exc}")
         raise SystemExit(1) from exc
     except Exception as exc:
         print(f"[ERROR] Fallo cargando datos para el dashboard: {exc}")
         raise SystemExit(1) from exc
-    print(f"Registros cargados: {len(df):,}")
-    app = construir_app(df)
+
+    app = construir_app(df, df_dias)
     print("Dashboard corriendo en http://127.0.0.1:8057")
     app.run(debug=True, use_reloader=False, port=8057)
 
