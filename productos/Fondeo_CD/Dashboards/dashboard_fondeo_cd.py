@@ -260,6 +260,8 @@ def grafico_apertura_vs_fondeo(df: pd.DataFrame, df_aperturas: pd.DataFrame) -> 
                 x=etiquetas,
                 y=combined["aperturas"].tolist(),
                 marker_color=COLORES["aqua_digital"],
+                text=[f"{v:,}" for v in combined["aperturas"].tolist()],
+                textposition="outside",
                 hovertemplate="Fecha: %{x}<br>Aperturas: %{y:,}<extra></extra>",
             ),
             go.Bar(
@@ -267,6 +269,8 @@ def grafico_apertura_vs_fondeo(df: pd.DataFrame, df_aperturas: pd.DataFrame) -> 
                 x=etiquetas,
                 y=combined["primer_fondeo"].tolist(),
                 marker_color=COLORES["amarillo_opt"],
+                text=[f"{v:,}" for v in combined["primer_fondeo"].tolist()],
+                textposition="outside",
                 hovertemplate="Fecha: %{x}<br>Primer fondeo: %{y:,}<extra></extra>",
             ),
         ]
