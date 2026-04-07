@@ -1,0 +1,54 @@
+-- Comparacion mensual de cuentas abiertas vs fondeadas en el mismo mes
+-- Cohorte: cuentas que abrieron en el mes y tuvieron saldo > 0 ese mismo mes
+
+WITH Enero AS (
+    SELECT DISTINCT DW_CUENTA_CORPORATIVA
+    FROM dw_dep_depositos
+    WHERE dw_feha_apertura BETWEEN '2026-01-01' AND '2026-01-31'
+      AND dw_producto = 'CUENTA DIGITAL'
+      AND PRCODP = 1 AND PRSUBP = 51
+),
+Febrero AS (
+    SELECT DISTINCT DW_CUENTA_CORPORATIVA
+    FROM dw_dep_depositos
+    WHERE dw_feha_apertura BETWEEN '2026-02-01' AND '2026-02-28'
+      AND dw_producto = 'CUENTA DIGITAL'
+      AND PRCODP = 1 AND PRSUBP = 51
+),
+Marzo AS (
+    SELECT DISTINCT DW_CUENTA_CORPORATIVA
+    FROM dw_dep_depositos
+    WHERE dw_feha_apertura BETWEEN '2026-03-01' AND '2026-03-31'
+      AND dw_producto = 'CUENTA DIGITAL'
+      AND PRCODP = 1 AND PRSUBP = 51
+)
+
+SELECT 'Enero 2026' AS mes, 1 AS orden,
+    COUNT(DISTINCT u.DW_CUENTA_CORPORATIVA) AS cuentas_abiertas,
+    COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN u.DW_CUENTA_CORPORATIVA END) AS cuentas_fondeadas
+FROM Enero u
+LEFT JOIN HIS_DEP_DEPOSITOS_VIEW h
+    ON u.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
+    AND h.dw_fecha_informacion BETWEEN '2026-01-01' AND '2026-02-01'
+
+UNION ALL
+
+SELECT 'Febrero 2026', 2,
+    COUNT(DISTINCT u.DW_CUENTA_CORPORATIVA),
+    COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN u.DW_CUENTA_CORPORATIVA END)
+FROM Febrero u
+LEFT JOIN HIS_DEP_DEPOSITOS_VIEW h
+    ON u.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
+    AND h.dw_fecha_informacion BETWEEN '2026-02-01' AND '2026-03-01'
+
+UNION ALL
+
+SELECT 'Marzo 2026', 3,
+    COUNT(DISTINCT u.DW_CUENTA_CORPORATIVA),
+    COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN u.DW_CUENTA_CORPORATIVA END)
+FROM Marzo u
+LEFT JOIN HIS_DEP_DEPOSITOS_VIEW h
+    ON u.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
+    AND h.dw_fecha_informacion BETWEEN '2026-03-01' AND '2026-04-01'
+
+ORDER BY orden;
