@@ -23,6 +23,7 @@ from core.db import run_query_file
 
 QUERY_PATH = "productos/Fondeo_CD/Queries/FondeoDiaro.sql"
 QUERY_TOP_DIAS = "productos/Fondeo_CD/Queries/TopDiasFondeo.sql"
+QUERY_APERTURAS = "productos/Fondeo_CD/Queries/AperturasDiarias.sql"
 
 
 def cargar_datos() -> pd.DataFrame:
@@ -55,6 +56,14 @@ def cargar_top_dias() -> pd.DataFrame:
     df.columns = [str(c) for c in df.columns]
     df["fecha"] = pd.to_datetime(df.get("fecha"), errors="coerce")
     df["cuentas_fondeadas"] = pd.to_numeric(df.get("cuentas_fondeadas"), errors="coerce").fillna(0).astype(int)
+    return df
+
+
+def cargar_aperturas() -> pd.DataFrame:
+    df = run_query_file(QUERY_APERTURAS)
+    df.columns = [str(c) for c in df.columns]
+    df["fecha_apertura"] = pd.to_datetime(df.get("fecha_apertura"), errors="coerce")
+    df["cuentas_abiertas"] = pd.to_numeric(df.get("cuentas_abiertas"), errors="coerce").fillna(0).astype(int)
     return df
 
 
@@ -220,14 +229,13 @@ def grafico_actividad_diaria(df_dias: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def grafico_apertura_vs_fondeo(df: pd.DataFrame) -> go.Figure:
-    if df.empty:
+def grafico_apertura_vs_fondeo(df: pd.DataFrame, df_aperturas: pd.DataFrame) -> go.Figure:
+    if df.empty or df_aperturas.empty:
         return figura_vacia("Sin datos para el filtro seleccionado")
 
     aperturas = (
-        df.dropna(subset=["fecha_apertura"])
-        .groupby(df["fecha_apertura"].dt.date)["cuenta"]
-        .nunique()
+        df_aperturas.dropna(subset=["fecha_apertura"])
+        .set_index(df_aperturas["fecha_apertura"].dt.date)["cuentas_abiertas"]
         .rename("aperturas")
     )
     primeros_fondeos = (
@@ -316,7 +324,7 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
     )
 
 
-def construir_app(df_base: pd.DataFrame, df_dias: pd.DataFrame) -> Dash:
+def construir_app(df_base: pd.DataFrame, df_dias: pd.DataFrame, df_aperturas: pd.DataFrame) -> Dash:
     app = Dash(__name__)
     app.layout = construir_layout(df_base)
 
@@ -356,7 +364,7 @@ def construir_app(df_base: pd.DataFrame, df_dias: pd.DataFrame) -> Dash:
             grafico_rangos_dias(df),
             grafico_moneda(df),
             grafico_actividad_diaria(df_dias),
-            grafico_apertura_vs_fondeo(df),
+            grafico_apertura_vs_fondeo(df, df_aperturas),
         )
 
     return app
@@ -371,6 +379,10 @@ def main():
         print(f"Cargando top dias desde: {QUERY_TOP_DIAS}")
         df_dias = cargar_top_dias()
         print(f"Dias cargados: {len(df_dias):,}")
+
+        print(f"Cargando aperturas desde: {QUERY_APERTURAS}")
+        df_aperturas = cargar_aperturas()
+        print(f"Aperturas cargadas: {len(df_aperturas):,}")
     except SQLAlchemyError as exc:
         print(f"[ERROR] No se pudo ejecutar la query en SQL Server: {exc}")
         raise SystemExit(1) from exc
@@ -378,7 +390,7 @@ def main():
         print(f"[ERROR] Fallo cargando datos para el dashboard: {exc}")
         raise SystemExit(1) from exc
 
-    app = construir_app(df, df_dias)
+    app = construir_app(df, df_dias, df_aperturas)
     print("Dashboard corriendo en http://127.0.0.1:8057")
     app.run(debug=True, use_reloader=False, port=8057)
 
