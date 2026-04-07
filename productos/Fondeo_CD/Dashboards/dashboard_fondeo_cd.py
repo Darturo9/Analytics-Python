@@ -228,13 +228,15 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
 
         total_cuentas = int(df["cuenta"].nunique())
         saldo_prom = float(df["saldo_maximo_mes"].mean()) if total_cuentas > 0 else 0.0
+        promedio_dias = float(df["dias_con_fondos"].mean()) if total_cuentas > 0 else 0.0
         mediana_dias = float(df["dias_con_fondos"].median()) if total_cuentas > 0 else 0.0
         pct_10 = float((df["dias_con_fondos"] >= 10).mean() * 100) if total_cuentas > 0 else 0.0
 
         kpis = [
             kpi_card("Cuentas fondeadas", f"{total_cuentas:,}", COLORES["azul_experto"]),
             kpi_card("Saldo maximo promedio", f"{saldo_prom:,.2f}", COLORES["aqua_digital"]),
-            kpi_card("Mediana dias con fondos", f"{mediana_dias:,.1f}", COLORES["amarillo_opt"]),
+            kpi_card("Promedio dias con fondos", f"{promedio_dias:,.1f}", COLORES["amarillo_opt"]),
+            kpi_card("Mediana dias con fondos", f"{mediana_dias:,.1f}", COLORES["aqua_digital"]),
             kpi_card("% cuentas >=10 dias", f"{pct_10:,.1f}%", COLORES["azul_financiero"]),
         ]
 
