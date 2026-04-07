@@ -246,7 +246,7 @@ def grafico_apertura_vs_fondeo(df: pd.DataFrame, df_aperturas: pd.DataFrame) -> 
     )
 
     combined = pd.concat([aperturas, primeros_fondeos], axis=1).fillna(0).astype(int)
-    combined = combined[combined.index <= pd.Timestamp("2026-03-31").date()].sort_index()
+    combined = combined.sort_index()
 
     if combined.empty:
         return figura_vacia("Sin datos suficientes")

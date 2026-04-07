@@ -12,7 +12,7 @@ SELECT
 FROM UniversoCuentas u
 INNER JOIN HIS_DEP_DEPOSITOS_VIEW h
     ON u.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
-WHERE h.dw_fecha_informacion BETWEEN '2026-03-01' AND '2026-04-01'
+WHERE h.dw_fecha_informacion BETWEEN '2026-03-01' AND '2026-03-31'
   AND h.ctt001 > 0
 GROUP BY h.dw_fecha_informacion
 ORDER BY cuentas_fondeadas DESC;
