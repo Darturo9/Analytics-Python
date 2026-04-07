@@ -89,37 +89,6 @@ def figura_vacia(mensaje: str) -> go.Figure:
     return fig
 
 
-def grafico_top_saldos(df: pd.DataFrame) -> go.Figure:
-    if df.empty:
-        return figura_vacia("Sin datos para el filtro seleccionado")
-    top = df.nlargest(15, "saldo_maximo_mes").copy()
-    top = top.sort_values("saldo_maximo_mes")
-
-    fig = go.Figure(
-        data=[
-            go.Bar(
-                x=top["saldo_maximo_mes"],
-                y=top["cuenta"],
-                orientation="h",
-                marker_color=COLORES["azul_experto"],
-                text=[f"{v:,.2f}" for v in top["saldo_maximo_mes"]],
-                textposition="outside",
-                hovertemplate="Cuenta: %{y}<br>Saldo maximo: %{x:,.2f}<extra></extra>",
-            )
-        ]
-    )
-    fig.update_layout(
-        title="Top 15 cuentas por saldo maximo del mes",
-        plot_bgcolor=COLORES["blanco"],
-        paper_bgcolor=COLORES["blanco"],
-        font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=45, b=30, l=120, r=20),
-        xaxis=dict(title="Saldo maximo"),
-        yaxis=dict(title="Cuenta"),
-    )
-    return fig
-
-
 def grafico_hist_dias(df: pd.DataFrame) -> go.Figure:
     if df.empty:
         return figura_vacia("Sin datos para el filtro seleccionado")
@@ -206,70 +175,6 @@ def grafico_moneda(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def grafico_aperturas_dia(df: pd.DataFrame) -> go.Figure:
-    if df.empty:
-        return figura_vacia("Sin datos para el filtro seleccionado")
-    temp = df.dropna(subset=["fecha_apertura"]).copy()
-    serie = temp.groupby(temp["fecha_apertura"].dt.date)["cuenta"].nunique().sort_index()
-    if serie.empty:
-        return figura_vacia("Sin fecha_apertura disponible")
-    fig = go.Figure(
-        data=[
-            go.Scatter(
-                x=serie.index.tolist(),
-                y=serie.values.tolist(),
-                mode="lines+markers",
-                line=dict(color=COLORES["aqua_digital"], width=3),
-                marker=dict(size=7),
-                hovertemplate="Fecha: %{x}<br>Aperturas: %{y:,}<extra></extra>",
-            )
-        ]
-    )
-    fig.update_layout(
-        title="Aperturas por dia",
-        plot_bgcolor=COLORES["blanco"],
-        paper_bgcolor=COLORES["blanco"],
-        font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=45, b=30, l=40, r=10),
-        xaxis=dict(title="Fecha apertura"),
-        yaxis=dict(title="Cuentas creadas"),
-    )
-    return fig
-
-
-def grafico_scatter(df: pd.DataFrame) -> go.Figure:
-    if df.empty:
-        return figura_vacia("Sin datos para el filtro seleccionado")
-    fig = go.Figure(
-        data=[
-            go.Scatter(
-                x=df["dias_con_fondos"],
-                y=df["saldo_maximo_mes"],
-                mode="markers",
-                marker=dict(color=COLORES["amarillo_opt"], size=8, opacity=0.75),
-                text=df["cuenta"],
-                customdata=df["padded_codigo_cliente"],
-                hovertemplate=(
-                    "Cuenta: %{text}<br>"
-                    "Cliente: %{customdata}<br>"
-                    "Dias con fondos: %{x}<br>"
-                    "Saldo maximo: %{y:,.2f}<extra></extra>"
-                ),
-            )
-        ]
-    )
-    fig.update_layout(
-        title="Relacion: dias con fondos vs saldo maximo",
-        plot_bgcolor=COLORES["blanco"],
-        paper_bgcolor=COLORES["blanco"],
-        font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=45, b=30, l=50, r=10),
-        xaxis=dict(title="Dias con fondos"),
-        yaxis=dict(title="Saldo maximo"),
-    )
-    return fig
-
-
 def construir_layout(df: pd.DataFrame) -> html.Div:
     monedas = sorted(df["moneda"].dropna().unique().tolist())
     opciones_moneda = [{"label": "Todos", "value": "Todos"}] + [
@@ -277,15 +182,15 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
     ]
 
     return html.Div(
-        style={"padding": "22px", "backgroundColor": COLORES["gris_fondo"], "fontFamily": "Arial, sans-serif"},
+        style={"padding": "32px", "backgroundColor": COLORES["gris_fondo"], "fontFamily": "Arial, sans-serif"},
         children=[
-            html.H2("Fondeo Cuenta Digital - Marzo 2026", style={"color": COLORES["azul_experto"], "marginBottom": "8px"}),
+            html.H2("Fondeo Cuenta Digital - Marzo 2026", style={"color": COLORES["azul_experto"], "marginBottom": "6px"}),
             html.P(
                 "Base: cuentas con al menos 1 dia de saldo > 0 segun FondeoDiaro.sql",
-                style={"color": COLORES["gris_texto"], "marginTop": 0},
+                style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "24px"},
             ),
             html.Div(
-                style={"maxWidth": "300px", "marginBottom": "12px"},
+                style={"maxWidth": "300px", "marginBottom": "24px"},
                 children=[
                     html.Label("Filtro moneda", style={"color": COLORES["azul_experto"], "fontWeight": "bold"}),
                     dcc.Dropdown(id="filtro-moneda", options=opciones_moneda, value="Todos", clearable=False),
@@ -293,17 +198,14 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
             ),
             html.Div(
                 id="kpis-contenedor",
-                style={"display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(220px, 1fr))", "gap": "12px", "marginBottom": "12px"},
+                style={"display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(220px, 1fr))", "gap": "16px", "marginBottom": "28px"},
             ),
             html.Div(
-                style={"display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(420px, 1fr))", "gap": "12px"},
+                style={"display": "flex", "flexDirection": "column", "gap": "24px"},
                 children=[
-                    dcc.Graph(id="g-top-saldos"),
-                    dcc.Graph(id="g-hist-dias"),
-                    dcc.Graph(id="g-rangos-dias"),
-                    dcc.Graph(id="g-moneda"),
-                    dcc.Graph(id="g-aperturas"),
-                    dcc.Graph(id="g-scatter"),
+                    dcc.Graph(id="g-hist-dias", style={"width": "100%"}),
+                    dcc.Graph(id="g-rangos-dias", style={"width": "100%"}),
+                    dcc.Graph(id="g-moneda", style={"width": "100%"}),
                 ],
             ),
         ],
@@ -316,12 +218,9 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
 
     @app.callback(
         Output("kpis-contenedor", "children"),
-        Output("g-top-saldos", "figure"),
         Output("g-hist-dias", "figure"),
         Output("g-rangos-dias", "figure"),
         Output("g-moneda", "figure"),
-        Output("g-aperturas", "figure"),
-        Output("g-scatter", "figure"),
         Input("filtro-moneda", "value"),
     )
     def actualizar_vista(moneda: str):
@@ -341,12 +240,9 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
 
         return (
             kpis,
-            grafico_top_saldos(df),
             grafico_hist_dias(df),
             grafico_rangos_dias(df),
             grafico_moneda(df),
-            grafico_aperturas_dia(df),
-            grafico_scatter(df),
         )
 
     return app
