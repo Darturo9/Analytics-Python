@@ -17,21 +17,9 @@ Análisis de fondeo para Cuenta Digital, enfocado en cohortes de apertura por pe
 ## Ejemplos
 
 ```bash
-# Exportar (default: marzo 2026)
-python3 "productos/Fondeo_CD/Analysis/export_fondeo_cd.py"
-
-# Export rapido (solo KPIs + ResumenCuentas)
-python3 "productos/Fondeo_CD/Analysis/export_fondeo_cd.py" --modo resumen
-
-# Export completo (incluye historico diario)
-python3 "productos/Fondeo_CD/Analysis/export_fondeo_cd.py" --modo completo
-
-# Exportar para marzo 2026 (explicito)
+# Exportar para marzo 2026
 python3 "productos/Fondeo_CD/Analysis/export_fondeo_cd.py" --fecha-inicio 2026-03-01 --fecha-fin 2026-03-31
 
-# Levantar dashboard (default: marzo 2026)
-python3 "productos/Fondeo_CD/Dashboards/dashboard_fondeo_cd.py"
-
-# Levantar dashboard para marzo 2026 (explicito)
+# Levantar dashboard para marzo 2026
 python3 "productos/Fondeo_CD/Dashboards/dashboard_fondeo_cd.py" --fecha-inicio 2026-03-01 --fecha-fin 2026-03-31
 ```

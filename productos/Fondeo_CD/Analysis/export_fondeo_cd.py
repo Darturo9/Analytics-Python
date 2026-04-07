@@ -1,7 +1,7 @@
 import argparse
 import re
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -16,8 +16,6 @@ from core.utils import exportar_excel_multi
 BASE_DIR = Path(__file__).resolve().parents[1]
 QUERY_DIR = BASE_DIR / "Queries"
 EXPORT_DIR = BASE_DIR / "exports"
-DEFAULT_FECHA_INICIO = date(2026, 3, 1)
-DEFAULT_FECHA_FIN = date(2026, 3, 31)
 
 QUERY_RESUMEN = QUERY_DIR / "FondeoResumenCuentas.sql"
 QUERY_DIARIO = QUERY_DIR / "FondeoDiaro.sql"
@@ -46,6 +44,15 @@ def construir_error_amigable(exc: Exception) -> str:
     return f"[ERROR] Fallo ejecutando la query: {raw}"
 
 
+def mes_anterior_completo(hoy: date | None = None) -> tuple[date, date]:
+    if hoy is None:
+        hoy = date.today()
+    primer_dia_mes_actual = hoy.replace(day=1)
+    fin = primer_dia_mes_actual - timedelta(days=1)
+    inicio = fin.replace(day=1)
+    return inicio, fin
+
+
 def parsear_fecha(valor: str, nombre: str) -> date:
     try:
         return date.fromisoformat(valor)
@@ -60,7 +67,7 @@ def resolver_rango(args: argparse.Namespace) -> tuple[date, date]:
     elif args.fecha_inicio or args.fecha_fin:
         raise ValueError("Debes enviar ambos parametros: --fecha-inicio y --fecha-fin.")
     else:
-        inicio, fin = DEFAULT_FECHA_INICIO, DEFAULT_FECHA_FIN
+        inicio, fin = mes_anterior_completo()
 
     if inicio > fin:
         raise ValueError("El rango es invalido: fecha_inicio no puede ser mayor que fecha_fin.")
@@ -142,22 +149,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Exporta dataset ejecutivo de fondeo para cuentas digitales "
-            "abiertas en el periodo (resumen por cuenta + historico diario + KPIs). "
-            "Default: marzo 2026."
+            "abiertas en el periodo (resumen por cuenta + historico diario + KPIs)."
         )
     )
     parser.add_argument("--fecha-inicio", help="Fecha inicio (YYYY-MM-DD).")
     parser.add_argument("--fecha-fin", help="Fecha fin (YYYY-MM-DD).")
     parser.add_argument("--output", help="Ruta del Excel de salida.")
-    parser.add_argument(
-        "--modo",
-        choices=["completo", "resumen"],
-        default="resumen",
-        help=(
-            "completo: incluye historico diario. "
-            "resumen: exporta KPIs + ResumenCuentas (mas rapido). Default: resumen."
-        ),
-    )
     args = parser.parse_args()
 
     try:
@@ -168,27 +165,12 @@ def main() -> None:
 
     params = {"fecha_inicio": inicio.isoformat(), "fecha_fin": fin.isoformat()}
     print(f"Ejecutando query resumen: {QUERY_RESUMEN}")
-    if args.modo == "completo":
-        print(f"Ejecutando query diario: {QUERY_DIARIO}")
-    else:
-        print("Modo resumen: se omite query diaria para acelerar.")
+    print(f"Ejecutando query diario: {QUERY_DIARIO}")
     print(f"Parametros: {params}")
 
     try:
         df_resumen = run_query_file(str(QUERY_RESUMEN), params=params)
-        if args.modo == "completo":
-            df_diario = run_query_file(str(QUERY_DIARIO), params=params)
-        else:
-            df_diario = pd.DataFrame(
-                columns=[
-                    "fecha_informacion",
-                    "cuentas_creadas_periodo",
-                    "cuentas_reportadas_dia",
-                    "cuentas_con_fondos_dia",
-                    "cuentas_con_primer_fondeo_dia",
-                    "cuentas_acumuladas_con_fondos",
-                ]
-            )
+        df_diario = run_query_file(str(QUERY_DIARIO), params=params)
     except SQLAlchemyError as exc:
         print(construir_error_amigable(exc))
         sys.exit(1)
@@ -204,18 +186,19 @@ def main() -> None:
     df_kpis = construir_kpis(df_resumen, df_diario)
 
     output_path = construir_ruta_salida(inicio, fin, args.output)
-    if args.modo == "completo":
-        sheets = {"KPIs": df_kpis, "ResumenCuentas": df_resumen, "HistoricoDiario": df_diario}
-    else:
-        sheets = {"KPIs": df_kpis, "ResumenCuentas": df_resumen}
-
-    exportar_excel_multi(sheets, str(output_path))
+    exportar_excel_multi(
+        {
+            "KPIs": df_kpis,
+            "ResumenCuentas": df_resumen,
+            "HistoricoDiario": df_diario,
+        },
+        str(output_path),
+    )
 
     print(f"- Rango evaluado: {inicio} a {fin}")
     print(f"- Cuentas creadas en periodo: {int(df_kpis.loc[0, 'total_cuentas_creadas_periodo']):,}")
     print(f"- Cuentas con fondos en periodo: {int(df_kpis.loc[0, 'cuentas_con_fondos_periodo']):,}")
     print(f"- Tasa de fondeo: {float(df_kpis.loc[0, 'tasa_fondeo_porcentaje']):.2f}%")
-    print(f"- Modo de exportacion: {args.modo}")
     print(f"- Archivo generado: {output_path}")
 
 
