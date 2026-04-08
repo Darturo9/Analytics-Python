@@ -201,11 +201,16 @@ def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     colores = [COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_financiero"], COLORES["azul_experto"]]
     for idx, columna in enumerate(pivot.columns.tolist()):
+        valores = pivot[columna].tolist()
         fig.add_trace(go.Bar(
             name=columna,
             x=dias,
-            y=pivot[columna].tolist(),
+            y=valores,
             marker_color=colores[idx % len(colores)],
+            text=[f"{v:,}" if v > 0 else "" for v in valores],
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(size=10, color=COLORES["blanco"]),
             hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} eventos<extra></extra>",
         ))
 
@@ -261,11 +266,16 @@ def construir_figura_clientes_unicos_dia(df_logins: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     colores = [COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_financiero"], COLORES["azul_experto"]]
     for idx, columna in enumerate(pivot.columns.tolist()):
+        valores = pivot[columna].tolist()
         fig.add_trace(go.Bar(
             name=columna,
             x=dias,
-            y=pivot[columna].tolist(),
+            y=valores,
             marker_color=colores[idx % len(colores)],
+            text=[f"{v:,}" if v > 0 else "" for v in valores],
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(size=10, color=COLORES["blanco"]),
             hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} clientes únicos<extra></extra>",
         ))
 
