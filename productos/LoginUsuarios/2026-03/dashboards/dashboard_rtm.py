@@ -11,22 +11,42 @@ import sys
 sys.path.insert(0, ".")
 
 from pathlib import Path
-import calendar
 
 import pandas as pd
 from dash import Dash, html, dcc, dash_table
 import plotly.graph_objects as go
 
-from core.db import run_query_file
+from core.db import run_query
 from core.colors import COLORES
 
 
-RUTA_QUERY_LOGINS = "productos/LoginUsuarios/2026-03/queries/Logins.sql"
 RUTA_DATA_CONTACTADOS = Path("productos/LoginUsuarios/2026-03/archivoExcel")
 CANAL_OBJETIVO = "RTM"
-DIAS_CAMPANA = {13, 18, 21, 28}
+FECHA_INICIO = pd.Timestamp("2026-03-16")
+FECHA_FIN = pd.Timestamp("2026-04-08")
+RANGO_FECHAS = pd.date_range(FECHA_INICIO, FECHA_FIN, freq="D")
+FECHAS_CAMPANA = {
+    pd.Timestamp("2026-03-06").date(),
+    pd.Timestamp("2026-03-13").date(),
+    pd.Timestamp("2026-03-18").date(),
+    pd.Timestamp("2026-03-21").date(),
+    pd.Timestamp("2026-03-28").date(),
+    pd.Timestamp("2026-04-04").date(),
+}
 COLOR_CAMPANA = "#D62828"
 COLOR_NORMAL = COLORES["aqua_digital"]
+SQL_LOGINS_RANGO = """
+SELECT
+    clccli as codigo_usuario,
+    RIGHT('00000000' + RTRIM(LTRIM(clccli)),8) as padded_codigo_usuario,
+    uscode as nombre_usuario,
+    secode as canal_login,
+    dw_fecha_trx as fecha_inicio
+FROM dw_bel_IBSTTRA_VIEW
+WHERE dw_fecha_trx >= '2026-03-01'
+  AND dw_fecha_trx < '2026-04-09'
+  AND SECODE in ('app-login','web-login','login')
+"""
 COLUMNAS_TABLA_CLIENTES = [
     "padded_codigo_usuario",
     "usuario",
@@ -112,8 +132,8 @@ def usuario_representativo(series: pd.Series) -> str:
     return s.value_counts().index[0]
 
 
-def colores_por_dia(dias: list[int]) -> list[str]:
-    return [COLOR_CAMPANA if dia in DIAS_CAMPANA else COLOR_NORMAL for dia in dias]
+def colores_por_fecha(fechas: list[pd.Timestamp]) -> list[str]:
+    return [COLOR_CAMPANA if pd.Timestamp(f).date() in FECHAS_CAMPANA else COLOR_NORMAL for f in fechas]
 
 
 def construir_tabla_clientes(df_logins: pd.DataFrame) -> pd.DataFrame:
@@ -287,31 +307,27 @@ def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
     if df_logins.empty:
         return construir_figura_vacia("No hay logins RTM para el período")
 
-    anio = int(df_logins["fecha_inicio"].dt.year.mode().iloc[0])
-    mes = int(df_logins["fecha_inicio"].dt.month.mode().iloc[0])
-    ultimo_dia = calendar.monthrange(anio, mes)[1]
-    dias = list(range(1, ultimo_dia + 1))
-
+    fechas = list(RANGO_FECHAS)
     totales_dia = (
-        df_logins.groupby("dia")
+        df_logins.groupby("fecha_dia")
         .size()
-        .reindex(dias, fill_value=0)
+        .reindex(RANGO_FECHAS, fill_value=0)
         .tolist()
     )
     max_total = max(totales_dia) if totales_dia else 0
     separacion = max(1, int(max_total * 0.04))
-    colores_dias = colores_por_dia(dias)
-    custom_data = [["Sí" if dia in DIAS_CAMPANA else "No"] for dia in dias]
+    colores_dias = colores_por_fecha(fechas)
+    custom_data = [["Sí" if pd.Timestamp(f).date() in FECHAS_CAMPANA else "No"] for f in fechas]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=dias,
+        x=fechas,
         y=totales_dia,
         marker_color=colores_dias,
         customdata=custom_data,
         text=[f"{t:,}" if t > 0 else "" for t in totales_dia],
         textposition="outside",
-        hovertemplate="Día %{x}<br>Eventos: %{y:,}<br>Día de campaña: %{customdata[0]}<extra></extra>",
+        hovertemplate="Fecha %{x|%Y-%m-%d}<br>Eventos: %{y:,}<br>Día de campaña: %{customdata[0]}<extra></extra>",
         showlegend=False,
     ))
 
@@ -321,7 +337,7 @@ def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=20, b=40, l=40, r=10),
-        xaxis=dict(title="Día", tickmode="linear", tick0=1, dtick=1, range=[0.5, ultimo_dia + 0.5]),
+        xaxis=dict(title="Fecha", tickmode="linear", dtick=86400000.0, tickformat="%d-%b"),
         yaxis=dict(title="Eventos de login", range=[0, max_total + (separacion * 3)]),
         bargap=0.15,
     )
@@ -332,36 +348,33 @@ def construir_figura_clientes_unicos_dia(df_logins: pd.DataFrame) -> go.Figure:
     if df_logins.empty:
         return construir_figura_vacia("No hay clientes RTM con login para el período")
 
-    anio = int(df_logins["fecha_inicio"].dt.year.mode().iloc[0])
-    mes = int(df_logins["fecha_inicio"].dt.month.mode().iloc[0])
-    ultimo_dia = calendar.monthrange(anio, mes)[1]
-    dias = list(range(1, ultimo_dia + 1))
+    fechas = list(RANGO_FECHAS)
 
     df_unicos = (
-        df_logins[["dia", "canal_contacto", "padded_codigo_usuario"]]
+        df_logins[["fecha_dia", "canal_contacto", "padded_codigo_usuario"]]
         .drop_duplicates()
     )
 
     totales_dia = (
-        df_unicos.groupby("dia")
+        df_unicos.groupby("fecha_dia")
         .size()
-        .reindex(dias, fill_value=0)
+        .reindex(RANGO_FECHAS, fill_value=0)
         .tolist()
     )
     max_total = max(totales_dia) if totales_dia else 0
     separacion = max(1, int(max_total * 0.04))
-    colores_dias = colores_por_dia(dias)
-    custom_data = [["Sí" if dia in DIAS_CAMPANA else "No"] for dia in dias]
+    colores_dias = colores_por_fecha(fechas)
+    custom_data = [["Sí" if pd.Timestamp(f).date() in FECHAS_CAMPANA else "No"] for f in fechas]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=dias,
+        x=fechas,
         y=totales_dia,
         marker_color=colores_dias,
         customdata=custom_data,
         text=[f"{t:,}" if t > 0 else "" for t in totales_dia],
         textposition="outside",
-        hovertemplate="Día %{x}<br>Clientes únicos: %{y:,}<br>Día de campaña: %{customdata[0]}<extra></extra>",
+        hovertemplate="Fecha %{x|%Y-%m-%d}<br>Clientes únicos: %{y:,}<br>Día de campaña: %{customdata[0]}<extra></extra>",
         showlegend=False,
     ))
 
@@ -371,7 +384,7 @@ def construir_figura_clientes_unicos_dia(df_logins: pd.DataFrame) -> go.Figure:
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=20, b=40, l=40, r=10),
-        xaxis=dict(title="Día", tickmode="linear", tick0=1, dtick=1, range=[0.5, ultimo_dia + 0.5]),
+        xaxis=dict(title="Fecha", tickmode="linear", dtick=86400000.0, tickformat="%d-%b"),
         yaxis=dict(title="Clientes únicos", range=[0, max_total + (separacion * 3)]),
         bargap=0.15,
     )
@@ -446,32 +459,28 @@ def construir_figura_primer_login_por_fecha(df_clientes: pd.DataFrame) -> go.Fig
     if tmp.empty:
         return construir_figura_vacia("No hay datos de primer login para el período")
 
-    anio = int(tmp["primer_login"].dt.year.mode().iloc[0])
-    mes = int(tmp["primer_login"].dt.month.mode().iloc[0])
-    ultimo_dia = calendar.monthrange(anio, mes)[1]
-    dias = list(range(1, ultimo_dia + 1))
-
-    tmp["dia_primer_login"] = tmp["primer_login"].dt.day
+    fechas = list(RANGO_FECHAS)
+    tmp["fecha_primer_login_dia"] = tmp["primer_login"].dt.normalize()
     totales_dia = (
-        tmp.groupby("dia_primer_login")
+        tmp.groupby("fecha_primer_login_dia")
         .size()
-        .reindex(dias, fill_value=0)
+        .reindex(RANGO_FECHAS, fill_value=0)
         .tolist()
     )
     max_total = max(totales_dia) if totales_dia else 0
     separacion = max(1, int(max_total * 0.04))
-    colores_dias = colores_por_dia(dias)
-    custom_data = [["Sí" if dia in DIAS_CAMPANA else "No"] for dia in dias]
+    colores_dias = colores_por_fecha(fechas)
+    custom_data = [["Sí" if pd.Timestamp(f).date() in FECHAS_CAMPANA else "No"] for f in fechas]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=dias,
+        x=fechas,
         y=totales_dia,
         marker_color=colores_dias,
         customdata=custom_data,
         text=[f"{t:,}" if t > 0 else "" for t in totales_dia],
         textposition="outside",
-        hovertemplate="Día %{x}<br>Clientes: %{y:,}<br>Día de campaña: %{customdata[0]}<extra></extra>",
+        hovertemplate="Fecha %{x|%Y-%m-%d}<br>Clientes: %{y:,}<br>Día de campaña: %{customdata[0]}<extra></extra>",
         showlegend=False,
     ))
 
@@ -481,7 +490,7 @@ def construir_figura_primer_login_por_fecha(df_clientes: pd.DataFrame) -> go.Fig
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=20, b=40, l=40, r=10),
-        xaxis=dict(title="Día del primer login", tickmode="linear", tick0=1, dtick=1, range=[0.5, ultimo_dia + 0.5]),
+        xaxis=dict(title="Fecha del primer login", tickmode="linear", dtick=86400000.0, tickformat="%d-%b"),
         yaxis=dict(title="Clientes únicos", range=[0, max_total + (separacion * 3)]),
         bargap=0.15,
     )
@@ -489,13 +498,13 @@ def construir_figura_primer_login_por_fecha(df_clientes: pd.DataFrame) -> go.Fig
 
 
 # ── Carga y preparación de datos ─────────────────────────────────────────────
-print("Cargando logins...")
-df = run_query_file(RUTA_QUERY_LOGINS)
-print(f"  {len(df)} eventos de login cargados")
+print("Cargando logins (marzo-abril)...")
+df = run_query(SQL_LOGINS_RANGO)
+print(f"  {len(df)} eventos de login cargados (01-mar al 08-abr)")
 
 df["fecha_inicio"] = pd.to_datetime(df["fecha_inicio"], errors="coerce")
 df = df[df["fecha_inicio"].notna()].copy()
-df["dia"] = df["fecha_inicio"].dt.day
+df["fecha_dia"] = df["fecha_inicio"].dt.normalize()
 df["padded_codigo_usuario"] = df["padded_codigo_usuario"].apply(normalizar_codigo)
 df["id_usuario"] = df["nombre_usuario"].fillna("").astype(str).str.strip()
 df.loc[df["id_usuario"] == "", "id_usuario"] = df["padded_codigo_usuario"]
@@ -516,15 +525,22 @@ else:
         on="padded_codigo_usuario",
     )
 
-# Diagnóstico rápido para validar cobertura del cruce SQL vs Excel (días 1-4).
+# Diagnóstico rápido para validar cobertura del cruce SQL vs Excel en rango visible.
 print("Clientes SQL únicos:", df["padded_codigo_usuario"].nunique())
 print("Clientes Excel únicos:", contactados["padded_codigo_usuario"].nunique())
 print("Intersección:", len(set(df["padded_codigo_usuario"]) & set(contactados["padded_codigo_usuario"])))
-print("SQL por día 1-4:\n", df[df["dia"].isin([1, 2, 3, 4])].groupby("dia").size())
-print("MERGE por día 1-4:\n", df_filtrado[df_filtrado["dia"].isin([1, 2, 3, 4])].groupby("dia").size())
+print(
+    "SQL en rango 16-mar a 08-abr:",
+    int(((df["fecha_dia"] >= FECHA_INICIO) & (df["fecha_dia"] <= FECHA_FIN)).sum()),
+)
+print(
+    "MERGE en rango 16-mar a 08-abr:",
+    int(((df_filtrado["fecha_dia"] >= FECHA_INICIO) & (df_filtrado["fecha_dia"] <= FECHA_FIN)).sum()),
+)
 
 df_rtm = df_filtrado[df_filtrado["canal_contacto"] == CANAL_OBJETIVO].copy()
 contactados_rtm = contactados[contactados["canal_contacto"] == CANAL_OBJETIVO].copy()
+df_rtm = df_rtm[(df_rtm["fecha_dia"] >= FECHA_INICIO) & (df_rtm["fecha_dia"] <= FECHA_FIN)].copy()
 
 total_eventos = int(df_rtm.shape[0])
 usuarios_unicos = int(df_rtm["id_usuario"].nunique()) if not df_rtm.empty else 0
@@ -549,11 +565,11 @@ app = Dash(__name__)
 app.layout = html.Div(
     style={"fontFamily": "Arial", "backgroundColor": COLORES["gris_fondo"], "minHeight": "100vh", "padding": "24px"},
     children=[
-        html.H2("LoginUsuarios RTM — Marzo 2026", style={"color": COLORES["azul_experto"], "marginBottom": "10px"}),
+        html.H2("LoginUsuarios RTM — 16 Mar al 08 Abr 2026", style={"color": COLORES["azul_experto"], "marginBottom": "10px"}),
         html.P(
             (
                 f"Base dedicada al canal {CANAL_OBJETIVO}. "
-                f"Días de campaña resaltados en rojo: {sorted(DIAS_CAMPANA)}. "
+                f"Días de campaña resaltados en rojo: {[d.strftime('%Y-%m-%d') for d in sorted(FECHAS_CAMPANA)]}. "
                 f"Archivo: {ruta_contactados if ruta_contactados else 'No encontrado'}"
             ),
             style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "20px"},
@@ -563,7 +579,7 @@ app.layout = html.Div(
             style={"display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(220px, 1fr))", "gap": "16px", "marginBottom": "24px"},
             children=[
                 html.Div(style=card_style, children=[
-                    html.P("Eventos de login (solo Excel)", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
+                    html.P("Eventos de login (solo RTM)", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
                     html.H2(f"{total_eventos:,}", id="kpi-total-eventos", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
                 ]),
                 html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}"}, children=[
