@@ -210,7 +210,7 @@ def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
             text=[f"{v:,}" if v > 0 else "" for v in valores],
             textposition="inside",
             insidetextanchor="middle",
-            textfont=dict(size=10, color=COLORES["blanco"]),
+            textfont=dict(size=13, color=COLORES["blanco"]),
             hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} eventos<extra></extra>",
         ))
 
@@ -276,7 +276,7 @@ def construir_figura_clientes_unicos_dia(df_logins: pd.DataFrame) -> go.Figure:
             text=[f"{v:,}" if v > 0 else "" for v in valores],
             textposition="inside",
             insidetextanchor="middle",
-            textfont=dict(size=10, color=COLORES["blanco"]),
+            textfont=dict(size=13, color=COLORES["blanco"]),
             hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} clientes únicos<extra></extra>",
         ))
 
