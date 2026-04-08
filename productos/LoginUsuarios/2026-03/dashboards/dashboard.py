@@ -462,6 +462,46 @@ def construir_figura_distribucion_contacto(df_logins: pd.DataFrame) -> go.Figure
     return fig
 
 
+def construir_figura_primer_login_por_fecha(df_clientes: pd.DataFrame) -> go.Figure:
+    if df_clientes.empty or "primer_login" not in df_clientes.columns:
+        return construir_figura_vacia("No hay datos de primer login para el período")
+
+    tmp = df_clientes.copy()
+    tmp = tmp[tmp["primer_login"].notna()].copy()
+    if tmp.empty:
+        return construir_figura_vacia("No hay datos de primer login para el período")
+
+    tmp["fecha_primer_login"] = tmp["primer_login"].dt.date
+    resumen = (
+        tmp.groupby("fecha_primer_login")
+        .size()
+        .reset_index(name="clientes")
+        .sort_values("fecha_primer_login", ascending=False)
+    )
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=resumen["fecha_primer_login"].astype(str).tolist(),
+            y=resumen["clientes"].tolist(),
+            marker_color=COLORES["azul_financiero"],
+            text=[f"{int(v):,}" for v in resumen["clientes"].tolist()],
+            textposition="outside",
+            hovertemplate="Fecha %{x}<br>Clientes: %{y:,}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=20, b=80, l=40, r=10),
+        xaxis=dict(title="Fecha del primer login (más reciente a más antigua)", tickangle=-45),
+        yaxis=dict(title="Clientes únicos"),
+    )
+    return fig
+
+
 # ── Carga y preparación de datos ─────────────────────────────────────────────
 print("Cargando logins...")
 df = run_query_file(RUTA_QUERY_LOGINS)
@@ -514,6 +554,7 @@ _df_tabla = (
     )
     .sort_values("total_logins", ascending=False)
 )
+_df_primer_login = _df_tabla.copy()
 if not _df_tabla.empty:
     _df_tabla["primer_login"] = _df_tabla["primer_login"].dt.strftime("%Y-%m-%d %H:%M:%S")
     _df_tabla["ultimo_login"] = _df_tabla["ultimo_login"].dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -626,6 +667,14 @@ app.layout = html.Div(
                 style_header={"backgroundColor": COLORES["azul_experto"], "color": COLORES["blanco"], "fontWeight": "bold"},
                 style_data={"backgroundColor": COLORES["blanco"], "color": COLORES["azul_experto"]},
             ),
+        ]),
+
+        html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}", "marginTop": "20px"}, children=[
+            html.H4(
+                "Clientes por fecha de primer login",
+                style={"color": COLORES["azul_experto"], "marginTop": 0},
+            ),
+            dcc.Graph(figure=construir_figura_primer_login_por_fecha(_df_primer_login)),
         ]),
     ],
 )
