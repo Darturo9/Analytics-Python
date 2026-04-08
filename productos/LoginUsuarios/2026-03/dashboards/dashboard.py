@@ -100,6 +100,64 @@ def usuario_representativo(series: pd.Series) -> str:
     return s.value_counts().index[0]
 
 
+def construir_panel_totales_canal(df_logins: pd.DataFrame, modo: str) -> html.Div:
+    """Panel lateral con total por canal de contacto."""
+    if df_logins.empty:
+        return html.Div(
+            style={
+                "minWidth": "220px",
+                "padding": "12px",
+                "border": "1px solid #E5E7EB",
+                "borderRadius": "8px",
+                "backgroundColor": COLORES["blanco"],
+                "alignSelf": "start",
+            },
+            children=[
+                html.H5("Totales por canal", style={"marginTop": 0, "color": COLORES["azul_experto"]}),
+                html.P("Sin datos", style={"margin": 0, "color": COLORES["gris_texto"]}),
+            ],
+        )
+
+    if modo == "eventos":
+        conteo = df_logins.groupby("canal_contacto").size().sort_values(ascending=False)
+        subtitulo = "Eventos"
+    else:
+        conteo = (
+            df_logins[["padded_codigo_usuario", "canal_contacto"]]
+            .drop_duplicates()
+            .groupby("canal_contacto")
+            .size()
+            .sort_values(ascending=False)
+        )
+        subtitulo = "Clientes únicos"
+
+    total = int(conteo.sum())
+    filas = [
+        html.Li(
+            f"{canal}: {int(valor):,}",
+            style={"marginBottom": "6px", "color": COLORES["azul_experto"], "fontSize": "13px"},
+        )
+        for canal, valor in conteo.items()
+    ]
+
+    return html.Div(
+        style={
+            "minWidth": "220px",
+            "padding": "12px",
+            "border": "1px solid #E5E7EB",
+            "borderRadius": "8px",
+            "backgroundColor": COLORES["blanco"],
+            "alignSelf": "start",
+        },
+        children=[
+            html.H5("Totales por canal", style={"marginTop": 0, "marginBottom": "4px", "color": COLORES["azul_experto"]}),
+            html.P(subtitulo, style={"marginTop": 0, "marginBottom": "10px", "color": COLORES["gris_texto"], "fontSize": "12px"}),
+            html.Ul(filas, style={"paddingLeft": "18px", "marginTop": 0, "marginBottom": "10px"}),
+            html.H6(f"Total: {total:,}", style={"margin": 0, "color": COLORES["azul_experto"]}),
+        ],
+    )
+
+
 def cargar_contactados() -> tuple[pd.DataFrame, str | None]:
     archivos_preferidos = [
         RUTA_DATA_CONTACTADOS / "Contactados.xlsx",
@@ -187,15 +245,20 @@ def _agregar_barras_apiladas(
     hover_sufijo: str,
 ) -> None:
     """Agrega barras apiladas con etiquetas inteligentes:
-    - Segmentos grandes: numero blanco adentro
-    - Segmentos pequeños: numero del color del canal afuera, posicionado en el centro del segmento
+    - Segmentos grandes: numero adentro
+    - Segmentos pequeños: numero centrado (scatter), con mejor legibilidad
     """
-    threshold = max(5, int(max_total * 0.08))
+    threshold = max(10, int(max_total * 0.15))
     cumsum = pivot.cumsum(axis=1)
 
     for idx, columna in enumerate(pivot.columns.tolist()):
         color = colores[idx % len(colores)]
         valores = pivot[columna].tolist()
+        color_texto_interno = (
+            COLORES["azul_experto"]
+            if color in {COLORES["amarillo_opt"], COLORES["amarillo_emp"]}
+            else COLORES["blanco"]
+        )
 
         # Texto dentro solo para segmentos grandes
         texto_dentro = [f"{v:,}" if v >= threshold else "" for v in valores]
@@ -208,7 +271,8 @@ def _agregar_barras_apiladas(
             text=texto_dentro,
             textposition="inside",
             insidetextanchor="middle",
-            textfont=dict(size=13, color=COLORES["blanco"]),
+            textfont=dict(size=13, color=color_texto_interno),
+            textangle=0,
             hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} {hover_sufijo}<extra></extra>",
         ))
 
@@ -228,10 +292,11 @@ def _agregar_barras_apiladas(
                 y=y_pequeños,
                 mode="text",
                 text=text_pequeños,
-                textfont=dict(size=12, color=COLORES["azul_experto"]),
+                textfont=dict(size=13, color=COLORES["azul_experto"]),
                 textposition="middle center",
                 showlegend=False,
                 hoverinfo="skip",
+                cliponaxis=False,
             ))
 
 
@@ -491,7 +556,16 @@ app.layout = html.Div(
 
         html.Div(style={**card_style, "marginBottom": "20px"}, children=[
             html.H4("Eventos por día (segmentado por canal del Excel)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            dcc.Graph(figure=construir_figura_logins_dia(df_filtrado)),
+            html.Div(
+                style={"display": "flex", "gap": "14px", "alignItems": "flex-start", "flexWrap": "wrap"},
+                children=[
+                    html.Div(
+                        style={"flex": "1 1 720px", "minWidth": "360px"},
+                        children=[dcc.Graph(figure=construir_figura_logins_dia(df_filtrado))],
+                    ),
+                    construir_panel_totales_canal(df_filtrado, modo="eventos"),
+                ],
+            ),
         ]),
 
         html.Div(style={**card_style, "marginBottom": "20px", "borderTop": f"4px solid {COLORES['azul_financiero']}"}, children=[
@@ -499,7 +573,16 @@ app.layout = html.Div(
                 "Clientes únicos por día",
                 style={"color": COLORES["azul_experto"], "marginTop": 0},
             ),
-            dcc.Graph(figure=construir_figura_clientes_unicos_dia(df_filtrado)),
+            html.Div(
+                style={"display": "flex", "gap": "14px", "alignItems": "flex-start", "flexWrap": "wrap"},
+                children=[
+                    html.Div(
+                        style={"flex": "1 1 720px", "minWidth": "360px"},
+                        children=[dcc.Graph(figure=construir_figura_clientes_unicos_dia(df_filtrado))],
+                    ),
+                    construir_panel_totales_canal(df_filtrado, modo="clientes"),
+                ],
+            ),
         ]),
 
         html.Div(
