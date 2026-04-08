@@ -178,6 +178,63 @@ def construir_figura_vacia(mensaje: str) -> go.Figure:
     return fig
 
 
+def _agregar_barras_apiladas(
+    fig: go.Figure,
+    pivot: pd.DataFrame,
+    dias: list,
+    max_total: int,
+    colores: list,
+    hover_sufijo: str,
+) -> None:
+    """Agrega barras apiladas con etiquetas inteligentes:
+    - Segmentos grandes: numero blanco adentro
+    - Segmentos pequeños: numero del color del canal afuera, posicionado en el centro del segmento
+    """
+    threshold = max(5, int(max_total * 0.08))
+    cumsum = pivot.cumsum(axis=1)
+
+    for idx, columna in enumerate(pivot.columns.tolist()):
+        color = colores[idx % len(colores)]
+        valores = pivot[columna].tolist()
+
+        # Texto dentro solo para segmentos grandes
+        texto_dentro = [f"{v:,}" if v >= threshold else "" for v in valores]
+
+        fig.add_trace(go.Bar(
+            name=columna,
+            x=dias,
+            y=valores,
+            marker_color=color,
+            text=texto_dentro,
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(size=13, color=COLORES["blanco"]),
+            hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} {hover_sufijo}<extra></extra>",
+        ))
+
+        # Scatter para segmentos pequeños: posicionado en el centro exacto del segmento
+        tops = cumsum[columna].tolist()
+        x_pequeños, y_pequeños, text_pequeños = [], [], []
+        for i, v in enumerate(valores):
+            if 0 < v < threshold:
+                midpoint = tops[i] - v / 2
+                x_pequeños.append(dias[i])
+                y_pequeños.append(midpoint)
+                text_pequeños.append(f"{v:,}")
+
+        if x_pequeños:
+            fig.add_trace(go.Scatter(
+                x=x_pequeños,
+                y=y_pequeños,
+                mode="text",
+                text=text_pequeños,
+                textfont=dict(size=12, color=COLORES["azul_experto"]),
+                textposition="middle center",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+
 def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
     if df_logins.empty:
         return construir_figura_vacia("No hay logins de clientes del Excel para el período")
@@ -200,19 +257,7 @@ def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
 
     fig = go.Figure()
     colores = [COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_financiero"], COLORES["azul_experto"]]
-    for idx, columna in enumerate(pivot.columns.tolist()):
-        valores = pivot[columna].tolist()
-        fig.add_trace(go.Bar(
-            name=columna,
-            x=dias,
-            y=valores,
-            marker_color=colores[idx % len(colores)],
-            text=[f"{v:,}" if v > 0 else "" for v in valores],
-            textposition="inside",
-            insidetextanchor="middle",
-            textfont=dict(size=13, color=COLORES["blanco"]),
-            hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} eventos<extra></extra>",
-        ))
+    _agregar_barras_apiladas(fig, pivot, dias, max_total, colores, "eventos")
 
     fig.add_trace(go.Scatter(
         x=dias,
@@ -266,19 +311,7 @@ def construir_figura_clientes_unicos_dia(df_logins: pd.DataFrame) -> go.Figure:
 
     fig = go.Figure()
     colores = [COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_financiero"], COLORES["azul_experto"]]
-    for idx, columna in enumerate(pivot.columns.tolist()):
-        valores = pivot[columna].tolist()
-        fig.add_trace(go.Bar(
-            name=columna,
-            x=dias,
-            y=valores,
-            marker_color=colores[idx % len(colores)],
-            text=[f"{v:,}" if v > 0 else "" for v in valores],
-            textposition="inside",
-            insidetextanchor="middle",
-            textfont=dict(size=13, color=COLORES["blanco"]),
-            hovertemplate=f"Día %{{x}}<br>{columna}: %{{y:,}} clientes únicos<extra></extra>",
-        ))
+    _agregar_barras_apiladas(fig, pivot, dias, max_total, colores, "clientes únicos")
 
     fig.add_trace(go.Scatter(
         x=dias,
