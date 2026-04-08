@@ -14,7 +14,7 @@ from pathlib import Path
 import calendar
 
 import pandas as pd
-from dash import Dash, html, dcc, dash_table
+from dash import Dash, html, dcc, dash_table, Input, Output
 import plotly.graph_objects as go
 
 from core.db import run_query_file
@@ -23,6 +23,15 @@ from core.colors import COLORES
 
 RUTA_QUERY_LOGINS = "productos/LoginUsuarios/2026-03/queries/Logins.sql"
 RUTA_DATA_CONTACTADOS = Path("productos/LoginUsuarios/2026-03/archivoExcel")
+VALOR_TODOS_CANALES = "__TODOS__"
+COLUMNAS_TABLA_CLIENTES = [
+    "padded_codigo_usuario",
+    "usuario",
+    "canal_contacto",
+    "total_logins",
+    "primer_login",
+    "ultimo_login",
+]
 
 
 def normalizar_codigo(valor) -> str | None:
@@ -100,62 +109,35 @@ def usuario_representativo(series: pd.Series) -> str:
     return s.value_counts().index[0]
 
 
-def construir_panel_totales_canal(df_logins: pd.DataFrame, modo: str) -> html.Div:
-    """Panel lateral con total por canal de contacto."""
+def filtrar_por_canal(df: pd.DataFrame, canal: str | None) -> pd.DataFrame:
+    if df.empty or canal in (None, "", VALOR_TODOS_CANALES):
+        return df.copy()
+    return df[df["canal_contacto"] == canal].copy()
+
+
+def construir_tabla_clientes(df_logins: pd.DataFrame) -> pd.DataFrame:
     if df_logins.empty:
-        return html.Div(
-            style={
-                "minWidth": "220px",
-                "padding": "12px",
-                "border": "1px solid #E5E7EB",
-                "borderRadius": "8px",
-                "backgroundColor": COLORES["blanco"],
-                "alignSelf": "start",
-            },
-            children=[
-                html.H5("Totales por canal", style={"marginTop": 0, "color": COLORES["azul_experto"]}),
-                html.P("Sin datos", style={"margin": 0, "color": COLORES["gris_texto"]}),
-            ],
+        return pd.DataFrame(columns=COLUMNAS_TABLA_CLIENTES)
+    return (
+        df_logins.groupby("padded_codigo_usuario", as_index=False)
+        .agg(
+            total_logins=("fecha_inicio", "count"),
+            primer_login=("fecha_inicio", "min"),
+            ultimo_login=("fecha_inicio", "max"),
+            usuario=("id_usuario", usuario_representativo),
+            canal_contacto=("canal_contacto", consolidar_canal_contacto),
         )
-
-    if modo == "eventos":
-        conteo = df_logins.groupby("canal_contacto").size().sort_values(ascending=False)
-        subtitulo = "Eventos"
-    else:
-        conteo = (
-            df_logins[["padded_codigo_usuario", "canal_contacto"]]
-            .drop_duplicates()
-            .groupby("canal_contacto")
-            .size()
-            .sort_values(ascending=False)
-        )
-        subtitulo = "Clientes únicos"
-
-    total = int(conteo.sum())
-    filas = [
-        html.Li(
-            f"{canal}: {int(valor):,}",
-            style={"marginBottom": "6px", "color": COLORES["azul_experto"], "fontSize": "13px"},
-        )
-        for canal, valor in conteo.items()
-    ]
-
-    return html.Div(
-        style={
-            "minWidth": "220px",
-            "padding": "12px",
-            "border": "1px solid #E5E7EB",
-            "borderRadius": "8px",
-            "backgroundColor": COLORES["blanco"],
-            "alignSelf": "start",
-        },
-        children=[
-            html.H5("Totales por canal", style={"marginTop": 0, "marginBottom": "4px", "color": COLORES["azul_experto"]}),
-            html.P(subtitulo, style={"marginTop": 0, "marginBottom": "10px", "color": COLORES["gris_texto"], "fontSize": "12px"}),
-            html.Ul(filas, style={"paddingLeft": "18px", "marginTop": 0, "marginBottom": "10px"}),
-            html.H6(f"Total: {total:,}", style={"margin": 0, "color": COLORES["azul_experto"]}),
-        ],
+        .sort_values("total_logins", ascending=False)
     )
+
+
+def preparar_tabla_clientes(df_tabla: pd.DataFrame) -> pd.DataFrame:
+    if df_tabla.empty:
+        return pd.DataFrame(columns=COLUMNAS_TABLA_CLIENTES)
+    df_show = df_tabla.copy()
+    df_show["primer_login"] = df_show["primer_login"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    df_show["ultimo_login"] = df_show["ultimo_login"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    return df_show
 
 
 def cargar_contactados() -> tuple[pd.DataFrame, str | None]:
@@ -552,27 +534,21 @@ print("Intersección:", len(set(df["padded_codigo_usuario"]) & set(contactados["
 print("SQL por día 1-4:\n", df[df["dia"].isin([1, 2, 3, 4])].groupby("dia").size())
 print("MERGE por día 1-4:\n", df_filtrado[df_filtrado["dia"].isin([1, 2, 3, 4])].groupby("dia").size())
 
-total_eventos = int(df_filtrado.shape[0])
-usuarios_unicos = int(df_filtrado["id_usuario"].nunique())
-clientes_excel = int(contactados["padded_codigo_usuario"].nunique())
-clientes_excel_con_login = int(df_filtrado["padded_codigo_usuario"].nunique())
+opciones_canal = [{"label": "Todos", "value": VALOR_TODOS_CANALES}] + [
+    {"label": c, "value": c}
+    for c in sorted(contactados["canal_contacto"].dropna().astype(str).unique().tolist())
+]
 
-# para tabla (1 fila por cliente)
-_df_tabla = (
-    df_filtrado.groupby("padded_codigo_usuario", as_index=False)
-    .agg(
-        total_logins=("fecha_inicio", "count"),
-        primer_login=("fecha_inicio", "min"),
-        ultimo_login=("fecha_inicio", "max"),
-        usuario=("id_usuario", usuario_representativo),
-        canal_contacto=("canal_contacto", consolidar_canal_contacto),
-    )
-    .sort_values("total_logins", ascending=False)
-)
-_df_primer_login = _df_tabla.copy()
-if not _df_tabla.empty:
-    _df_tabla["primer_login"] = _df_tabla["primer_login"].dt.strftime("%Y-%m-%d %H:%M:%S")
-    _df_tabla["ultimo_login"] = _df_tabla["ultimo_login"].dt.strftime("%Y-%m-%d %H:%M:%S")
+df_inicial = filtrar_por_canal(df_filtrado, VALOR_TODOS_CANALES)
+contactados_inicial = filtrar_por_canal(contactados, VALOR_TODOS_CANALES)
+
+total_eventos = int(df_inicial.shape[0])
+usuarios_unicos = int(df_inicial["id_usuario"].nunique()) if not df_inicial.empty else 0
+clientes_excel = int(contactados_inicial["padded_codigo_usuario"].nunique()) if not contactados_inicial.empty else 0
+clientes_excel_con_login = int(df_inicial["padded_codigo_usuario"].nunique()) if not df_inicial.empty else 0
+
+_df_primer_login = construir_tabla_clientes(df_inicial)
+_df_tabla = preparar_tabla_clientes(_df_primer_login)
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -594,41 +570,60 @@ app.layout = html.Div(
             f"Solo clientes del Excel (Cliente + Canal). Archivo: {ruta_contactados if ruta_contactados else 'No encontrado'}",
             style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "20px"},
         ),
+        html.Div(
+            style={
+                "backgroundColor": COLORES["blanco"],
+                "borderRadius": "8px",
+                "padding": "14px 18px",
+                "boxShadow": "0 1px 4px rgba(0,0,0,0.08)",
+                "marginBottom": "20px",
+            },
+            children=[
+                html.Label(
+                    "Filtro general por canal (Excel)",
+                    style={
+                        "display": "block",
+                        "marginBottom": "8px",
+                        "fontWeight": "bold",
+                        "color": COLORES["azul_experto"],
+                    },
+                ),
+                dcc.Dropdown(
+                    id="filtro-canal",
+                    options=opciones_canal,
+                    value=VALOR_TODOS_CANALES,
+                    clearable=False,
+                    placeholder="Selecciona canal",
+                    style={"maxWidth": "420px"},
+                ),
+            ],
+        ),
 
         html.Div(
             style={"display": "grid", "gridTemplateColumns": "repeat(auto-fit, minmax(220px, 1fr))", "gap": "16px", "marginBottom": "24px"},
             children=[
                 html.Div(style=card_style, children=[
                     html.P("Eventos de login (solo Excel)", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
-                    html.H2(f"{total_eventos:,}", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
+                    html.H2(f"{total_eventos:,}", id="kpi-total-eventos", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
                 ]),
                 html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_financiero']}"}, children=[
                     html.P("Usuarios únicos con login", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
-                    html.H2(f"{usuarios_unicos:,}", style={"margin": "8px 0 0 0", "color": COLORES["azul_financiero"]}),
+                    html.H2(f"{usuarios_unicos:,}", id="kpi-usuarios-unicos", style={"margin": "8px 0 0 0", "color": COLORES["azul_financiero"]}),
                 ]),
                 html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}"}, children=[
                     html.P("Clientes en Excel", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
-                    html.H2(f"{clientes_excel:,}", style={"margin": "8px 0 0 0", "color": COLORES["aqua_digital"]}),
+                    html.H2(f"{clientes_excel:,}", id="kpi-clientes-excel", style={"margin": "8px 0 0 0", "color": COLORES["aqua_digital"]}),
                 ]),
                 html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['amarillo_opt']}"}, children=[
                     html.P("Clientes Excel con login", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "14px"}),
-                    html.H2(f"{clientes_excel_con_login:,}", style={"margin": "8px 0 0 0", "color": COLORES["amarillo_opt"]}),
+                    html.H2(f"{clientes_excel_con_login:,}", id="kpi-clientes-con-login", style={"margin": "8px 0 0 0", "color": COLORES["amarillo_opt"]}),
                 ]),
             ],
         ),
 
         html.Div(style={**card_style, "marginBottom": "20px"}, children=[
             html.H4("Eventos por día (segmentado por canal del Excel)", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-            html.Div(
-                style={"display": "flex", "gap": "14px", "alignItems": "flex-start", "flexWrap": "wrap"},
-                children=[
-                    html.Div(
-                        style={"flex": "1 1 720px", "minWidth": "360px"},
-                        children=[dcc.Graph(figure=construir_figura_logins_dia(df_filtrado))],
-                    ),
-                    construir_panel_totales_canal(df_filtrado, modo="eventos"),
-                ],
-            ),
+            dcc.Graph(id="graf-logins-dia", figure=construir_figura_logins_dia(df_inicial)),
         ]),
 
         html.Div(style={**card_style, "marginBottom": "20px", "borderTop": f"4px solid {COLORES['azul_financiero']}"}, children=[
@@ -636,16 +631,7 @@ app.layout = html.Div(
                 "Clientes únicos por día",
                 style={"color": COLORES["azul_experto"], "marginTop": 0},
             ),
-            html.Div(
-                style={"display": "flex", "gap": "14px", "alignItems": "flex-start", "flexWrap": "wrap"},
-                children=[
-                    html.Div(
-                        style={"flex": "1 1 720px", "minWidth": "360px"},
-                        children=[dcc.Graph(figure=construir_figura_clientes_unicos_dia(df_filtrado))],
-                    ),
-                    construir_panel_totales_canal(df_filtrado, modo="clientes"),
-                ],
-            ),
+            dcc.Graph(id="graf-clientes-unicos-dia", figure=construir_figura_clientes_unicos_dia(df_inicial)),
         ]),
 
         html.Div(
@@ -653,11 +639,11 @@ app.layout = html.Div(
             children=[
                 html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['azul_experto']}"}, children=[
                     html.H4("Canal de login vs Canal del Excel", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-                    dcc.Graph(figure=construir_figura_canales_login(df_filtrado)),
+                    dcc.Graph(id="graf-canales-login", figure=construir_figura_canales_login(df_inicial)),
                 ]),
                 html.Div(style={**card_style, "borderTop": f"4px solid {COLORES['aqua_digital']}"}, children=[
                     html.H4("Distribución por canal del Excel", style={"color": COLORES["azul_experto"], "marginTop": 0}),
-                    dcc.Graph(figure=construir_figura_distribucion_contacto(df_filtrado)),
+                    dcc.Graph(id="graf-distribucion-contacto", figure=construir_figura_distribucion_contacto(df_inicial)),
                 ]),
             ],
         ),
@@ -673,9 +659,8 @@ app.layout = html.Div(
                     {"name": "Primer login", "id": "primer_login"},
                     {"name": "Último login", "id": "ultimo_login"},
                 ],
-                data=_df_tabla[
-                    ["padded_codigo_usuario", "usuario", "canal_contacto", "total_logins", "primer_login", "ultimo_login"]
-                ].to_dict("records"),
+                data=_df_tabla[COLUMNAS_TABLA_CLIENTES].to_dict("records"),
+                id="tabla-clientes",
                 page_size=12,
                 style_table={"overflowX": "auto"},
                 style_cell={"textAlign": "left", "fontFamily": "Arial", "fontSize": "13px"},
@@ -689,10 +674,50 @@ app.layout = html.Div(
                 "Clientes por fecha de primer login",
                 style={"color": COLORES["azul_experto"], "marginTop": 0},
             ),
-            dcc.Graph(figure=construir_figura_primer_login_por_fecha(_df_primer_login)),
+            dcc.Graph(id="graf-primer-login", figure=construir_figura_primer_login_por_fecha(_df_primer_login)),
         ]),
     ],
 )
+
+
+@app.callback(
+    Output("kpi-total-eventos", "children"),
+    Output("kpi-usuarios-unicos", "children"),
+    Output("kpi-clientes-excel", "children"),
+    Output("kpi-clientes-con-login", "children"),
+    Output("graf-logins-dia", "figure"),
+    Output("graf-clientes-unicos-dia", "figure"),
+    Output("graf-canales-login", "figure"),
+    Output("graf-distribucion-contacto", "figure"),
+    Output("tabla-clientes", "data"),
+    Output("graf-primer-login", "figure"),
+    Input("filtro-canal", "value"),
+)
+def actualizar_dashboard(canal_seleccionado: str):
+    df_canal = filtrar_por_canal(df_filtrado, canal_seleccionado)
+    contactados_canal = filtrar_por_canal(contactados, canal_seleccionado)
+
+    total_eventos_canal = int(df_canal.shape[0])
+    usuarios_unicos_canal = int(df_canal["id_usuario"].nunique()) if not df_canal.empty else 0
+    clientes_excel_canal = int(contactados_canal["padded_codigo_usuario"].nunique()) if not contactados_canal.empty else 0
+    clientes_excel_con_login_canal = int(df_canal["padded_codigo_usuario"].nunique()) if not df_canal.empty else 0
+
+    df_primer_login_canal = construir_tabla_clientes(df_canal)
+    df_tabla_canal = preparar_tabla_clientes(df_primer_login_canal)
+    tabla_data = df_tabla_canal[COLUMNAS_TABLA_CLIENTES].to_dict("records")
+
+    return (
+        f"{total_eventos_canal:,}",
+        f"{usuarios_unicos_canal:,}",
+        f"{clientes_excel_canal:,}",
+        f"{clientes_excel_con_login_canal:,}",
+        construir_figura_logins_dia(df_canal),
+        construir_figura_clientes_unicos_dia(df_canal),
+        construir_figura_canales_login(df_canal),
+        construir_figura_distribucion_contacto(df_canal),
+        tabla_data,
+        construir_figura_primer_login_por_fecha(df_primer_login_canal),
+    )
 
 
 if __name__ == "__main__":
