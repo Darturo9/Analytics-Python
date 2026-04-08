@@ -227,6 +227,7 @@ def construir_figura_logins_dia(df_logins: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         barmode="stack",
+        height=500,
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
@@ -292,6 +293,7 @@ def construir_figura_clientes_unicos_dia(df_logins: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         barmode="stack",
+        height=500,
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
