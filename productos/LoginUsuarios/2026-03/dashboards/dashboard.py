@@ -490,6 +490,13 @@ else:
         on="padded_codigo_usuario",
     )
 
+# Diagnóstico rápido para validar cobertura del cruce SQL vs Excel (días 1-4).
+print("Clientes SQL únicos:", df["padded_codigo_usuario"].nunique())
+print("Clientes Excel únicos:", contactados["padded_codigo_usuario"].nunique())
+print("Intersección:", len(set(df["padded_codigo_usuario"]) & set(contactados["padded_codigo_usuario"])))
+print("SQL por día 1-4:\n", df[df["dia"].isin([1, 2, 3, 4])].groupby("dia").size())
+print("MERGE por día 1-4:\n", df_filtrado[df_filtrado["dia"].isin([1, 2, 3, 4])].groupby("dia").size())
+
 total_eventos = int(df_filtrado.shape[0])
 usuarios_unicos = int(df_filtrado["id_usuario"].nunique())
 clientes_excel = int(contactados["padded_codigo_usuario"].nunique())
