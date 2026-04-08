@@ -26,8 +26,7 @@ FECHA_INICIO = pd.Timestamp("2026-03-16")
 FECHA_FIN = pd.Timestamp("2026-04-08")
 RANGO_FECHAS = pd.date_range(FECHA_INICIO, FECHA_FIN, freq="D")
 FECHAS_CAMPANA = {
-    pd.Timestamp("2026-03-06").date(),
-    pd.Timestamp("2026-03-13").date(),
+    pd.Timestamp("2026-03-16").date(),
     pd.Timestamp("2026-03-18").date(),
     pd.Timestamp("2026-03-21").date(),
     pd.Timestamp("2026-03-28").date(),
