@@ -471,33 +471,48 @@ def construir_figura_primer_login_por_fecha(df_clientes: pd.DataFrame) -> go.Fig
     if tmp.empty:
         return construir_figura_vacia("No hay datos de primer login para el período")
 
-    tmp["fecha_primer_login"] = tmp["primer_login"].dt.date
-    resumen = (
-        tmp.groupby("fecha_primer_login")
+    anio = int(tmp["primer_login"].dt.year.mode().iloc[0])
+    mes = int(tmp["primer_login"].dt.month.mode().iloc[0])
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    dias = list(range(1, ultimo_dia + 1))
+
+    tmp["dia_primer_login"] = tmp["primer_login"].dt.day
+    pivot = (
+        tmp.groupby(["dia_primer_login", "canal_contacto"])
         .size()
-        .reset_index(name="clientes")
-        .sort_values("fecha_primer_login", ascending=False)
+        .unstack(fill_value=0)
+        .reindex(dias, fill_value=0)
     )
+
+    totales_dia = pivot.sum(axis=1).tolist()
+    max_total = max(totales_dia) if totales_dia else 0
+    separacion = max(1, int(max_total * 0.04))
 
     fig = go.Figure()
-    fig.add_trace(
-        go.Bar(
-            x=resumen["fecha_primer_login"].astype(str).tolist(),
-            y=resumen["clientes"].tolist(),
-            marker_color=COLORES["azul_financiero"],
-            text=[f"{int(v):,}" for v in resumen["clientes"].tolist()],
-            textposition="outside",
-            hovertemplate="Fecha %{x}<br>Clientes: %{y:,}<extra></extra>",
-        )
-    )
+    colores = [COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_financiero"], COLORES["azul_experto"]]
+    _agregar_barras_apiladas(fig, pivot, dias, max_total, colores, "clientes")
+
+    fig.add_trace(go.Scatter(
+        x=dias,
+        y=[t + separacion for t in totales_dia],
+        mode="text",
+        text=[f"{t:,}" if t > 0 else "" for t in totales_dia],
+        textposition="top center",
+        textfont=dict(size=11, color=COLORES["azul_experto"]),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
 
     fig.update_layout(
+        barmode="stack",
+        height=650,
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=20, b=80, l=40, r=10),
-        xaxis=dict(title="Fecha del primer login (más reciente a más antigua)", tickangle=-45),
-        yaxis=dict(title="Clientes únicos"),
+        margin=dict(t=20, b=40, l=40, r=10),
+        xaxis=dict(title="Día del primer login", tickmode="linear", tick0=1, dtick=1, range=[0.5, ultimo_dia + 0.5]),
+        yaxis=dict(title="Clientes únicos", range=[0, max_total + (separacion * 3)]),
+        legend_title_text="Canal contacto (Excel)",
     )
     return fig
 
