@@ -6,7 +6,8 @@ Muestra Enero, Febrero y Marzo en barras.
 
 Regla de unicidad:
 Una cuenta que fondea varias veces dentro del mismo mes cuenta solo 1 vez
-(se respalda en COUNT(DISTINCT ...) de ComparacionMensual.sql).
+(se respalda en COUNT(DISTINCT ...) de FondeadasMensualQ1.sql).
+No importa en que mes del Q1 abrio la cuenta; se toma el mes donde tuvo fondeo.
 
 Ejecucion:
     python3 productos/Fondeo_CD/Dashboards/dashboard_fondeadas_q1_cd.py
@@ -25,7 +26,7 @@ from core.colors import COLORES
 from core.db import run_query_file
 
 
-QUERY_PATH = "productos/Fondeo_CD/Queries/ComparacionMensual.sql"
+QUERY_PATH = "productos/Fondeo_CD/Queries/FondeadasMensualQ1.sql"
 
 
 def cargar_datos() -> pd.DataFrame:
@@ -101,7 +102,10 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
                 style={"color": COLORES["azul_experto"], "marginBottom": "6px"},
             ),
             html.P(
-                "Enero, Febrero y Marzo 2026. Una cuenta que fondea varias veces en el mismo mes cuenta solo una vez.",
+                (
+                    "Enero, Febrero y Marzo 2026. Una cuenta que fondea varias veces en el mismo mes "
+                    "cuenta solo una vez. No importa en que mes del Q1 abrio la cuenta."
+                ),
                 style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "18px"},
             ),
             html.Div(
