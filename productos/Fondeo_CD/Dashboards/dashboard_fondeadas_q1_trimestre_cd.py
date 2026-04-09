@@ -31,6 +31,7 @@ def cargar_datos() -> pd.DataFrame:
     df = run_query_file(QUERY_PATH)
     df.columns = [str(c) for c in df.columns]
     df["orden"] = pd.to_numeric(df.get("orden"), errors="coerce").fillna(0).astype(int)
+    df["cuentas_creadas_mes"] = pd.to_numeric(df.get("cuentas_creadas_mes"), errors="coerce").fillna(0).astype(int)
     df["cuentas_abiertas_q1"] = pd.to_numeric(df.get("cuentas_abiertas_q1"), errors="coerce").fillna(0).astype(int)
     df["cuentas_primer_fondeo_mes"] = (
         pd.to_numeric(df.get("cuentas_primer_fondeo_mes"), errors="coerce").fillna(0).astype(int)
@@ -67,9 +68,19 @@ def grafico_mensual_primer_fondeo(df: pd.DataFrame) -> go.Figure:
     fig = go.Figure(
         data=[
             go.Bar(
+                name="Cuentas creadas",
+                x=df["mes"].tolist(),
+                y=df["cuentas_creadas_mes"].tolist(),
+                marker_color=COLORES["aqua_digital"],
+                text=[f"{v:,}" for v in df["cuentas_creadas_mes"].tolist()],
+                textposition="outside",
+                hovertemplate="Mes: %{x}<br>Cuentas creadas: %{y:,}<extra></extra>",
+            ),
+            go.Bar(
+                name="Primer mes de fondeo",
                 x=df["mes"].tolist(),
                 y=df["cuentas_primer_fondeo_mes"].tolist(),
-                marker_color=COLORES["aqua_digital"],
+                marker_color=COLORES["amarillo_opt"],
                 text=[f"{v:,}" for v in df["cuentas_primer_fondeo_mes"].tolist()],
                 textposition="outside",
                 hovertemplate="Mes: %{x}<br>Cuentas (primer fondeo): %{y:,}<extra></extra>",
@@ -77,21 +88,23 @@ def grafico_mensual_primer_fondeo(df: pd.DataFrame) -> go.Figure:
         ]
     )
     fig.update_layout(
-        title="Cuentas por primer mes de fondeo (Q1 2026)",
+        title="Cuentas creadas vs primer mes de fondeo (Q1 2026)",
+        barmode="group",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=55, b=40, l=40, r=20),
         xaxis=dict(title="Mes"),
         yaxis=dict(title="Cantidad de cuentas"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     return fig
 
 
 def construir_layout(df: pd.DataFrame) -> html.Div:
-    abiertas = int(df["cuentas_abiertas_q1"].max()) if not df.empty else 0
+    creadas = int(df["cuentas_creadas_mes"].sum()) if not df.empty else 0
     fondeadas = int(df["cuentas_primer_fondeo_mes"].sum()) if not df.empty else 0
-    tasa = round((fondeadas / abiertas * 100), 1) if abiertas > 0 else 0.0
+    tasa = round((fondeadas / creadas * 100), 1) if creadas > 0 else 0.0
 
     return html.Div(
         style={"padding": "32px", "backgroundColor": COLORES["gris_fondo"], "fontFamily": "Arial, sans-serif"},
@@ -121,8 +134,8 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
                             "borderTop": f"4px solid {COLORES['azul_experto']}",
                         },
                         children=[
-                            html.P("Cuentas abiertas Q1", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "13px"}),
-                            html.H2(f"{abiertas:,}", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
+                            html.P("Cuentas creadas Q1", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "13px"}),
+                            html.H2(f"{creadas:,}", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
                         ],
                     ),
                     html.Div(
@@ -147,7 +160,7 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
                             "borderTop": f"4px solid {COLORES['azul_financiero']}",
                         },
                         children=[
-                            html.P("Tasa activacion Q1", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "13px"}),
+                            html.P("Tasa primer fondeo Q1", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "13px"}),
                             html.H2(f"{tasa:.1f}%", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
                         ],
                     ),

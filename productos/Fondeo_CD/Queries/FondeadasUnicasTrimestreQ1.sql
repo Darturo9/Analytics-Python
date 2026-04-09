@@ -13,6 +13,18 @@ WITH UniversoCuentas AS (
       AND PRCODP = 1
       AND PRSUBP = 51
 ),
+CreadasMensual AS (
+    SELECT
+        DATEFROMPARTS(YEAR(dw_feha_apertura), MONTH(dw_feha_apertura), 1) AS mes_inicio,
+        COUNT(DISTINCT DW_CUENTA_CORPORATIVA) AS cuentas_creadas_mes
+    FROM dw_dep_depositos
+    WHERE dw_feha_apertura >= '2026-01-01'
+      AND dw_feha_apertura <  '2026-04-01'
+      AND dw_producto = 'CUENTA DIGITAL'
+      AND PRCODP = 1
+      AND PRSUBP = 51
+    GROUP BY DATEFROMPARTS(YEAR(dw_feha_apertura), MONTH(dw_feha_apertura), 1)
+),
 PrimerFondeoQ1 AS (
     SELECT
         u.DW_CUENTA_CORPORATIVA,
@@ -39,6 +51,7 @@ Totales AS (
 SELECT
     m.mes,
     m.orden,
+    COALESCE(c.cuentas_creadas_mes, 0) AS cuentas_creadas_mes,
     COALESCE(r.cuentas_primer_fondeo_mes, 0) AS cuentas_primer_fondeo_mes,
     t.cuentas_abiertas_q1
 FROM (
@@ -47,6 +60,8 @@ FROM (
         (CAST('2026-02-01' AS DATE), 'Febrero 2026', 2),
         (CAST('2026-03-01' AS DATE), 'Marzo 2026', 3)
 ) AS m(mes_inicio, mes, orden)
+LEFT JOIN CreadasMensual c
+    ON c.mes_inicio = m.mes_inicio
 LEFT JOIN ResumenMensual r
     ON r.mes_inicio = m.mes_inicio
 CROSS JOIN Totales t
