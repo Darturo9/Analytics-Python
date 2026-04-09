@@ -3,8 +3,9 @@ dashboard_fondeadas_q1_trimestre_cd.py
 --------------------------------------
 Dashboard trimestral de cuentas fondeadas unicas (Q1 2026).
 
-Regla de unicidad trimestral:
-Si una cuenta fondea en enero y tambien en marzo, cuenta solo 1 vez en Q1.
+Regla de primer fondeo trimestral:
+Cada cuenta cuenta una sola vez en Q1, asignada al primer mes donde fondeo.
+Si fondea en enero y tambien en marzo, solo cuenta en enero.
 
 Ejecucion:
     python3 productos/Fondeo_CD/Dashboards/dashboard_fondeadas_q1_trimestre_cd.py
@@ -29,14 +30,12 @@ QUERY_PATH = "productos/Fondeo_CD/Queries/FondeadasUnicasTrimestreQ1.sql"
 def cargar_datos() -> pd.DataFrame:
     df = run_query_file(QUERY_PATH)
     df.columns = [str(c) for c in df.columns]
+    df["orden"] = pd.to_numeric(df.get("orden"), errors="coerce").fillna(0).astype(int)
     df["cuentas_abiertas_q1"] = pd.to_numeric(df.get("cuentas_abiertas_q1"), errors="coerce").fillna(0).astype(int)
-    df["cuentas_fondeadas_unicas_q1"] = (
-        pd.to_numeric(df.get("cuentas_fondeadas_unicas_q1"), errors="coerce").fillna(0).astype(int)
+    df["cuentas_primer_fondeo_mes"] = (
+        pd.to_numeric(df.get("cuentas_primer_fondeo_mes"), errors="coerce").fillna(0).astype(int)
     )
-    df["tasa_activacion_q1"] = (
-        df["cuentas_fondeadas_unicas_q1"] / df["cuentas_abiertas_q1"] * 100
-    ).round(1).fillna(0.0)
-    return df
+    return df.sort_values("orden").reset_index(drop=True)
 
 
 def figura_vacia(mensaje: str) -> go.Figure:
@@ -61,48 +60,48 @@ def figura_vacia(mensaje: str) -> go.Figure:
     return fig
 
 
-def grafico_trimestre(df: pd.DataFrame) -> go.Figure:
+def grafico_mensual_primer_fondeo(df: pd.DataFrame) -> go.Figure:
     if df.empty:
         return figura_vacia("Sin datos disponibles")
 
     fig = go.Figure(
         data=[
             go.Bar(
-                x=df["trimestre"].tolist(),
-                y=df["cuentas_fondeadas_unicas_q1"].tolist(),
+                x=df["mes"].tolist(),
+                y=df["cuentas_primer_fondeo_mes"].tolist(),
                 marker_color=COLORES["aqua_digital"],
-                text=[f"{v:,}" for v in df["cuentas_fondeadas_unicas_q1"].tolist()],
+                text=[f"{v:,}" for v in df["cuentas_primer_fondeo_mes"].tolist()],
                 textposition="outside",
-                hovertemplate="Trimestre: %{x}<br>Cuentas fondeadas unicas: %{y:,}<extra></extra>",
+                hovertemplate="Mes: %{x}<br>Cuentas (primer fondeo): %{y:,}<extra></extra>",
             )
         ]
     )
     fig.update_layout(
-        title="Cuentas fondeadas unicas por trimestre",
+        title="Cuentas por primer mes de fondeo (Q1 2026)",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=55, b=40, l=40, r=20),
-        xaxis=dict(title="Trimestre"),
-        yaxis=dict(title="Cantidad de cuentas fondeadas unicas"),
+        xaxis=dict(title="Mes"),
+        yaxis=dict(title="Cantidad de cuentas"),
     )
     return fig
 
 
 def construir_layout(df: pd.DataFrame) -> html.Div:
-    abiertas = int(df["cuentas_abiertas_q1"].sum()) if not df.empty else 0
-    fondeadas = int(df["cuentas_fondeadas_unicas_q1"].sum()) if not df.empty else 0
-    tasa = float(df["tasa_activacion_q1"].mean()) if not df.empty else 0.0
+    abiertas = int(df["cuentas_abiertas_q1"].max()) if not df.empty else 0
+    fondeadas = int(df["cuentas_primer_fondeo_mes"].sum()) if not df.empty else 0
+    tasa = round((fondeadas / abiertas * 100), 1) if abiertas > 0 else 0.0
 
     return html.Div(
         style={"padding": "32px", "backgroundColor": COLORES["gris_fondo"], "fontFamily": "Arial, sans-serif"},
         children=[
             html.H2(
-                "Fondeo Cuenta Digital - Trimestre Q1 2026 (Unicas)",
+                "Fondeo Cuenta Digital - Q1 2026 (Primer mes de fondeo)",
                 style={"color": COLORES["azul_experto"], "marginBottom": "6px"},
             ),
             html.P(
-                "Una cuenta fondeada en varios meses del Q1 se cuenta una sola vez en el trimestre.",
+                "Cada cuenta se asigna una sola vez al primer mes donde fondeo (ene/feb/mar).",
                 style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "18px"},
             ),
             html.Div(
@@ -154,7 +153,7 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
                     ),
                 ],
             ),
-            dcc.Graph(figure=grafico_trimestre(df), style={"width": "100%"}),
+            dcc.Graph(figure=grafico_mensual_primer_fondeo(df), style={"width": "100%"}),
         ],
     )
 

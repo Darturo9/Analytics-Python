@@ -1,5 +1,6 @@
--- Cuentas fondeadas unicas en todo el trimestre Q1 2026
--- Regla: si una cuenta fondea en enero y marzo, cuenta solo 1 vez en Q1.
+-- Cuentas con primer fondeo por mes en Q1 2026
+-- Regla: cada cuenta cuenta una sola vez, en el primer mes donde fondeo en Q1.
+-- Ejemplo: si fondea en enero y marzo, solo cuenta en enero.
 -- Universo: cuentas CD que abrieron entre enero y marzo 2026.
 
 WITH UniversoCuentas AS (
@@ -11,17 +12,42 @@ WITH UniversoCuentas AS (
       AND dw_producto = 'CUENTA DIGITAL'
       AND PRCODP = 1
       AND PRSUBP = 51
+),
+PrimerFondeoQ1 AS (
+    SELECT
+        u.DW_CUENTA_CORPORATIVA,
+        MIN(h.dw_fecha_informacion) AS primer_fondeo_q1
+    FROM UniversoCuentas u
+    INNER JOIN HIS_DEP_DEPOSITOS_VIEW h
+        ON u.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
+    WHERE h.dw_fecha_informacion >= '2026-01-01'
+      AND h.dw_fecha_informacion <  '2026-04-01'
+      AND h.ctt001 > 0
+    GROUP BY u.DW_CUENTA_CORPORATIVA
+),
+ResumenMensual AS (
+    SELECT
+        DATEFROMPARTS(YEAR(primer_fondeo_q1), MONTH(primer_fondeo_q1), 1) AS mes_inicio,
+        COUNT(*) AS cuentas_primer_fondeo_mes
+    FROM PrimerFondeoQ1
+    GROUP BY DATEFROMPARTS(YEAR(primer_fondeo_q1), MONTH(primer_fondeo_q1), 1)
+),
+Totales AS (
+    SELECT COUNT(*) AS cuentas_abiertas_q1
+    FROM UniversoCuentas
 )
 SELECT
-    'Q1 2026' AS trimestre,
-    1 AS orden,
-    COUNT(DISTINCT u.DW_CUENTA_CORPORATIVA) AS cuentas_abiertas_q1,
-    COUNT(DISTINCT CASE
-        WHEN h.dw_fecha_informacion >= '2026-01-01'
-         AND h.dw_fecha_informacion <  '2026-04-01'
-         AND h.ctt001 > 0
-        THEN u.DW_CUENTA_CORPORATIVA
-    END) AS cuentas_fondeadas_unicas_q1
-FROM UniversoCuentas u
-LEFT JOIN HIS_DEP_DEPOSITOS_VIEW h
-    ON u.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA;
+    m.mes,
+    m.orden,
+    COALESCE(r.cuentas_primer_fondeo_mes, 0) AS cuentas_primer_fondeo_mes,
+    t.cuentas_abiertas_q1
+FROM (
+    VALUES
+        (CAST('2026-01-01' AS DATE), 'Enero 2026', 1),
+        (CAST('2026-02-01' AS DATE), 'Febrero 2026', 2),
+        (CAST('2026-03-01' AS DATE), 'Marzo 2026', 3)
+) AS m(mes_inicio, mes, orden)
+LEFT JOIN ResumenMensual r
+    ON r.mes_inicio = m.mes_inicio
+CROSS JOIN Totales t
+ORDER BY m.orden;
