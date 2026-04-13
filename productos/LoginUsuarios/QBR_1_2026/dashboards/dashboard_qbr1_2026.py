@@ -303,6 +303,49 @@ def grafico_clientes_unicos_mes(df_logins: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def grafico_primer_login_mes(df_logins: pd.DataFrame) -> go.Figure:
+    if df_logins.empty:
+        return figura_vacia("Sin logins para el filtro seleccionado")
+
+    primer_login = (
+        df_logins.groupby("padded_codigo_usuario", as_index=False)["fecha_inicio"]
+        .min()
+        .rename(columns={"fecha_inicio": "primer_login"})
+    )
+    primer_login["mes"] = primer_login["primer_login"].dt.to_period("M").astype(str)
+
+    resumen = (
+        primer_login.groupby("mes")["padded_codigo_usuario"]
+        .nunique()
+        .reindex(["2026-01", "2026-02", "2026-03"], fill_value=0)
+    )
+    etiquetas = [MESES_ES.get(m, m) for m in resumen.index.tolist()]
+    valores = resumen.values.tolist()
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=etiquetas,
+                y=valores,
+                marker_color=COLORES["amarillo_opt"],
+                text=[f"{v:,}" for v in valores],
+                textposition="outside",
+                hovertemplate="Mes: %{x}<br>Clientes (primer login): %{y:,}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Clientes por mes de primer login (sin duplicar clientes)",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=40, l=40, r=20),
+        xaxis=dict(title="Mes"),
+        yaxis=dict(title="Clientes"),
+    )
+    return fig
+
+
 def grafico_logins_por_canal(df_logins: pd.DataFrame) -> go.Figure:
     if df_logins.empty:
         return figura_vacia("Sin logins para el filtro seleccionado")
@@ -460,6 +503,7 @@ def construir_layout(df_logins: pd.DataFrame) -> html.Div:
                 children=[
                     dcc.Graph(id="g-logins-mes-canal", style={"width": "100%"}),
                     dcc.Graph(id="g-clientes-mes", style={"width": "100%"}),
+                    dcc.Graph(id="g-primer-login-mes", style={"width": "100%"}),
                     dcc.Graph(id="g-logins-canal", style={"width": "100%"}),
                     dcc.Graph(id="g-primer-login-dia", style={"width": "100%"}),
                     dcc.Graph(id="g-top-clientes", style={"width": "100%"}),
@@ -477,6 +521,7 @@ def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> Dash:
         Output("kpis-contenedor", "children"),
         Output("g-logins-mes-canal", "figure"),
         Output("g-clientes-mes", "figure"),
+        Output("g-primer-login-mes", "figure"),
         Output("g-logins-canal", "figure"),
         Output("g-primer-login-dia", "figure"),
         Output("g-top-clientes", "figure"),
@@ -488,6 +533,7 @@ def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> Dash:
             construir_kpis(df_base, filtrado),
             grafico_logins_por_mes_canal(filtrado),
             grafico_clientes_unicos_mes(filtrado),
+            grafico_primer_login_mes(filtrado),
             grafico_logins_por_canal(filtrado),
             grafico_primer_login_dia(filtrado),
             tabla_top_clientes(filtrado),
