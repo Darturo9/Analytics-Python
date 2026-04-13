@@ -242,17 +242,43 @@ def grafico_mensual(df: pd.DataFrame) -> go.Figure:
 
     fig = go.Figure()
     colores = [COLORES["aqua_digital"], COLORES["amarillo_opt"], COLORES["azul_experto"], COLORES["azul_financiero"], COLORES["amarillo_emp"]]
+    max_valor = float(resumen["valor"].max()) if not resumen.empty else 0.0
+    umbral_texto = max_valor * 0.08 if max_valor > 0 else 0.0
     for idx, tipo in enumerate(top_tipos):
         sub = resumen[resumen["tipo_uso"] == tipo]
+        valores = sub["valor"].tolist()
+        textos = [f"L {v:,.0f}" if v >= umbral_texto else "" for v in valores]
         fig.add_trace(
             go.Bar(
                 name=tipo,
                 x=sub["periodo_mes"].tolist(),
-                y=sub["valor"].tolist(),
+                y=valores,
                 marker_color=colores[idx % len(colores)],
+                text=textos,
+                textposition="inside",
+                textfont=dict(color=COLORES["blanco"], size=11),
                 hovertemplate="Mes: %{x}<br>Tipo: " + tipo + "<br>Monto: L %{y:,.2f}<extra></extra>",
             )
         )
+
+    totales = (
+        df.groupby("periodo_mes", as_index=False)["valor"]
+        .sum()
+        .sort_values("periodo_mes")
+    )
+    margen_top = max(float(totales["valor"].max()) * 0.10, 1.0) if not totales.empty else 1.0
+    fig.add_trace(
+        go.Scatter(
+            x=totales["periodo_mes"].tolist(),
+            y=(totales["valor"] + margen_top).tolist(),
+            mode="text",
+            text=[f"L {v:,.0f}" for v in totales["valor"].tolist()],
+            textposition="top center",
+            textfont=dict(size=12, color=COLORES["azul_experto"]),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
 
     fig.update_layout(
         title="Evolucion mensual del monto por tipo de uso (Top 5)",
@@ -262,8 +288,13 @@ def grafico_mensual(df: pd.DataFrame) -> go.Figure:
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=55, b=40, l=40, r=20),
         xaxis=dict(title="Mes"),
-        yaxis=dict(title="Monto total (L)"),
+        yaxis=dict(
+            title="Monto total (L)",
+            range=[0, float(totales["valor"].max()) + (margen_top * 3)] if not totales.empty else None,
+        ),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        uniformtext_minsize=10,
+        uniformtext_mode="hide",
     )
     return fig
 
