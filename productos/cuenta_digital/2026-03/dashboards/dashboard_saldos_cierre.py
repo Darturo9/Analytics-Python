@@ -67,6 +67,13 @@ def filtrar_por_moneda(df: pd.DataFrame, moneda: str) -> pd.DataFrame:
     return df[df["moneda"] == moneda].copy()
 
 
+def filtrar_cuentas_activas(df: pd.DataFrame) -> pd.DataFrame:
+    """Limita el universo a cuentas activas."""
+    estados_activos = {"A", "ACTIVA", "ACTIVO"}
+    estado_norm = df["estatus_cuenta"].astype(str).str.strip().str.upper()
+    return df[estado_norm.isin(estados_activos)].copy()
+
+
 def figura_vacia(mensaje: str) -> go.Figure:
     """Crea una figura vacia con mensaje informativo."""
     fig = go.Figure()
@@ -209,7 +216,7 @@ def construir_layout(df_base: pd.DataFrame) -> html.Div:
                 style={"color": COLORES["azul_experto"], "marginBottom": "6px"},
             ),
             html.P(
-                "Enfoque mixto: totales y promedios por cuenta para saldos de cierre y saldos promedio.",
+                "Enfoque mixto: totales y promedios por cuenta para saldos de cierre y saldos promedio (solo cuentas activas).",
                 style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "22px"},
             ),
             html.Div(
@@ -268,6 +275,7 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
     )
     def actualizar_vista(moneda: str):
         df = filtrar_por_moneda(df_base, moneda)
+        df = filtrar_cuentas_activas(df)
         return (
             construir_kpis(df),
             grafico_metrica_por_estatus(
