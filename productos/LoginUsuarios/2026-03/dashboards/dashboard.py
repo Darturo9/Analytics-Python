@@ -142,6 +142,10 @@ def preparar_tabla_clientes(df_tabla: pd.DataFrame) -> pd.DataFrame:
 
 def cargar_contactados() -> tuple[pd.DataFrame, str | None]:
     archivos_preferidos = [
+        RUTA_DATA_CONTACTADOS / "Contactados_Marzo.xlsx",
+        RUTA_DATA_CONTACTADOS / "contactados_marzo.xlsx",
+        RUTA_DATA_CONTACTADOS / "Contactados_Marzo.csv",
+        RUTA_DATA_CONTACTADOS / "contactados_marzo.csv",
         RUTA_DATA_CONTACTADOS / "Contactados.xlsx",
         RUTA_DATA_CONTACTADOS / "contactados.xlsx",
         RUTA_DATA_CONTACTADOS / "Contactados.csv",
