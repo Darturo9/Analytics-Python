@@ -61,6 +61,15 @@ def detectar_columna_codigo(columnas: list[str]) -> str | None:
     return None
 
 
+def normalizar_canal_login(valor) -> str:
+    texto = str(valor).strip().lower()
+    if texto == "app-login":
+        return "App"
+    if texto in {"web-login", "login"}:
+        return "Web"
+    return "Otro"
+
+
 def cargar_contactados() -> tuple[pd.DataFrame, str]:
     archivos_preferidos = [
         RUTA_DATA_CONTACTADOS / "Contactados_Marzo.xlsx",
@@ -119,6 +128,7 @@ def cargar_logins() -> pd.DataFrame:
     df["padded_codigo_usuario"] = df["padded_codigo_usuario"].apply(normalizar_codigo)
     df["id_usuario"] = df["nombre_usuario"].fillna("").astype(str).str.strip()
     df.loc[df["id_usuario"] == "", "id_usuario"] = df["padded_codigo_usuario"]
+    df["canal_login_general"] = df["canal_login"].apply(normalizar_canal_login)
 
     df = df[df["fecha_inicio"].notna() & df["padded_codigo_usuario"].notna()].copy()
     df["dia"] = df["fecha_inicio"].dt.day
@@ -262,6 +272,42 @@ def grafico_primer_login_por_dia(df_logins: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def grafico_logins_app_web(df_logins: pd.DataFrame) -> go.Figure:
+    if df_logins.empty:
+        return figura_vacia("No hay logins por canal para el período")
+
+    resumen = (
+        df_logins[df_logins["canal_login_general"].isin(["App", "Web"])]
+        .groupby("canal_login_general")
+        .size()
+        .reindex(["App", "Web"], fill_value=0)
+    )
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=resumen.index.tolist(),
+                y=resumen.values.tolist(),
+                marker_color=[COLORES["aqua_digital"], COLORES["azul_financiero"]],
+                text=[f"{v:,}" for v in resumen.values.tolist()],
+                textposition="outside",
+                hovertemplate="Canal %{x}<br>Eventos: %{y:,}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Logins por canal (App vs Web)",
+        height=450,
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=40, l=40, r=10),
+        xaxis=dict(title="Canal"),
+        yaxis=dict(title="Eventos de login"),
+    )
+    return fig
+
+
 def tabla_top_clientes(df_logins: pd.DataFrame) -> go.Figure:
     if df_logins.empty:
         return figura_vacia("No hay datos para tabla de clientes")
@@ -360,6 +406,7 @@ def construir_app(df_excel: pd.DataFrame, df_logins_filtrados: pd.DataFrame, rut
             html.Div(
                 style={"display": "grid", "gridTemplateColumns": "1fr", "gap": "30px"},
                 children=[
+                    dcc.Graph(figure=grafico_logins_app_web(df_logins_filtrados)),
                     dcc.Graph(figure=grafico_eventos_por_dia(df_logins_filtrados)),
                     dcc.Graph(figure=grafico_clientes_unicos_por_dia(df_logins_filtrados)),
                     dcc.Graph(figure=grafico_primer_login_por_dia(df_logins_filtrados)),
