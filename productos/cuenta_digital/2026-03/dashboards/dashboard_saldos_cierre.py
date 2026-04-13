@@ -195,7 +195,7 @@ def grafico_metrica_por_estatus(
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=55, b=40, l=40, r=20),
-        xaxis=dict(title="Estatus de cuenta"),
+        xaxis=dict(title="Cuentas activas"),
         yaxis=dict(title="Monto (L)" if formato_moneda else "Cuentas"),
     )
     return fig
@@ -280,7 +280,7 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
             construir_kpis(df),
             grafico_metrica_por_estatus(
                 df,
-                "Suma de saldos promedios por estatus",
+                "Suma de saldos promedios",
                 "saldo_promedio",
                 "sum",
                 COLORES["amarillo_opt"],
@@ -289,7 +289,7 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
             ),
             grafico_metrica_por_estatus(
                 df,
-                "Suma de saldos a fin de periodo por estatus",
+                "Suma de saldos a fin de periodo",
                 "saldo_ayer",
                 "sum",
                 COLORES["aqua_digital"],
@@ -298,7 +298,7 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
             ),
             grafico_metrica_por_estatus(
                 df,
-                "Cuentas analizadas por estatus",
+                "Cuentas analizadas",
                 "cuenta",
                 "count",
                 COLORES["azul_experto"],
@@ -307,7 +307,7 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
             ),
             grafico_metrica_por_estatus(
                 df,
-                "Saldo al cierre promedio por cuenta y estatus",
+                "Saldo al cierre promedio por cuenta",
                 "saldo_ayer",
                 "mean",
                 COLORES["azul_financiero"],
@@ -316,7 +316,7 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
             ),
             grafico_metrica_por_estatus(
                 df,
-                "Saldo promedio por cuenta y estatus",
+                "Saldo promedio por cuenta",
                 "saldo_promedio",
                 "mean",
                 COLORES["amarillo_emp"],
