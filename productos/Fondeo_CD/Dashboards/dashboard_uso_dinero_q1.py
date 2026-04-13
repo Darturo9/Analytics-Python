@@ -314,14 +314,14 @@ def construir_layout(df_base: pd.DataFrame) -> html.Div:
             html.Div(
                 style={
                     "display": "grid",
-                    "gridTemplateColumns": "repeat(auto-fit, minmax(420px, 1fr))",
-                    "gap": "18px",
+                    "gridTemplateColumns": "1fr",
+                    "gap": "30px",
                 },
                 children=[
-                    dcc.Graph(id="g-top-monto"),
-                    dcc.Graph(id="g-top-frecuencia"),
-                    dcc.Graph(id="g-top-clientes"),
-                    dcc.Graph(id="g-mensual"),
+                    dcc.Graph(id="g-top-monto", style={"width": "100%"}),
+                    dcc.Graph(id="g-top-frecuencia", style={"width": "100%"}),
+                    dcc.Graph(id="g-top-clientes", style={"width": "100%"}),
+                    dcc.Graph(id="g-mensual", style={"width": "100%"}),
                 ],
             ),
         ],
