@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, dcc, html
 from sqlalchemy.exc import SQLAlchemyError
+from pathlib import Path
 
 sys.path.insert(0, ".")
 
@@ -26,6 +27,7 @@ from core.db import run_query_file
 
 RUTA_QUERY_BASE = "productos/LoginUsuarios/QBR_1_2026/queries/base.sql"
 RUTA_QUERY_LOGINS = "productos/LoginUsuarios/QBR_1_2026/queries/Logins.sql"
+RUTA_EXCEL_BASE = Path("productos/LoginUsuarios/QBR_1_2026/ArchivosExcel")
 VALOR_TODOS = "__TODOS__"
 
 MESES_ES = {
@@ -55,15 +57,82 @@ def normalizar_canal_login(valor: str) -> str:
     return "Otro"
 
 
-def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame]:
+def normalizar_nombre_columna(nombre: str) -> str:
+    return (
+        str(nombre)
+        .strip()
+        .lower()
+        .replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        .replace(" ", "_")
+    )
+
+
+def detectar_columna_codigo(columnas: list[str]) -> str | None:
+    columnas_norm = {c: normalizar_nombre_columna(c) for c in columnas}
+    for original, normalizada in columnas_norm.items():
+        if "codigo" in normalizada and ("cliente" in normalizada or "usuario" in normalizada):
+            return original
+    for original, normalizada in columnas_norm.items():
+        if normalizada in {"cif", "cldoc", "codigo", "cliente"}:
+            return original
+    return None
+
+
+def cargar_base_clientes() -> tuple[pd.DataFrame, str]:
+    """Carga base desde Excel (si existe) o fallback a SQL."""
+    archivo = None
+    preferidos = [
+        RUTA_EXCEL_BASE / "Contactados_Enero_2026.xlsx",
+        RUTA_EXCEL_BASE / "Contactados_Enero_2026.xls",
+        RUTA_EXCEL_BASE / "Contactados_Enero_2026.csv",
+    ]
+
+    for candidato in preferidos:
+        if candidato.exists():
+            archivo = candidato
+            break
+
+    if archivo is None and RUTA_EXCEL_BASE.exists():
+        encontrados = sorted(
+            p for p in RUTA_EXCEL_BASE.iterdir()
+            if p.is_file() and "contactados_enero_2026" in p.stem.lower() and p.suffix.lower() in {".xlsx", ".xls", ".csv"}
+        )
+        if encontrados:
+            archivo = encontrados[0]
+
+    if archivo is not None:
+        if archivo.suffix.lower() in {".xlsx", ".xls"}:
+            df_base = pd.read_excel(archivo)
+        else:
+            df_base = pd.read_csv(archivo)
+
+        col_codigo = detectar_columna_codigo(df_base.columns.tolist())
+        if col_codigo is None:
+            raise ValueError(
+                f"No se encontró columna de código cliente/usuario en {archivo.name}. "
+                "Incluye una columna como CIF, codigo_cliente o similar."
+            )
+
+        df_base["padded_codigo_cliente"] = df_base[col_codigo].apply(normalizar_codigo)
+        df_base = df_base[df_base["padded_codigo_cliente"].notna()].drop_duplicates("padded_codigo_cliente")
+        return df_base[["padded_codigo_cliente"]].copy(), f"Excel: {archivo}"
+
     df_base = run_query_file(RUTA_QUERY_BASE)
-    df_logins = run_query_file(RUTA_QUERY_LOGINS)
-
     df_base.columns = [str(c) for c in df_base.columns]
-    df_logins.columns = [str(c) for c in df_logins.columns]
-
     df_base["padded_codigo_cliente"] = df_base["padded_codigo_cliente"].apply(normalizar_codigo)
     df_base = df_base[df_base["padded_codigo_cliente"].notna()].drop_duplicates("padded_codigo_cliente")
+    return df_base[["padded_codigo_cliente"]].copy(), f"SQL: {RUTA_QUERY_BASE}"
+
+
+def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    df_base, fuente_base = cargar_base_clientes()
+    df_logins = run_query_file(RUTA_QUERY_LOGINS)
+
+    df_logins.columns = [str(c) for c in df_logins.columns]
 
     df_logins["padded_codigo_usuario"] = df_logins["padded_codigo_usuario"].apply(normalizar_codigo)
     df_logins["fecha_inicio"] = pd.to_datetime(df_logins["fecha_inicio"], errors="coerce")
@@ -78,7 +147,7 @@ def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame]:
     df_logins["mes"] = df_logins["fecha_inicio"].dt.to_period("M").astype(str)
     df_logins["fecha_dia"] = df_logins["fecha_inicio"].dt.date
 
-    return df_base, df_logins
+    return df_base, df_logins, fuente_base
 
 
 def filtrar_por_canal(df: pd.DataFrame, canal: str) -> pd.DataFrame:
@@ -430,10 +499,9 @@ def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> Dash:
 
 
 def main() -> None:
-    print(f"Cargando base de clientes desde: {RUTA_QUERY_BASE}")
     print(f"Cargando logins desde: {RUTA_QUERY_LOGINS}")
     try:
-        df_base, df_logins = cargar_datos()
+        df_base, df_logins, fuente_base = cargar_datos()
     except SQLAlchemyError as exc:
         print(f"[ERROR] No se pudo ejecutar la query en SQL Server: {exc}")
         raise SystemExit(1) from exc
@@ -441,6 +509,7 @@ def main() -> None:
         print(f"[ERROR] Fallo cargando datos del dashboard: {exc}")
         raise SystemExit(1) from exc
 
+    print(f"Fuente base clientes: {fuente_base}")
     print(f"Clientes base Q1: {df_base['padded_codigo_cliente'].nunique():,}")
     print(f"Logins Q1 (filtrados por base): {len(df_logins):,}")
     print(f"Clientes con login Q1: {df_logins['padded_codigo_usuario'].nunique():,}")
