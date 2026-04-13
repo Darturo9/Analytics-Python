@@ -36,9 +36,15 @@ def cargar_datos() -> pd.DataFrame:
     df["tipo_uso"] = df.get("tipo_uso", "Sin clasificar").astype(str).str.strip().replace("", "Sin clasificar")
     df["origen_pago"] = df.get("origen_pago", "Sin origen").astype(str).str.strip().replace("", "Sin origen")
     df["periodo_mes"] = df.get("periodo_mes", "").astype(str).str.strip()
+    df["genero"] = df.get("genero", "SIN DATO").astype(str).str.strip().str.upper().replace("", "SIN DATO")
+    df["generacion"] = df.get("generacion", "SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
+    df["rango_edad"] = df.get("rango_edad", "SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
+    df["estado_civil"] = df.get("estado_civil", "SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
+    df["direccion_lvl_1"] = df.get("direccion_lvl_1", "SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
 
     df["fecha_transaccion"] = pd.to_datetime(df.get("fecha_transaccion"), errors="coerce")
     df["valor"] = pd.to_numeric(df.get("valor"), errors="coerce").fillna(0.0)
+    df["edad"] = pd.to_numeric(df.get("edad"), errors="coerce")
 
     return df
 
@@ -74,6 +80,17 @@ def figura_vacia(mensaje: str) -> go.Figure:
         ],
     )
     return fig
+
+
+def obtener_clientes_unicos(df: pd.DataFrame) -> pd.DataFrame:
+    """Retorna base unica por cliente para analisis demografico."""
+    if df.empty:
+        return df.copy()
+    return (
+        df.sort_values(["padded_codigo_cliente", "fecha_transaccion"])
+        .drop_duplicates(subset=["padded_codigo_cliente"], keep="last")
+        .reset_index(drop=True)
+    )
 
 
 def kpi_card(titulo: str, valor: str, color: str) -> html.Div:
@@ -299,6 +316,151 @@ def grafico_mensual(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def grafico_monto_por_genero(df: pd.DataFrame) -> go.Figure:
+    if df.empty:
+        return figura_vacia("Sin datos para el filtro seleccionado")
+
+    mapa_genero = {"F": "Mujer", "M": "Hombre"}
+    base = df.copy()
+    base["genero_norm"] = base["genero"].map(mapa_genero).fillna("Sin dato")
+    resumen = base.groupby("genero_norm", as_index=False)["valor"].sum().sort_values("valor", ascending=False)
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=resumen["genero_norm"].tolist(),
+                y=resumen["valor"].tolist(),
+                marker_color=COLORES["azul_financiero"],
+                text=[f"L {v:,.2f}" for v in resumen["valor"].tolist()],
+                textposition="outside",
+                hovertemplate="Genero: %{x}<br>Monto: L %{y:,.2f}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Monto total por genero",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=40, l=40, r=20),
+        xaxis=dict(title="Genero"),
+        yaxis=dict(title="Monto total (L)"),
+    )
+    return fig
+
+
+def grafico_clientes_por_rango_edad(df: pd.DataFrame) -> go.Figure:
+    clientes = obtener_clientes_unicos(df)
+    if clientes.empty:
+        return figura_vacia("Sin datos para el filtro seleccionado")
+
+    orden = ["18-25", "26-35", "36-45", "46-55", "56+", "SIN DATO"]
+    resumen = clientes["rango_edad"].value_counts().reindex(orden, fill_value=0)
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=resumen.index.tolist(),
+                y=resumen.values.tolist(),
+                marker_color=COLORES["amarillo_opt"],
+                text=[f"{int(v):,}" for v in resumen.values.tolist()],
+                textposition="outside",
+                hovertemplate="Rango edad: %{x}<br>Clientes: %{y:,}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Clientes unicos por rango de edad",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=40, l=40, r=20),
+        xaxis=dict(title="Rango de edad"),
+        yaxis=dict(title="Clientes unicos"),
+    )
+    return fig
+
+
+def grafico_clientes_por_generacion(df: pd.DataFrame) -> go.Figure:
+    clientes = obtener_clientes_unicos(df)
+    if clientes.empty:
+        return figura_vacia("Sin datos para el filtro seleccionado")
+
+    orden = [
+        "Generation X (1965-1980)",
+        "Gen Y - Millennials (1981-1996)",
+        "Generacion Z (1997-2012)",
+        "OTRA GENERACION",
+        "SIN DATO",
+    ]
+    resumen = clientes["generacion"].value_counts().reindex(orden, fill_value=0)
+    resumen = resumen[resumen > 0]
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=resumen.index.tolist(),
+                y=resumen.values.tolist(),
+                marker_color=COLORES["aqua_digital"],
+                text=[f"{int(v):,}" for v in resumen.values.tolist()],
+                textposition="outside",
+                hovertemplate="Generacion: %{x}<br>Clientes: %{y:,}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Clientes unicos por generacion",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=50, l=40, r=20),
+        xaxis=dict(title="Generacion", tickangle=-20),
+        yaxis=dict(title="Clientes unicos"),
+    )
+    return fig
+
+
+def grafico_clientes_por_estado_civil(df: pd.DataFrame, top_n: int = 8) -> go.Figure:
+    clientes = obtener_clientes_unicos(df)
+    if clientes.empty:
+        return figura_vacia("Sin datos para el filtro seleccionado")
+
+    resumen = (
+        clientes["estado_civil"]
+        .fillna("SIN DATO")
+        .astype(str)
+        .str.strip()
+        .replace("", "SIN DATO")
+        .value_counts()
+        .head(top_n)
+        .sort_values(ascending=True)
+    )
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                y=resumen.index.tolist(),
+                x=resumen.values.tolist(),
+                orientation="h",
+                marker_color=COLORES["azul_experto"],
+                text=[f"{int(v):,}" for v in resumen.values.tolist()],
+                textposition="outside",
+                hovertemplate="Estado civil: %{y}<br>Clientes: %{x:,}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"Top {top_n} estados civiles por clientes unicos",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=40, l=180, r=20),
+        xaxis=dict(title="Clientes unicos"),
+        yaxis=dict(title=""),
+    )
+    return fig
+
+
 def construir_layout(df_base: pd.DataFrame) -> html.Div:
     meses = sorted([m for m in df_base["periodo_mes"].dropna().unique().tolist() if m])
     opciones_mes = [{"label": "Todos", "value": "Todos"}] + [{"label": m, "value": m} for m in meses]
@@ -353,6 +515,10 @@ def construir_layout(df_base: pd.DataFrame) -> html.Div:
                     dcc.Graph(id="g-top-frecuencia", style={"width": "100%"}),
                     dcc.Graph(id="g-top-clientes", style={"width": "100%"}),
                     dcc.Graph(id="g-mensual", style={"width": "100%"}),
+                    dcc.Graph(id="g-demografico-genero", style={"width": "100%"}),
+                    dcc.Graph(id="g-demografico-edad", style={"width": "100%"}),
+                    dcc.Graph(id="g-demografico-generacion", style={"width": "100%"}),
+                    dcc.Graph(id="g-demografico-estado-civil", style={"width": "100%"}),
                 ],
             ),
         ],
@@ -369,6 +535,10 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
         Output("g-top-frecuencia", "figure"),
         Output("g-top-clientes", "figure"),
         Output("g-mensual", "figure"),
+        Output("g-demografico-genero", "figure"),
+        Output("g-demografico-edad", "figure"),
+        Output("g-demografico-generacion", "figure"),
+        Output("g-demografico-estado-civil", "figure"),
         Input("filtro-mes", "value"),
         Input("filtro-origen", "value"),
     )
@@ -380,6 +550,10 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
             grafico_top_por_transacciones(df),
             grafico_clientes_por_tipo(df),
             grafico_mensual(df),
+            grafico_monto_por_genero(df),
+            grafico_clientes_por_rango_edad(df),
+            grafico_clientes_por_generacion(df),
+            grafico_clientes_por_estado_civil(df),
         )
 
     return app

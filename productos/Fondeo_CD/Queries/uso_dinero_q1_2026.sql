@@ -14,6 +14,60 @@ WITH universo_q1 AS (
       AND CAST(d.dw_feha_apertura AS DATE) >= '2026-01-01'
       AND CAST(d.dw_feha_apertura AS DATE) < '2026-04-01'
 ),
+clientes_raw AS (
+    SELECT
+        RIGHT('00000000' + LTRIM(RTRIM(c.cldoc)), 8) AS padded_codigo_cliente,
+        c.clisex AS genero,
+        c.DW_FECHA_NACIMIENTO AS fecha_nacimiento,
+        c.DW_ESTADO_CIVIL_DESCRIPCION AS estado_civil,
+        ROW_NUMBER() OVER (
+            PARTITION BY RIGHT('00000000' + LTRIM(RTRIM(c.cldoc)), 8)
+            ORDER BY c.dw_fecha_informacion DESC
+        ) AS rn
+    FROM DW_CIF_CLIENTES c
+    INNER JOIN universo_q1 u
+        ON u.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(c.cldoc)), 8)
+),
+direcciones_raw AS (
+    SELECT
+        RIGHT('00000000' + LTRIM(RTRIM(d.cldoc)), 8) AS padded_codigo_cliente,
+        MAX(d.dw_nivel_geo1) AS direccion_lvl_1,
+        MAX(d.dw_nivel_geo2) AS direccion_lvl_2,
+        MAX(d.dw_nivel_geo3) AS direccion_lvl_3
+    FROM DW_CIF_DIRECCIONES_PRINCIPAL d
+    INNER JOIN universo_q1 u
+        ON u.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(d.cldoc)), 8)
+    GROUP BY RIGHT('00000000' + LTRIM(RTRIM(d.cldoc)), 8)
+),
+clientes_demo AS (
+    SELECT
+        c.padded_codigo_cliente,
+        c.genero,
+        c.fecha_nacimiento,
+        c.estado_civil,
+        d.direccion_lvl_1,
+        d.direccion_lvl_2,
+        d.direccion_lvl_3,
+        CASE
+            WHEN c.fecha_nacimiento IS NULL THEN NULL
+            ELSE DATEDIFF(YEAR, c.fecha_nacimiento, '2026-03-31')
+                 - CASE
+                     WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-03-31'), c.fecha_nacimiento) > '2026-03-31'
+                     THEN 1 ELSE 0
+                   END
+        END AS edad,
+        CASE
+            WHEN c.fecha_nacimiento IS NULL THEN 'SIN DATO'
+            WHEN YEAR(c.fecha_nacimiento) BETWEEN 1965 AND 1980 THEN 'Generation X (1965-1980)'
+            WHEN YEAR(c.fecha_nacimiento) BETWEEN 1981 AND 1996 THEN 'Gen Y - Millennials (1981-1996)'
+            WHEN YEAR(c.fecha_nacimiento) BETWEEN 1997 AND 2012 THEN 'Generacion Z (1997-2012)'
+            ELSE 'OTRA GENERACION'
+        END AS generacion
+    FROM clientes_raw c
+    LEFT JOIN direcciones_raw d
+        ON d.padded_codigo_cliente = c.padded_codigo_cliente
+    WHERE c.rn = 1
+),
 pagos_bxi AS (
     SELECT
         n.padded_codigo_cliente,
@@ -140,10 +194,29 @@ uso_dinero AS (
     WHERE p.tipo_uso IS NOT NULL
 )
 SELECT
-    padded_codigo_cliente,
-    fecha_transaccion,
-    periodo_mes,
-    tipo_uso,
-    origen_pago,
-    valor
-FROM uso_dinero;
+    u.padded_codigo_cliente,
+    u.fecha_transaccion,
+    u.periodo_mes,
+    u.tipo_uso,
+    u.origen_pago,
+    u.valor,
+    d.genero,
+    d.fecha_nacimiento,
+    d.edad,
+    CASE
+        WHEN d.edad IS NULL THEN 'SIN DATO'
+        WHEN d.edad BETWEEN 18 AND 25 THEN '18-25'
+        WHEN d.edad BETWEEN 26 AND 35 THEN '26-35'
+        WHEN d.edad BETWEEN 36 AND 45 THEN '36-45'
+        WHEN d.edad BETWEEN 46 AND 55 THEN '46-55'
+        WHEN d.edad >= 56 THEN '56+'
+        ELSE 'SIN DATO'
+    END AS rango_edad,
+    d.generacion,
+    d.estado_civil,
+    d.direccion_lvl_1,
+    d.direccion_lvl_2,
+    d.direccion_lvl_3
+FROM uso_dinero u
+LEFT JOIN clientes_demo d
+    ON d.padded_codigo_cliente = u.padded_codigo_cliente;
