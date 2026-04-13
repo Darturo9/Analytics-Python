@@ -125,172 +125,71 @@ def construir_kpis(df: pd.DataFrame) -> list[html.Div]:
     ]
 
 
-def grafico_comparativo_estatus(df: pd.DataFrame) -> go.Figure:
-    """Barras agrupadas: promedio de saldos para cuentas activas."""
+def _agrupar_metrica_por_estatus(df: pd.DataFrame, metrica: str, tipo: str) -> pd.DataFrame:
+    """Agrupa una metrica por estatus de cuenta."""
     if df.empty:
+        return pd.DataFrame(columns=["estatus", "valor"])
+
+    base = df.copy()
+    base["estatus"] = base["estatus_cuenta"].astype(str).str.strip().str.upper()
+    base.loc[base["estatus"].eq(""), "estatus"] = "SIN DATO"
+
+    if tipo == "count":
+        agg = base.groupby("estatus")["cuenta"].nunique()
+    elif tipo == "sum":
+        agg = base.groupby("estatus")[metrica].sum()
+    else:
+        agg = base.groupby("estatus")[metrica].mean()
+
+    resultado = (
+        agg.reset_index(name="valor")
+        .sort_values("valor", ascending=False)
+        .reset_index(drop=True)
+    )
+    return resultado
+
+
+def grafico_metrica_por_estatus(
+    df: pd.DataFrame,
+    titulo: str,
+    metrica: str,
+    tipo: str,
+    color: str,
+    formato_moneda: bool,
+    etiqueta_hover: str,
+) -> go.Figure:
+    """Genera grafico de barras por estatus para una metrica."""
+    resumen = _agrupar_metrica_por_estatus(df, metrica, tipo)
+    if resumen.empty:
         return figura_vacia("Sin datos para el filtro seleccionado")
 
-    estados_activos = {"A", "ACTIVA", "ACTIVO"}
-    estado_norm = df["estatus_cuenta"].astype(str).str.strip().str.upper()
-    df_activas = df[estado_norm.isin(estados_activos)].copy()
-    if df_activas.empty:
-        return figura_vacia("No hay cuentas activas para el filtro seleccionado")
-
-    avg_saldo_ayer = float(df_activas["saldo_ayer"].mean())
-    avg_saldo_promedio = float(df_activas["saldo_promedio"].mean())
-    categoria = ["ACTIVA"]
+    textos = []
+    for valor in resumen["valor"].tolist():
+        if formato_moneda:
+            textos.append(f"L {valor:,.2f}")
+        else:
+            textos.append(f"{int(round(valor)):,}")
 
     fig = go.Figure(
         data=[
             go.Bar(
-                name="Saldo al cierre promedio",
-                x=categoria,
-                y=[avg_saldo_ayer],
-                marker_color=COLORES["aqua_digital"],
-                text=[f"L {avg_saldo_ayer:,.2f}"],
+                x=resumen["estatus"].tolist(),
+                y=resumen["valor"].tolist(),
+                marker_color=color,
+                text=textos,
                 textposition="outside",
-                hovertemplate="Estatus: %{x}<br>Saldo al cierre prom.: L %{y:,.2f}<extra></extra>",
-            ),
-            go.Bar(
-                name="Saldo promedio por cuenta",
-                x=categoria,
-                y=[avg_saldo_promedio],
-                marker_color=COLORES["amarillo_opt"],
-                text=[f"L {avg_saldo_promedio:,.2f}"],
-                textposition="outside",
-                hovertemplate="Estatus: %{x}<br>Saldo promedio: L %{y:,.2f}<extra></extra>",
-            ),
+                hovertemplate=f"Estatus: %{{x}}<br>{etiqueta_hover}: %{{text}}<extra></extra>",
+            )
         ]
     )
     fig.update_layout(
-        title="Comparativo de saldos promedio por estatus (solo cuentas activas)",
-        barmode="group",
+        title=titulo,
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=55, b=40, l=40, r=20),
         xaxis=dict(title="Estatus de cuenta"),
-        yaxis=dict(title="Monto (L)"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    return fig
-
-
-def grafico_relacion_saldos(df: pd.DataFrame) -> go.Figure:
-    """Dispersión saldo_promedio vs saldo_ayer con linea de referencia y=x."""
-    if df.empty:
-        return figura_vacia("Sin datos para el filtro seleccionado")
-
-    colores = [
-        COLORES["aqua_digital"],
-        COLORES["amarillo_opt"],
-        COLORES["azul_experto"],
-        COLORES["azul_financiero"],
-        COLORES["amarillo_emp"],
-    ]
-    estatus_ordenados = sorted(df["estatus_cuenta"].dropna().unique().tolist())
-    color_map = {estatus: colores[idx % len(colores)] for idx, estatus in enumerate(estatus_ordenados)}
-
-    fig = go.Figure()
-    for estatus in estatus_ordenados:
-        sub = df[df["estatus_cuenta"] == estatus]
-        fig.add_trace(
-            go.Scatter(
-                x=sub["saldo_promedio"],
-                y=sub["saldo_ayer"],
-                mode="markers",
-                name=estatus,
-                marker=dict(color=color_map[estatus], size=8, opacity=0.6),
-                customdata=sub[["cuenta", "transacciones"]],
-                hovertemplate=(
-                    "Estatus: " + estatus
-                    + "<br>Cuenta: %{customdata[0]}"
-                    + "<br>Saldo promedio: L %{x:,.2f}"
-                    + "<br>Saldo al cierre: L %{y:,.2f}"
-                    + "<br>Transacciones: %{customdata[1]:,.0f}<extra></extra>"
-                ),
-            )
-        )
-
-    max_valor = float(max(df["saldo_promedio"].max(), df["saldo_ayer"].max(), 1.0))
-    fig.add_shape(
-        type="line",
-        x0=0,
-        y0=0,
-        x1=max_valor,
-        y1=max_valor,
-        line=dict(color=COLORES["gris_texto"], width=2, dash="dash"),
-    )
-    fig.add_annotation(
-        x=max_valor,
-        y=max_valor,
-        text="y = x",
-        showarrow=False,
-        xanchor="left",
-        yanchor="bottom",
-        font=dict(color=COLORES["gris_texto"], size=11),
-    )
-
-    fig.update_layout(
-        title="Relacion entre saldo promedio y saldo al cierre",
-        plot_bgcolor=COLORES["blanco"],
-        paper_bgcolor=COLORES["blanco"],
-        font=dict(color=COLORES["azul_experto"]),
-        margin=dict(t=55, b=50, l=50, r=20),
-        xaxis=dict(title="Saldo promedio (L)"),
-        yaxis=dict(title="Saldo al cierre (L)"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    return fig
-
-
-def tabla_top_diferencias(df: pd.DataFrame, top_n: int = 15) -> go.Figure:
-    """Tabla resumen de cuentas con mayor diferencia absoluta entre saldos."""
-    if df.empty:
-        return figura_vacia("Sin datos para el filtro seleccionado")
-
-    tabla = df.copy()
-    tabla["diferencia_abs"] = (tabla["saldo_ayer"] - tabla["saldo_promedio"]).abs()
-    top = tabla.sort_values("diferencia_abs", ascending=False).head(top_n)
-
-    fig = go.Figure(
-        data=[
-            go.Table(
-                header=dict(
-                    values=[
-                        "Cuenta",
-                        "Estatus",
-                        "Moneda",
-                        "Saldo al cierre",
-                        "Saldo promedio",
-                        "Dif. abs",
-                        "Transacciones",
-                    ],
-                    fill_color=COLORES["azul_experto"],
-                    font=dict(color=COLORES["blanco"], size=12),
-                    align="left",
-                ),
-                cells=dict(
-                    values=[
-                        top["cuenta"].astype(str).tolist(),
-                        top["estatus_cuenta"].astype(str).tolist(),
-                        top["moneda"].astype(str).tolist(),
-                        [f"L {v:,.2f}" for v in top["saldo_ayer"].tolist()],
-                        [f"L {v:,.2f}" for v in top["saldo_promedio"].tolist()],
-                        [f"L {v:,.2f}" for v in top["diferencia_abs"].tolist()],
-                        [f"{int(v):,}" for v in top["transacciones"].tolist()],
-                    ],
-                    fill_color=COLORES["blanco"],
-                    font=dict(color=COLORES["azul_experto"], size=11),
-                    align="left",
-                ),
-            )
-        ]
-    )
-    fig.update_layout(
-        title=f"Top {top_n} cuentas por diferencia absoluta (saldo cierre vs saldo promedio)",
-        margin=dict(t=48, b=10, l=10, r=10),
-        paper_bgcolor=COLORES["blanco"],
+        yaxis=dict(title="Monto (L)" if formato_moneda else "Cuentas"),
     )
     return fig
 
@@ -337,16 +236,18 @@ def construir_layout(df_base: pd.DataFrame) -> html.Div:
             html.Div(
                 style={
                     "display": "grid",
-                    "gridTemplateColumns": "repeat(auto-fit, minmax(450px, 1fr))",
+                    "gridTemplateColumns": "repeat(auto-fit, minmax(420px, 1fr))",
                     "gap": "18px",
                     "marginBottom": "20px",
                 },
                 children=[
-                    dcc.Graph(id="g-comparativo-estatus"),
-                    dcc.Graph(id="g-relacion-saldos"),
+                    dcc.Graph(id="g-suma-saldo-promedio"),
+                    dcc.Graph(id="g-suma-saldo-cierre"),
+                    dcc.Graph(id="g-cuentas-analizadas"),
+                    dcc.Graph(id="g-promedio-saldo-cierre"),
+                    dcc.Graph(id="g-promedio-saldo-promedio"),
                 ],
             ),
-            dcc.Graph(id="g-tabla-top-diferencias"),
         ],
     )
 
@@ -358,18 +259,62 @@ def construir_app(df_base: pd.DataFrame) -> Dash:
 
     @app.callback(
         Output("kpis-contenedor", "children"),
-        Output("g-comparativo-estatus", "figure"),
-        Output("g-relacion-saldos", "figure"),
-        Output("g-tabla-top-diferencias", "figure"),
+        Output("g-suma-saldo-promedio", "figure"),
+        Output("g-suma-saldo-cierre", "figure"),
+        Output("g-cuentas-analizadas", "figure"),
+        Output("g-promedio-saldo-cierre", "figure"),
+        Output("g-promedio-saldo-promedio", "figure"),
         Input("filtro-moneda", "value"),
     )
     def actualizar_vista(moneda: str):
         df = filtrar_por_moneda(df_base, moneda)
         return (
             construir_kpis(df),
-            grafico_comparativo_estatus(df),
-            grafico_relacion_saldos(df),
-            tabla_top_diferencias(df),
+            grafico_metrica_por_estatus(
+                df,
+                "Suma de saldos promedios por estatus",
+                "saldo_promedio",
+                "sum",
+                COLORES["amarillo_opt"],
+                True,
+                "Suma saldo promedio",
+            ),
+            grafico_metrica_por_estatus(
+                df,
+                "Suma de saldos a fin de periodo por estatus",
+                "saldo_ayer",
+                "sum",
+                COLORES["aqua_digital"],
+                True,
+                "Suma saldo al cierre",
+            ),
+            grafico_metrica_por_estatus(
+                df,
+                "Cuentas analizadas por estatus",
+                "cuenta",
+                "count",
+                COLORES["azul_experto"],
+                False,
+                "Cuentas",
+            ),
+            grafico_metrica_por_estatus(
+                df,
+                "Saldo al cierre promedio por cuenta y estatus",
+                "saldo_ayer",
+                "mean",
+                COLORES["azul_financiero"],
+                True,
+                "Promedio saldo al cierre",
+            ),
+            grafico_metrica_por_estatus(
+                df,
+                "Saldo promedio por cuenta y estatus",
+                "saldo_promedio",
+                "mean",
+                COLORES["amarillo_emp"],
+                True,
+                "Promedio saldo promedio",
+            ),
         )
 
     return app
