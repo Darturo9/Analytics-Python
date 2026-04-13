@@ -126,45 +126,44 @@ def construir_kpis(df: pd.DataFrame) -> list[html.Div]:
 
 
 def grafico_comparativo_estatus(df: pd.DataFrame) -> go.Figure:
-    """Barras agrupadas: promedio de saldos por estatus de cuenta."""
+    """Barras agrupadas: promedio de saldos para cuentas activas."""
     if df.empty:
         return figura_vacia("Sin datos para el filtro seleccionado")
 
-    resumen = (
-        df.groupby("estatus_cuenta", dropna=False)
-        .agg(
-            avg_saldo_ayer=("saldo_ayer", "mean"),
-            avg_saldo_promedio=("saldo_promedio", "mean"),
-            cuentas=("cuenta", "nunique"),
-        )
-        .reset_index()
-        .sort_values("avg_saldo_ayer", ascending=False)
-    )
+    estados_activos = {"A", "ACTIVA", "ACTIVO"}
+    estado_norm = df["estatus_cuenta"].astype(str).str.strip().str.upper()
+    df_activas = df[estado_norm.isin(estados_activos)].copy()
+    if df_activas.empty:
+        return figura_vacia("No hay cuentas activas para el filtro seleccionado")
+
+    avg_saldo_ayer = float(df_activas["saldo_ayer"].mean())
+    avg_saldo_promedio = float(df_activas["saldo_promedio"].mean())
+    categoria = ["ACTIVA"]
 
     fig = go.Figure(
         data=[
             go.Bar(
                 name="Saldo al cierre promedio",
-                x=resumen["estatus_cuenta"].tolist(),
-                y=resumen["avg_saldo_ayer"].tolist(),
+                x=categoria,
+                y=[avg_saldo_ayer],
                 marker_color=COLORES["aqua_digital"],
-                text=[f"L {v:,.2f}" for v in resumen["avg_saldo_ayer"].tolist()],
+                text=[f"L {avg_saldo_ayer:,.2f}"],
                 textposition="outside",
                 hovertemplate="Estatus: %{x}<br>Saldo al cierre prom.: L %{y:,.2f}<extra></extra>",
             ),
             go.Bar(
                 name="Saldo promedio por cuenta",
-                x=resumen["estatus_cuenta"].tolist(),
-                y=resumen["avg_saldo_promedio"].tolist(),
+                x=categoria,
+                y=[avg_saldo_promedio],
                 marker_color=COLORES["amarillo_opt"],
-                text=[f"L {v:,.2f}" for v in resumen["avg_saldo_promedio"].tolist()],
+                text=[f"L {avg_saldo_promedio:,.2f}"],
                 textposition="outside",
                 hovertemplate="Estatus: %{x}<br>Saldo promedio: L %{y:,.2f}<extra></extra>",
             ),
         ]
     )
     fig.update_layout(
-        title="Comparativo de saldos promedio por estatus",
+        title="Comparativo de saldos promedio por estatus (solo cuentas activas)",
         barmode="group",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],

@@ -13,4 +13,6 @@ FROM HIS_DEP_DEPOSITOS_VIEW depositos
 WHERE depositos.PRCODP = 1
   AND depositos.PRSUBP = 51
   AND depositos.dw_producto = 'CUENTA DIGITAL'
-  AND depositos.dw_fecha_informacion = '2026-03-31';
+  AND depositos.dw_fecha_informacion = '2026-03-31'
+  AND depositos.dw_feha_apertura >= '2026-01-01'
+  AND depositos.dw_feha_apertura < '2026-04-01';
