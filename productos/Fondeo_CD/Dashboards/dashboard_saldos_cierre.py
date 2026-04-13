@@ -8,7 +8,7 @@ Muestra dos indicadores clave:
 2) Saldo promedio (saldo_promedio)
 
 Ejecucion:
-    python productos/cuenta_digital/2026-03/dashboards/dashboard_saldos_cierre.py
+    python3 productos/Fondeo_CD/Dashboards/dashboard_saldos_cierre.py
 """
 
 import sys
@@ -24,7 +24,7 @@ from core.colors import COLORES
 from core.db import run_query_file
 
 
-QUERY_PATH = "productos/cuenta_digital/2026-03/queries/saldo_cierre_marzo_2026.sql"
+QUERY_PATH = "productos/Fondeo_CD/Queries/saldo_cierre_marzo_2026.sql"
 
 
 def cargar_datos() -> pd.DataFrame:

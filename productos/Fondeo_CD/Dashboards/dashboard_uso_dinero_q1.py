@@ -8,7 +8,7 @@ Universo:
 - Uso del dinero detectado por pagos/transferencias en Q1 2026.
 
 Ejecucion:
-    python3 productos/cuenta_digital/2026-03/dashboards/dashboard_uso_dinero_q1.py
+    python3 productos/Fondeo_CD/Dashboards/dashboard_uso_dinero_q1.py
 """
 
 import sys
@@ -24,7 +24,7 @@ from core.colors import COLORES
 from core.db import run_query_file
 
 
-QUERY_PATH = "productos/cuenta_digital/2026-03/queries/uso_dinero_q1_2026.sql"
+QUERY_PATH = "productos/Fondeo_CD/Queries/uso_dinero_q1_2026.sql"
 
 
 def cargar_datos() -> pd.DataFrame:
