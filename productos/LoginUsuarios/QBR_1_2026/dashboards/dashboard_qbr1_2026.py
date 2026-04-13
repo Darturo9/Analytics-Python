@@ -76,7 +76,7 @@ def detectar_columna_codigo(columnas: list[str]) -> str | None:
         if "codigo" in normalizada and ("cliente" in normalizada or "usuario" in normalizada):
             return original
     for original, normalizada in columnas_norm.items():
-        if normalizada in {"cif", "cldoc", "codigo", "cliente"}:
+        if normalizada in {"cif", "cldoc", "codigo", "cliente", "clientes"}:
             return original
     return None
 
