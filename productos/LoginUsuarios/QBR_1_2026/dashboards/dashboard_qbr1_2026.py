@@ -25,7 +25,6 @@ from core.colors import COLORES
 from core.db import run_query_file
 
 
-RUTA_QUERY_BASE = "productos/LoginUsuarios/QBR_1_2026/queries/base.sql"
 RUTA_QUERY_LOGINS = "productos/LoginUsuarios/QBR_1_2026/queries/Logins.sql"
 RUTA_EXCEL_BASE = Path("productos/LoginUsuarios/QBR_1_2026/ArchivosExcel")
 VALOR_TODOS = "__TODOS__"
@@ -83,7 +82,7 @@ def detectar_columna_codigo(columnas: list[str]) -> str | None:
 
 
 def cargar_base_clientes() -> tuple[pd.DataFrame, str]:
-    """Carga base desde Excel (si existe) o fallback a SQL."""
+    """Carga base exclusivamente desde Excel."""
     archivo = None
     preferidos = [
         RUTA_EXCEL_BASE / "Contactados_Enero_2026.xlsx",
@@ -121,11 +120,10 @@ def cargar_base_clientes() -> tuple[pd.DataFrame, str]:
         df_base = df_base[df_base["padded_codigo_cliente"].notna()].drop_duplicates("padded_codigo_cliente")
         return df_base[["padded_codigo_cliente"]].copy(), f"Excel: {archivo}"
 
-    df_base = run_query_file(RUTA_QUERY_BASE)
-    df_base.columns = [str(c) for c in df_base.columns]
-    df_base["padded_codigo_cliente"] = df_base["padded_codigo_cliente"].apply(normalizar_codigo)
-    df_base = df_base[df_base["padded_codigo_cliente"].notna()].drop_duplicates("padded_codigo_cliente")
-    return df_base[["padded_codigo_cliente"]].copy(), f"SQL: {RUTA_QUERY_BASE}"
+    raise FileNotFoundError(
+        "No se encontró archivo base en productos/LoginUsuarios/QBR_1_2026/ArchivosExcel. "
+        "Agrega Contactados_Enero_2026.xlsx (o .xls/.csv) para ejecutar el dashboard."
+    )
 
 
 def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame, str]:
