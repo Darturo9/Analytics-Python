@@ -9,6 +9,7 @@ Dashboard para medir logins de clientes durante el primer trimestre de 2026.
 ## Archivos
 - `queries/Logins.sql`: eventos de login Q1 2026.
 - `queries/Logins_Marzo.sql`: eventos de login de marzo 2026.
+- `queries/CambiosPassword_16_31_Marzo.sql`: clientes con cambio de contraseña del 16 al 31 de marzo de 2026.
 - `queries/sin_login/post_login_q1_2026.sql`: eventos operativos generales Q1 2026 para análisis post-login, filtrados en SQL por los clientes del Excel.
 - `dashboards/dashboard_qbr1_2026.py`: dashboard principal.
 - `dashboards/dashboard_qbr1_arbol_rtm.py`: dashboard para base `Arbol RTM`.

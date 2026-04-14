@@ -27,10 +27,13 @@ from core.db import run_query_file
 
 
 RUTA_QUERY_LOGINS = "productos/LoginUsuarios/QBR_1_2026/queries/Logins_Marzo.sql"
+RUTA_QUERY_CAMBIO_PASS = "productos/LoginUsuarios/QBR_1_2026/queries/CambiosPassword_16_31_Marzo.sql"
 RUTA_EXCEL_BASE = Path("productos/LoginUsuarios/QBR_1_2026/ArchivosExcel")
 VALOR_TODOS = "__TODOS__"
 FECHA_INICIO_MARZO = pd.Timestamp("2026-03-01")
 FECHA_FIN_MARZO = pd.Timestamp("2026-04-01")
+FECHA_INICIO_CAMBIO_PASS = pd.Timestamp("2026-03-16")
+FECHA_FIN_CAMBIO_PASS = pd.Timestamp("2026-04-01")
 MESES_MOSTRAR = ["2026-03"]
 
 MESES_ES = {
@@ -149,26 +152,45 @@ def es_error_transitorio_sql(exc: Exception) -> bool:
     return any(token in texto for token in MENSAJES_ERROR_TRANSITORIO)
 
 
-def cargar_logins_con_reintento(intentos: int = 3, espera_seg: int = 2) -> pd.DataFrame:
+def cargar_query_con_reintento(ruta_query: str, etiqueta: str, intentos: int = 3, espera_seg: int = 2) -> pd.DataFrame:
     ultimo_error = None
     for intento in range(1, intentos + 1):
         try:
-            return run_query_file(RUTA_QUERY_LOGINS)
+            return run_query_file(ruta_query)
         except SQLAlchemyError as exc:
             ultimo_error = exc
             if not es_error_transitorio_sql(exc) or intento == intentos:
                 raise
             print(
-                f"[WARN] Falla transitoria de conexión SQL (intento {intento}/{intentos}). "
+                f"[WARN] Falla transitoria de conexión SQL ({etiqueta}, intento {intento}/{intentos}). "
                 f"Reintentando en {espera_seg}s..."
             )
             time.sleep(espera_seg)
-    raise ultimo_error if ultimo_error else RuntimeError("No se pudo cargar la query de logins.")
+    raise ultimo_error if ultimo_error else RuntimeError(f"No se pudo cargar la query de {etiqueta}.")
 
 
-def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame, str]:
+def cargar_logins_con_reintento(intentos: int = 3, espera_seg: int = 2) -> pd.DataFrame:
+    return cargar_query_con_reintento(
+        RUTA_QUERY_LOGINS,
+        etiqueta="logins",
+        intentos=intentos,
+        espera_seg=espera_seg,
+    )
+
+
+def cargar_cambios_pass_con_reintento(intentos: int = 3, espera_seg: int = 2) -> pd.DataFrame:
+    return cargar_query_con_reintento(
+        RUTA_QUERY_CAMBIO_PASS,
+        etiqueta="cambio de password",
+        intentos=intentos,
+        espera_seg=espera_seg,
+    )
+
+
+def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str]:
     df_base, fuente_base = cargar_base_clientes()
     df_logins = cargar_logins_con_reintento()
+    df_cambio_pass = cargar_cambios_pass_con_reintento()
 
     df_logins.columns = [str(c) for c in df_logins.columns]
 
@@ -189,7 +211,27 @@ def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame, str]:
     df_logins["mes"] = df_logins["fecha_inicio"].dt.to_period("M").astype(str)
     df_logins["fecha_dia"] = df_logins["fecha_inicio"].dt.date
 
-    return df_base, df_logins, fuente_base
+    df_cambio_pass.columns = [normalizar_nombre_columna(c) for c in df_cambio_pass.columns]
+    if "codigo_cliente" not in df_cambio_pass.columns or "fecha_cambio_pass" not in df_cambio_pass.columns:
+        raise ValueError(
+            "La query de cambio de password debe devolver columnas codigo_cliente y fecha_cambio_pass."
+        )
+
+    df_cambio_pass["padded_codigo_cliente"] = df_cambio_pass["codigo_cliente"].apply(normalizar_codigo)
+    df_cambio_pass["fecha_cambio_pass"] = pd.to_datetime(df_cambio_pass["fecha_cambio_pass"], errors="coerce")
+    df_cambio_pass = df_cambio_pass[
+        df_cambio_pass["padded_codigo_cliente"].notna() & df_cambio_pass["fecha_cambio_pass"].notna()
+    ].copy()
+    df_cambio_pass = df_cambio_pass[
+        (df_cambio_pass["fecha_cambio_pass"] >= FECHA_INICIO_CAMBIO_PASS)
+        & (df_cambio_pass["fecha_cambio_pass"] < FECHA_FIN_CAMBIO_PASS)
+    ].copy()
+    df_cambio_pass = df_cambio_pass[df_cambio_pass["padded_codigo_cliente"].isin(universo)].copy()
+    df_cambio_pass = df_cambio_pass.sort_values("fecha_cambio_pass").drop_duplicates(
+        "padded_codigo_cliente", keep="first"
+    )
+
+    return df_base, df_logins, df_cambio_pass, fuente_base
 
 
 def filtrar_por_canal(df: pd.DataFrame, canal: str) -> pd.DataFrame:
@@ -237,12 +279,16 @@ def kpi_card(titulo: str, valor: str, color_borde: str) -> html.Div:
     )
 
 
-def construir_kpis(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> list[html.Div]:
+def construir_kpis(df_base: pd.DataFrame, df_logins: pd.DataFrame, df_cambio_pass: pd.DataFrame) -> list[html.Div]:
     clientes_base = int(df_base["padded_codigo_cliente"].nunique()) if not df_base.empty else 0
     clientes_con_login = int(df_logins["padded_codigo_usuario"].nunique()) if not df_logins.empty else 0
+    clientes_cambio_pass = (
+        int(df_cambio_pass["padded_codigo_cliente"].nunique()) if not df_cambio_pass.empty else 0
+    )
     total_logins = int(len(df_logins))
     tasa_activacion = (clientes_con_login / clientes_base * 100) if clientes_base > 0 else 0.0
     prom_logins = (total_logins / clientes_con_login) if clientes_con_login > 0 else 0.0
+    tasa_cambio_pass = (clientes_cambio_pass / clientes_base * 100) if clientes_base > 0 else 0.0
 
     return [
         kpi_card("Clientes base marzo", f"{clientes_base:,}", COLORES["azul_experto"]),
@@ -250,6 +296,11 @@ def construir_kpis(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> list[html.
         kpi_card("Total logins marzo", f"{total_logins:,}", COLORES["amarillo_opt"]),
         kpi_card("Tasa de activacion", f"{tasa_activacion:,.1f}%", COLORES["azul_financiero"]),
         kpi_card("Promedio logins por cliente", f"{prom_logins:,.2f}", COLORES["amarillo_emp"]),
+        kpi_card(
+            "Cambio password 16-31 mar",
+            f"{clientes_cambio_pass:,} ({tasa_cambio_pass:,.1f}%)",
+            COLORES["azul_financiero"],
+        ),
     ]
 
 
@@ -557,7 +608,7 @@ def construir_layout(df_logins: pd.DataFrame) -> html.Div:
     )
 
 
-def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> Dash:
+def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame, df_cambio_pass: pd.DataFrame) -> Dash:
     app = Dash(__name__)
     app.layout = construir_layout(df_logins)
 
@@ -574,7 +625,7 @@ def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> Dash:
     def actualizar_vista(canal: str):
         filtrado = filtrar_por_canal(df_logins, canal)
         return (
-            construir_kpis(df_base, filtrado),
+            construir_kpis(df_base, filtrado, df_cambio_pass),
             grafico_logins_por_mes_canal(filtrado),
             grafico_clientes_unicos_mes(filtrado),
             grafico_primer_login_mes(filtrado),
@@ -588,8 +639,9 @@ def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> Dash:
 
 def main() -> None:
     print(f"Cargando logins desde: {RUTA_QUERY_LOGINS}")
+    print(f"Cargando cambios de password desde: {RUTA_QUERY_CAMBIO_PASS}")
     try:
-        df_base, df_logins, fuente_base = cargar_datos()
+        df_base, df_logins, df_cambio_pass, fuente_base = cargar_datos()
     except SQLAlchemyError as exc:
         print(f"[ERROR] No se pudo ejecutar la query en SQL Server: {exc}")
         raise SystemExit(1) from exc
@@ -601,8 +653,12 @@ def main() -> None:
     print(f"Clientes base marzo: {df_base['padded_codigo_cliente'].nunique():,}")
     print(f"Logins marzo (filtrados por base): {len(df_logins):,}")
     print(f"Clientes con login marzo: {df_logins['padded_codigo_usuario'].nunique():,}")
+    print(
+        "Clientes de la base con cambio de password (2026-03-16 al 2026-03-31): "
+        f"{df_cambio_pass['padded_codigo_cliente'].nunique():,}"
+    )
 
-    app = construir_app(df_base, df_logins)
+    app = construir_app(df_base, df_logins, df_cambio_pass)
     print("Dashboard corriendo en http://127.0.0.1:8067")
     app.run(debug=True, use_reloader=False, port=8067)
 
