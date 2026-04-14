@@ -85,6 +85,12 @@ def cargar_base_clientes() -> tuple[pd.DataFrame, str]:
     """Carga base exclusivamente desde Excel."""
     archivo = None
     preferidos = [
+        RUTA_EXCEL_BASE / "ArbolRTM.xlsx",
+        RUTA_EXCEL_BASE / "ArbolRTM.xls",
+        RUTA_EXCEL_BASE / "ArbolRTM.csv",
+        RUTA_EXCEL_BASE / "arbolrtm.xlsx",
+        RUTA_EXCEL_BASE / "arbolrtm.xls",
+        RUTA_EXCEL_BASE / "arbolrtm.csv",
         RUTA_EXCEL_BASE / "Arbol RTM.xlsx",
         RUTA_EXCEL_BASE / "Arbol RTM.xls",
         RUTA_EXCEL_BASE / "Arbol RTM.csv",
@@ -131,7 +137,7 @@ def cargar_base_clientes() -> tuple[pd.DataFrame, str]:
 
     raise FileNotFoundError(
         "No se encontró archivo base en productos/LoginUsuarios/QBR_1_2026/ArchivosExcel. "
-        "Agrega Arbol RTM.xlsx (o .xls/.csv) para ejecutar el dashboard."
+        "Agrega ArbolRTM.xlsx (o .xls/.csv) para ejecutar el dashboard."
     )
 
 
