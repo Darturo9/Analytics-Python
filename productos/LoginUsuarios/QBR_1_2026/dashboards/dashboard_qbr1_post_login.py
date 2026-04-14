@@ -5,7 +5,7 @@ Dashboard Post Login - Q1 2026.
 
 Universo:
 - Clientes del archivo Excel en ArchivosExcel.
-- Eventos del query de app empresarial (query1.sql) en Q1 2026.
+- Eventos del query local sin_login en Q1 2026.
 - Se consideran eventos post-login por cliente (después de su primer login Q1).
 
 Ejecucion:
@@ -27,7 +27,7 @@ from core.colors import COLORES
 from core.db import run_query_file
 
 
-RUTA_QUERY_EVENTOS = "productos/app_empresarial/2026-03/queries/query1.sql"
+RUTA_QUERY_EVENTOS = "productos/LoginUsuarios/QBR_1_2026/queries/sin_login/post_login_q1_2026.sql"
 RUTA_EXCEL_BASE = Path("productos/LoginUsuarios/QBR_1_2026/ArchivosExcel")
 VALOR_TODOS = "__TODOS__"
 FECHA_INICIO_Q1 = pd.Timestamp("2026-01-01")
