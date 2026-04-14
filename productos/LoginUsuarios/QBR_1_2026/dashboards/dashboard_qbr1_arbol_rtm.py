@@ -5,7 +5,7 @@ Dashboard Login Usuarios - Q1 2026 (Arbol RTM).
 
 Universo:
 - Clientes del archivo Excel Arbol RTM.
-- Logins ocurridos entre 2026-01-01 y 2026-03-31.
+- Logins ocurridos en marzo 2026.
 
 Ejecucion:
     python3 productos/LoginUsuarios/QBR_1_2026/dashboards/dashboard_qbr1_arbol_rtm.py
@@ -28,10 +28,11 @@ from core.db import run_query_file
 RUTA_QUERY_LOGINS = "productos/LoginUsuarios/QBR_1_2026/queries/Logins.sql"
 RUTA_EXCEL_BASE = Path("productos/LoginUsuarios/QBR_1_2026/ArchivosExcel")
 VALOR_TODOS = "__TODOS__"
+FECHA_INICIO_MARZO = pd.Timestamp("2026-03-01")
+FECHA_FIN_MARZO = pd.Timestamp("2026-04-01")
+MESES_MOSTRAR = ["2026-03"]
 
 MESES_ES = {
-    "2026-01": "Enero 2026",
-    "2026-02": "Febrero 2026",
     "2026-03": "Marzo 2026",
 }
 
@@ -152,6 +153,10 @@ def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame, str]:
     df_logins = df_logins[
         df_logins["padded_codigo_usuario"].notna() & df_logins["fecha_inicio"].notna()
     ].copy()
+    df_logins = df_logins[
+        (df_logins["fecha_inicio"] >= FECHA_INICIO_MARZO)
+        & (df_logins["fecha_inicio"] < FECHA_FIN_MARZO)
+    ].copy()
     df_logins["canal_login_norm"] = df_logins["canal_login"].apply(normalizar_canal_login)
 
     universo = set(df_base["padded_codigo_cliente"].tolist())
@@ -216,9 +221,9 @@ def construir_kpis(df_base: pd.DataFrame, df_logins: pd.DataFrame) -> list[html.
     prom_logins = (total_logins / clientes_con_login) if clientes_con_login > 0 else 0.0
 
     return [
-        kpi_card("Clientes base Q1", f"{clientes_base:,}", COLORES["azul_experto"]),
+        kpi_card("Clientes base marzo", f"{clientes_base:,}", COLORES["azul_experto"]),
         kpi_card("Clientes con login", f"{clientes_con_login:,}", COLORES["aqua_digital"]),
-        kpi_card("Total logins Q1", f"{total_logins:,}", COLORES["amarillo_opt"]),
+        kpi_card("Total logins marzo", f"{total_logins:,}", COLORES["amarillo_opt"]),
         kpi_card("Tasa de activacion", f"{tasa_activacion:,.1f}%", COLORES["azul_financiero"]),
         kpi_card("Promedio logins por cliente", f"{prom_logins:,.2f}", COLORES["amarillo_emp"]),
     ]
@@ -232,7 +237,7 @@ def grafico_logins_por_mes_canal(df_logins: pd.DataFrame) -> go.Figure:
         df_logins.groupby(["mes", "canal_login_norm"])
         .size()
         .unstack(fill_value=0)
-        .reindex(["2026-01", "2026-02", "2026-03"], fill_value=0)
+        .reindex(MESES_MOSTRAR, fill_value=0)
     )
     etiquetas = [MESES_ES.get(m, m) for m in pivot.index.tolist()]
     totales = pivot.sum(axis=1).tolist()
@@ -269,7 +274,7 @@ def grafico_logins_por_mes_canal(df_logins: pd.DataFrame) -> go.Figure:
     )
 
     fig.update_layout(
-        title="Logins por mes y canal (Q1 2026)",
+        title="Logins por mes y canal (marzo 2026)",
         barmode="stack",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
@@ -289,7 +294,7 @@ def grafico_clientes_unicos_mes(df_logins: pd.DataFrame) -> go.Figure:
     resumen = (
         df_logins.groupby("mes")["padded_codigo_usuario"]
         .nunique()
-        .reindex(["2026-01", "2026-02", "2026-03"], fill_value=0)
+        .reindex(MESES_MOSTRAR, fill_value=0)
     )
     etiquetas = [MESES_ES.get(m, m) for m in resumen.index.tolist()]
     valores = resumen.values.tolist()
@@ -332,7 +337,7 @@ def grafico_primer_login_mes(df_logins: pd.DataFrame) -> go.Figure:
     resumen = (
         primer_login.groupby("mes")["padded_codigo_usuario"]
         .nunique()
-        .reindex(["2026-01", "2026-02", "2026-03"], fill_value=0)
+        .reindex(MESES_MOSTRAR, fill_value=0)
     )
     etiquetas = [MESES_ES.get(m, m) for m in resumen.index.tolist()]
     valores = resumen.values.tolist()
@@ -381,7 +386,7 @@ def grafico_logins_por_canal(df_logins: pd.DataFrame) -> go.Figure:
         ]
     )
     fig.update_layout(
-        title="Logins por canal (Q1 2026)",
+        title="Logins por canal (marzo 2026)",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
@@ -417,7 +422,7 @@ def grafico_primer_login_dia(df_logins: pd.DataFrame) -> go.Figure:
         ]
     )
     fig.update_layout(
-        title="Clientes por fecha de primer login (Q1 2026)",
+        title="Clientes por fecha de primer login (marzo 2026)",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
@@ -492,9 +497,9 @@ def construir_layout(df_logins: pd.DataFrame) -> html.Div:
     return html.Div(
         style={"padding": "32px", "backgroundColor": COLORES["gris_fondo"], "fontFamily": "Arial, sans-serif"},
         children=[
-            html.H2("Login Usuarios - Q1 2026 (Arbol RTM)", style={"color": COLORES["azul_experto"], "marginBottom": "6px"}),
+            html.H2("Login Usuarios - Marzo 2026 (Arbol RTM)", style={"color": COLORES["azul_experto"], "marginBottom": "6px"}),
             html.P(
-                "Medicion de logins para clientes del archivo Arbol RTM durante enero, febrero y marzo 2026.",
+                "Medicion de logins para clientes del archivo Arbol RTM durante marzo 2026.",
                 style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "22px"},
             ),
             html.Div(
@@ -569,9 +574,9 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     print(f"Fuente base clientes: {fuente_base}")
-    print(f"Clientes base Q1: {df_base['padded_codigo_cliente'].nunique():,}")
-    print(f"Logins Q1 (filtrados por base): {len(df_logins):,}")
-    print(f"Clientes con login Q1: {df_logins['padded_codigo_usuario'].nunique():,}")
+    print(f"Clientes base marzo: {df_base['padded_codigo_cliente'].nunique():,}")
+    print(f"Logins marzo (filtrados por base): {len(df_logins):,}")
+    print(f"Clientes con login marzo: {df_logins['padded_codigo_usuario'].nunique():,}")
 
     app = construir_app(df_base, df_logins)
     print("Dashboard corriendo en http://127.0.0.1:8067")
