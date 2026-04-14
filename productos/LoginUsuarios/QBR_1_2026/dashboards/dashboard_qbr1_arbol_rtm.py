@@ -485,36 +485,52 @@ def grafico_logins_por_canal(df_logins: pd.DataFrame) -> go.Figure:
 
 
 def grafico_primer_login_dia(df_logins: pd.DataFrame) -> go.Figure:
-    if df_logins.empty:
-        return figura_vacia("Sin logins para el filtro seleccionado")
-
     primer_login = (
         df_logins.groupby("padded_codigo_usuario", as_index=False)["fecha_inicio"]
         .min()
         .rename(columns={"fecha_inicio": "primer_login"})
     )
-    primer_login["dia"] = primer_login["primer_login"].dt.date
-    resumen = primer_login.groupby("dia").size().reset_index(name="clientes")
+    primer_login["dia"] = pd.to_datetime(primer_login["primer_login"], errors="coerce").dt.normalize()
+
+    dias_objetivo = pd.date_range(
+        start=FECHA_INICIO_CAMBIO_PASS,
+        end=FECHA_FIN_CAMBIO_PASS - pd.Timedelta(days=1),
+        freq="D",
+    )
+    resumen = (
+        primer_login.groupby("dia")
+        .size()
+        .reindex(dias_objetivo, fill_value=0)
+    )
+    x_labels = [d.strftime("%Y-%m-%d") for d in dias_objetivo]
+    y_valores = [int(v) for v in resumen.tolist()]
+    text_labels = [f"{v:,}" if v > 0 else "" for v in y_valores]
 
     fig = go.Figure(
         data=[
             go.Bar(
-                x=resumen["dia"].astype(str).tolist(),
-                y=resumen["clientes"].tolist(),
+                x=x_labels,
+                y=y_valores,
                 marker_color=COLORES["aqua_digital"],
-                text=[f"{v:,}" for v in resumen["clientes"].tolist()],
+                text=text_labels,
                 textposition="outside",
                 hovertemplate="Fecha: %{x}<br>Primer login (clientes): %{y:,}<extra></extra>",
             )
         ]
     )
     fig.update_layout(
-        title="Clientes por fecha de primer login (marzo 2026)",
+        title="Clientes por fecha de primer login (16 al 31 de marzo 2026)",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=55, b=70, l=40, r=20),
-        xaxis=dict(title="Fecha", tickangle=-45),
+        xaxis=dict(
+            title="Fecha",
+            tickangle=-45,
+            tickmode="array",
+            tickvals=x_labels,
+            ticktext=[d.strftime("%d") for d in dias_objetivo],
+        ),
         yaxis=dict(title="Clientes"),
     )
     return fig
