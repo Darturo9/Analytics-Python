@@ -8,11 +8,15 @@ Imprime resultados en consola y exporta coincidencias a Excel.
 
 import unicodedata
 import pandas as pd
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Rutas de archivos
 # ---------------------------------------------------------------------------
-RUTA_POTENCIALES    = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\baselimpiaPotencialesMarzo.xlsx"
+RUTAS_POTENCIALES   = [
+    r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\baselimpiaPotenciales.xlsx",
+    r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\baselimpiaPotencialesMarzo.xlsx",
+]
 RUTA_CUENTA_DIGITAL = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\cuenta_digital_2026.xlsx"
 RUTA_SALIDA         = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\coincidencias_cuenta_digital.xlsx"
 RUTA_DESCARTADOS    = r"C:\Users\72404\Documents\Danilo\Carpeta Python\ValidarClientesWifi\descartando_convertidos.xlsx"
@@ -63,12 +67,41 @@ def normalizar_telefono(serie: pd.Series) -> pd.Series:
         .replace("", pd.NA)
     )
 
+
+def cargar_potenciales(rutas: list[str]) -> pd.DataFrame:
+    """
+    Carga y concatena múltiples archivos de potenciales.
+    Si no existe ninguno, lanza error.
+    """
+    dataframes = []
+    rutas_encontradas = []
+
+    for ruta in rutas:
+        if Path(ruta).exists():
+            df = pd.read_excel(ruta)
+            df["_archivo_origen"] = Path(ruta).name
+            dataframes.append(df)
+            rutas_encontradas.append(ruta)
+
+    if not dataframes:
+        rutas_txt = "\n".join(f" - {r}" for r in rutas)
+        raise FileNotFoundError(
+            "No se encontró ningún archivo de potenciales en estas rutas:\n"
+            f"{rutas_txt}"
+        )
+
+    print("   ✅ Archivos potenciales detectados:")
+    for r in rutas_encontradas:
+        print(f"      - {r}")
+
+    return pd.concat(dataframes, ignore_index=True)
+
 # ---------------------------------------------------------------------------
 # Cargar archivos
 # ---------------------------------------------------------------------------
 print("📂 Cargando archivos...")
 
-df_potenciales    = pd.read_excel(RUTA_POTENCIALES)
+df_potenciales    = cargar_potenciales(RUTAS_POTENCIALES)
 df_cuenta_digital = pd.read_excel(RUTA_CUENTA_DIGITAL, dtype=str)
 
 print(f"   ✅ Potenciales cargados:     {len(df_potenciales):,} registros")
