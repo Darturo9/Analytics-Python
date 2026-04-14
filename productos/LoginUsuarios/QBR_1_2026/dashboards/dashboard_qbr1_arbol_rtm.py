@@ -12,6 +12,7 @@ Ejecucion:
 """
 
 import sys
+import time
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -25,7 +26,7 @@ from core.colors import COLORES
 from core.db import run_query_file
 
 
-RUTA_QUERY_LOGINS = "productos/LoginUsuarios/QBR_1_2026/queries/Logins.sql"
+RUTA_QUERY_LOGINS = "productos/LoginUsuarios/QBR_1_2026/queries/Logins_Marzo.sql"
 RUTA_EXCEL_BASE = Path("productos/LoginUsuarios/QBR_1_2026/ArchivosExcel")
 VALOR_TODOS = "__TODOS__"
 FECHA_INICIO_MARZO = pd.Timestamp("2026-03-01")
@@ -35,6 +36,7 @@ MESES_MOSTRAR = ["2026-03"]
 MESES_ES = {
     "2026-03": "Marzo 2026",
 }
+MENSAJES_ERROR_TRANSITORIO = ("08S01", "10054", "communication link failure", "tcp provider")
 
 
 def normalizar_codigo(valor) -> str | None:
@@ -142,9 +144,31 @@ def cargar_base_clientes() -> tuple[pd.DataFrame, str]:
     )
 
 
+def es_error_transitorio_sql(exc: Exception) -> bool:
+    texto = str(exc).lower()
+    return any(token in texto for token in MENSAJES_ERROR_TRANSITORIO)
+
+
+def cargar_logins_con_reintento(intentos: int = 3, espera_seg: int = 2) -> pd.DataFrame:
+    ultimo_error = None
+    for intento in range(1, intentos + 1):
+        try:
+            return run_query_file(RUTA_QUERY_LOGINS)
+        except SQLAlchemyError as exc:
+            ultimo_error = exc
+            if not es_error_transitorio_sql(exc) or intento == intentos:
+                raise
+            print(
+                f"[WARN] Falla transitoria de conexión SQL (intento {intento}/{intentos}). "
+                f"Reintentando en {espera_seg}s..."
+            )
+            time.sleep(espera_seg)
+    raise ultimo_error if ultimo_error else RuntimeError("No se pudo cargar la query de logins.")
+
+
 def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame, str]:
     df_base, fuente_base = cargar_base_clientes()
-    df_logins = run_query_file(RUTA_QUERY_LOGINS)
+    df_logins = cargar_logins_con_reintento()
 
     df_logins.columns = [str(c) for c in df_logins.columns]
 
