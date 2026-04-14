@@ -11,13 +11,23 @@ Columnas de salida esperadas por dashboard:
 - Operación
 - Valor
 - ValorLempirizado
+
+Nota:
+- El dashboard reemplaza {{CLIENTES_BASE_VALUES}} con los códigos del Excel
+  para filtrar en SQL desde el origen y mejorar tiempos.
 */
 
-WITH eventos_bel AS (
+WITH clientes_base AS (
+    SELECT v.padded_codigo_cliente
+    FROM (VALUES
+            {{CLIENTES_BASE_VALUES}}
+    ) v(padded_codigo_cliente)
+),
+eventos_bel AS (
     SELECT
         st.dw_fecha_trx AS Fecha,
         LTRIM(RTRIM(st.CLCCLI)) AS Codigo_Cliente,
-        RIGHT('00000000' + LTRIM(RTRIM(st.CLCCLI)), 8) AS padded_codigo_cliente,
+        cod.padded_codigo_cliente,
         CASE
             WHEN st.SECODE IN ('login', 'web-login') THEN 'Web'
             WHEN st.SECODE = 'app-login' THEN 'App'
@@ -34,6 +44,11 @@ WITH eventos_bel AS (
         CAST(0 AS DECIMAL(18, 2)) AS Valor,
         CAST(0 AS DECIMAL(18, 2)) AS ValorLempirizado
     FROM dw_bel_IBSTTRA_VIEW st
+    CROSS APPLY (
+        VALUES (RIGHT('00000000' + LTRIM(RTRIM(st.CLCCLI)), 8))
+    ) cod(padded_codigo_cliente)
+    INNER JOIN clientes_base cb
+        ON cb.padded_codigo_cliente = cod.padded_codigo_cliente
     LEFT JOIN DW_BEL_IBSERV srv
         ON srv.SECODE = st.SECODE
     WHERE st.dw_fecha_trx >= '2026-01-01'
@@ -56,7 +71,7 @@ eventos_journal AS (
     SELECT
         j.dw_fecha_journal AS Fecha,
         LTRIM(RTRIM(j.CLCCLI)) AS Codigo_Cliente,
-        RIGHT('00000000' + LTRIM(RTRIM(j.CLCCLI)), 8) AS padded_codigo_cliente,
+        cod.padded_codigo_cliente,
         CASE
             WHEN j.CACODE = 'AP' THEN 'App'
             WHEN j.CACODE = 'IB' THEN 'Web'
@@ -67,6 +82,11 @@ eventos_journal AS (
         CAST(j.JOVAOR AS DECIMAL(18, 2)) AS Valor,
         CAST(j.JOVAOR AS DECIMAL(18, 2)) AS ValorLempirizado
     FROM dw_BEL_IBJOUR j
+    CROSS APPLY (
+        VALUES (RIGHT('00000000' + LTRIM(RTRIM(j.CLCCLI)), 8))
+    ) cod(padded_codigo_cliente)
+    INNER JOIN clientes_base cb
+        ON cb.padded_codigo_cliente = cod.padded_codigo_cliente
     LEFT JOIN DW_BEL_IBSERV srv
         ON srv.SECODE = j.SECODE
     WHERE j.dw_fecha_journal >= '2026-01-01'
@@ -87,7 +107,7 @@ eventos_ach AS (
     SELECT
         mv.dw_fecha_operacion AS Fecha,
         LTRIM(RTRIM(dep.CLDOC)) AS Codigo_Cliente,
-        RIGHT('00000000' + LTRIM(RTRIM(dep.CLDOC)), 8) AS padded_codigo_cliente,
+        cod.padded_codigo_cliente,
         'Web y App' AS Canal,
         CASE
             WHEN mv.TRXCOD IN (4210, 4212, 4232, 4234) THEN 'ACH QR'
@@ -99,6 +119,11 @@ eventos_ach AS (
     FROM DW_DEP_DPMOVM_VIEW mv
     INNER JOIN DW_DEP_DEPOSITOS dep
         ON dep.DW_CUENTA_CORPORATIVA = mv.dw_cuenta_corporativa
+    CROSS APPLY (
+        VALUES (RIGHT('00000000' + LTRIM(RTRIM(dep.CLDOC)), 8))
+    ) cod(padded_codigo_cliente)
+    INNER JOIN clientes_base cb
+        ON cb.padded_codigo_cliente = cod.padded_codigo_cliente
     WHERE mv.dw_fecha_operacion >= '2026-01-01'
       AND mv.dw_fecha_operacion < '2026-04-01'
       AND mv.MVSTAT <> 'R'
@@ -139,6 +164,8 @@ eventos_multipagos AS (
             END
         )
     ) cod(Codigo_Cliente, padded_codigo_cliente)
+    INNER JOIN clientes_base cb
+        ON cb.padded_codigo_cliente = cod.padded_codigo_cliente
     WHERE p.DW_FECHA_OPERACION_SP >= '2026-01-01'
       AND p.DW_FECHA_OPERACION_SP < '2026-04-01'
       AND p.SPCPCO IN (1, 7)

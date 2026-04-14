@@ -24,10 +24,11 @@ from sqlalchemy.exc import SQLAlchemyError
 sys.path.insert(0, ".")
 
 from core.colors import COLORES
-from core.db import run_query_file
+from core.db import run_query
 
 
 RUTA_QUERY_EVENTOS = "productos/LoginUsuarios/QBR_1_2026/queries/sin_login/post_login_q1_2026.sql"
+PLACEHOLDER_CLIENTES_VALUES = "{{CLIENTES_BASE_VALUES}}"
 RUTA_EXCEL_BASE = Path("productos/LoginUsuarios/QBR_1_2026/ArchivosExcel")
 VALOR_TODOS = "__TODOS__"
 FECHA_INICIO_Q1 = pd.Timestamp("2026-01-01")
@@ -125,8 +126,25 @@ def cargar_base_clientes() -> tuple[pd.DataFrame, str]:
     return df_base[["padded_codigo_cliente"]].copy(), f"Excel: {archivo}"
 
 
-def cargar_eventos_query() -> pd.DataFrame:
-    df = run_query_file(RUTA_QUERY_EVENTOS)
+def construir_values_clientes(codigos: list[str]) -> str:
+    codigos_validos = sorted({c for c in codigos if isinstance(c, str) and len(c) == 8 and c.isdigit()})
+    if not codigos_validos:
+        raise ValueError("No hay códigos válidos para filtrar eventos en SQL.")
+    return ",\n            ".join(f"('{codigo}')" for codigo in codigos_validos)
+
+
+def cargar_eventos_query(codigos_base: list[str]) -> pd.DataFrame:
+    with open(RUTA_QUERY_EVENTOS, "r", encoding="utf-8") as f:
+        sql = f.read()
+
+    if PLACEHOLDER_CLIENTES_VALUES not in sql:
+        raise ValueError(
+            f"La query {RUTA_QUERY_EVENTOS} no contiene el placeholder {PLACEHOLDER_CLIENTES_VALUES}."
+        )
+
+    values_sql = construir_values_clientes(codigos_base)
+    sql = sql.replace(PLACEHOLDER_CLIENTES_VALUES, values_sql)
+    df = run_query(sql)
     df.columns = [normalizar_nombre_columna(c) for c in df.columns]
 
     if "fecha" not in df.columns:
@@ -170,7 +188,8 @@ def cargar_eventos_query() -> pd.DataFrame:
 
 def preparar_datos() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str]:
     df_base, fuente_base = cargar_base_clientes()
-    df_eventos = cargar_eventos_query()
+    codigos_base = df_base["padded_codigo_cliente"].dropna().astype(str).tolist()
+    df_eventos = cargar_eventos_query(codigos_base)
 
     universo = set(df_base["padded_codigo_cliente"].tolist())
     df_eventos = df_eventos[df_eventos["padded_codigo_cliente"].isin(universo)].copy()
