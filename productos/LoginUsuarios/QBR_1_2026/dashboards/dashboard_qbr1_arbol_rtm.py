@@ -29,6 +29,7 @@ from core.db import run_query_file
 RUTA_QUERY_LOGINS = "productos/LoginUsuarios/QBR_1_2026/queries/Logins_Marzo.sql"
 RUTA_QUERY_CAMBIO_PASS = "productos/LoginUsuarios/QBR_1_2026/queries/CambiosPassword_16_31_Marzo.sql"
 RUTA_EXCEL_BASE = Path("productos/LoginUsuarios/QBR_1_2026/ArchivosExcel")
+RUTA_SALIDA_CAMBIO_PASS = RUTA_EXCEL_BASE / "Salida_CambiosPassword_16_31_Marzo_ArbolRTM.xlsx"
 VALOR_TODOS = "__TODOS__"
 FECHA_INICIO_MARZO = pd.Timestamp("2026-03-01")
 FECHA_FIN_MARZO = pd.Timestamp("2026-04-01")
@@ -232,6 +233,17 @@ def cargar_datos() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str]:
     )
 
     return df_base, df_logins, df_cambio_pass, fuente_base
+
+
+def exportar_salida_cambio_pass(df_cambio_pass: pd.DataFrame) -> Path:
+    """Exporta clientes con cambio de password usados por la KPI."""
+    RUTA_EXCEL_BASE.mkdir(parents=True, exist_ok=True)
+    salida = df_cambio_pass[["padded_codigo_cliente", "fecha_cambio_pass"]].copy()
+    salida = salida.rename(columns={"padded_codigo_cliente": "codigo_cliente"})
+    salida["fecha_cambio_pass"] = pd.to_datetime(salida["fecha_cambio_pass"], errors="coerce")
+    salida = salida.sort_values(["fecha_cambio_pass", "codigo_cliente"])
+    salida.to_excel(RUTA_SALIDA_CAMBIO_PASS, index=False)
+    return RUTA_SALIDA_CAMBIO_PASS
 
 
 def filtrar_por_canal(df: pd.DataFrame, canal: str) -> pd.DataFrame:
@@ -657,6 +669,8 @@ def main() -> None:
         "Clientes de la base con cambio de password (2026-03-16 al 2026-03-31): "
         f"{df_cambio_pass['padded_codigo_cliente'].nunique():,}"
     )
+    ruta_salida = exportar_salida_cambio_pass(df_cambio_pass)
+    print(f"Salida cambios password: {ruta_salida}")
 
     app = construir_app(df_base, df_logins, df_cambio_pass)
     print("Dashboard corriendo en http://127.0.0.1:8067")
