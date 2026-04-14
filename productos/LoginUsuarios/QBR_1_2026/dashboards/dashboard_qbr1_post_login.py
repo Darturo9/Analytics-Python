@@ -252,7 +252,7 @@ def construir_kpis(df_base: pd.DataFrame, df_logins: pd.DataFrame, df_post: pd.D
         kpi_card("Clientes con actividad post-login", f"{clientes_post:,}", COLORES["amarillo_opt"]),
         kpi_card("Eventos post-login", f"{eventos_post:,}", COLORES["azul_financiero"]),
         kpi_card("Monto post-login (L)", f"{monto_post:,.2f}", COLORES["amarillo_emp"]),
-        kpi_card("Tasa post-login", f"{tasa_post:,.1f}%", COLORES["aqua_oscuro"]),
+        kpi_card("Tasa post-login", f"{tasa_post:,.1f}%", COLORES["azul_financiero"]),
     ]
 
 
@@ -379,7 +379,7 @@ def grafico_operacion_post(df_post: pd.DataFrame, top_n: int = 15) -> go.Figure:
                 y=resumen.index.tolist(),
                 x=resumen.values.tolist(),
                 orientation="h",
-                marker_color=COLORES["aqua_oscuro"],
+                marker_color=COLORES["azul_experto"],
                 text=[f"{int(v):,}" for v in resumen.values.tolist()],
                 textposition="outside",
                 hovertemplate="Operación: %{y}<br>Eventos: %{x:,}<extra></extra>",
