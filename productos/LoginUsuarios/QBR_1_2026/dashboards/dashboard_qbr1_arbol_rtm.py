@@ -536,6 +536,119 @@ def grafico_primer_login_dia(df_logins: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def grafico_primer_cambio_password_dia(df_cambio_pass: pd.DataFrame) -> go.Figure:
+    cambios = df_cambio_pass.copy()
+    cambios["dia"] = pd.to_datetime(cambios["fecha_cambio_pass"], errors="coerce").dt.normalize()
+
+    dias_objetivo = pd.date_range(
+        start=FECHA_INICIO_CAMBIO_PASS,
+        end=FECHA_FIN_CAMBIO_PASS - pd.Timedelta(days=1),
+        freq="D",
+    )
+    resumen = (
+        cambios.groupby("dia")
+        .size()
+        .reindex(dias_objetivo, fill_value=0)
+    )
+    x_labels = [d.strftime("%Y-%m-%d") for d in dias_objetivo]
+    y_valores = [int(v) for v in resumen.tolist()]
+    text_labels = [f"{v:,}" if v > 0 else "" for v in y_valores]
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=x_labels,
+                y=y_valores,
+                marker_color=COLORES["amarillo_opt"],
+                text=text_labels,
+                textposition="outside",
+                hovertemplate="Fecha: %{x}<br>Primer cambio password (clientes): %{y:,}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Clientes por fecha de primer cambio de password (16 al 31 de marzo 2026)",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=70, l=40, r=20),
+        xaxis=dict(
+            title="Fecha",
+            tickangle=-45,
+            tickmode="array",
+            tickvals=x_labels,
+            ticktext=[d.strftime("%d") for d in dias_objetivo],
+        ),
+        yaxis=dict(title="Clientes"),
+    )
+    return fig
+
+
+def grafico_comparado_primer_login_vs_password(
+    df_logins: pd.DataFrame, df_cambio_pass: pd.DataFrame
+) -> go.Figure:
+    dias_objetivo = pd.date_range(
+        start=FECHA_INICIO_CAMBIO_PASS,
+        end=FECHA_FIN_CAMBIO_PASS - pd.Timedelta(days=1),
+        freq="D",
+    )
+    x_labels = [d.strftime("%Y-%m-%d") for d in dias_objetivo]
+
+    primer_login = (
+        df_logins.groupby("padded_codigo_usuario", as_index=False)["fecha_inicio"]
+        .min()
+        .rename(columns={"fecha_inicio": "primer_login"})
+    )
+    primer_login["dia"] = pd.to_datetime(primer_login["primer_login"], errors="coerce").dt.normalize()
+    serie_login = primer_login.groupby("dia").size().reindex(dias_objetivo, fill_value=0)
+
+    cambios = df_cambio_pass.copy()
+    cambios["dia"] = pd.to_datetime(cambios["fecha_cambio_pass"], errors="coerce").dt.normalize()
+    serie_pass = cambios.groupby("dia").size().reindex(dias_objetivo, fill_value=0)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            name="Primer login",
+            x=x_labels,
+            y=[int(v) for v in serie_login.tolist()],
+            marker_color=COLORES["aqua_digital"],
+            text=[f"{int(v):,}" if int(v) > 0 else "" for v in serie_login.tolist()],
+            textposition="outside",
+            hovertemplate="Fecha: %{x}<br>Primer login: %{y:,}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            name="Primer cambio password",
+            x=x_labels,
+            y=[int(v) for v in serie_pass.tolist()],
+            marker_color=COLORES["amarillo_opt"],
+            text=[f"{int(v):,}" if int(v) > 0 else "" for v in serie_pass.tolist()],
+            textposition="outside",
+            hovertemplate="Fecha: %{x}<br>Primer cambio password: %{y:,}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title="Comparativa diaria: primer login vs primer cambio de password",
+        barmode="group",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=70, l=40, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(
+            title="Fecha",
+            tickangle=-45,
+            tickmode="array",
+            tickvals=x_labels,
+            ticktext=[d.strftime("%d") for d in dias_objetivo],
+        ),
+        yaxis=dict(title="Clientes"),
+    )
+    return fig
+
+
 def tabla_top_clientes(df_logins: pd.DataFrame, top_n: int = 20) -> go.Figure:
     if df_logins.empty:
         return figura_vacia("Sin logins para el filtro seleccionado")
@@ -629,6 +742,8 @@ def construir_layout(df_logins: pd.DataFrame) -> html.Div:
                     dcc.Graph(id="g-primer-login-mes", style={"width": "100%"}),
                     dcc.Graph(id="g-logins-canal", style={"width": "100%"}),
                     dcc.Graph(id="g-primer-login-dia", style={"width": "100%"}),
+                    dcc.Graph(id="g-primer-cambio-pass-dia", style={"width": "100%"}),
+                    dcc.Graph(id="g-comparado-login-pass-dia", style={"width": "100%"}),
                     dcc.Graph(id="g-top-clientes", style={"width": "100%"}),
                 ],
             ),
@@ -647,6 +762,8 @@ def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame, df_cambio_pass
         Output("g-primer-login-mes", "figure"),
         Output("g-logins-canal", "figure"),
         Output("g-primer-login-dia", "figure"),
+        Output("g-primer-cambio-pass-dia", "figure"),
+        Output("g-comparado-login-pass-dia", "figure"),
         Output("g-top-clientes", "figure"),
         Input("filtro-canal", "value"),
     )
@@ -659,6 +776,8 @@ def construir_app(df_base: pd.DataFrame, df_logins: pd.DataFrame, df_cambio_pass
             grafico_primer_login_mes(filtrado),
             grafico_logins_por_canal(filtrado),
             grafico_primer_login_dia(filtrado),
+            grafico_primer_cambio_password_dia(df_cambio_pass),
+            grafico_comparado_primer_login_vs_password(filtrado, df_cambio_pass),
             tabla_top_clientes(filtrado),
         )
 
