@@ -20,12 +20,14 @@ from core.colors import COLORES
 from core.db import run_query_file
 
 
-QUERY_PATH = "productos/Fondeo_CD/Queries/TopDiasCuentasFondeadasQ1.sql"
+QUERY_PATH_DIAS = "productos/Fondeo_CD/Queries/TopDiasCuentasFondeadasQ1.sql"
+QUERY_PATH_DEPTOS = "productos/Fondeo_CD/Queries/TopDeptosFondeoQ1.sql"
 TOP_N = 15
+TOP_DEPTOS = 3
 
 
-def cargar_datos() -> pd.DataFrame:
-    df = run_query_file(QUERY_PATH)
+def cargar_top_dias() -> pd.DataFrame:
+    df = run_query_file(QUERY_PATH_DIAS)
     df.columns = [str(c).strip().lower() for c in df.columns]
 
     df["fecha"] = pd.to_datetime(df.get("fecha"), errors="coerce")
@@ -34,6 +36,18 @@ def cargar_datos() -> pd.DataFrame:
 
     df = df[df["fecha"].notna()].copy()
     df = df.sort_values(["cuentas_fondeadas", "fecha"], ascending=[False, True]).reset_index(drop=True)
+    return df
+
+
+def cargar_top_deptos() -> pd.DataFrame:
+    df = run_query_file(QUERY_PATH_DEPTOS)
+    df.columns = [str(c).strip().lower() for c in df.columns]
+
+    df["depto"] = df.get("depto", pd.Series(dtype="string")).astype(str).str.strip()
+    df["cuentas_fondeadas"] = pd.to_numeric(df.get("cuentas_fondeadas"), errors="coerce").fillna(0).astype(int)
+    df["ranking_depto"] = pd.to_numeric(df.get("ranking_depto"), errors="coerce").fillna(0).astype(int)
+    df = df[df["depto"] != ""].copy()
+    df = df.sort_values(["cuentas_fondeadas", "depto"], ascending=[False, True]).reset_index(drop=True)
     return df
 
 
@@ -92,12 +106,46 @@ def grafico_top_dias(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def construir_layout(df: pd.DataFrame) -> html.Div:
-    dias_con_fondeo = len(df)
-    promedio_diario = float(df["cuentas_fondeadas"].mean()) if not df.empty else 0.0
-    mejor = df.iloc[0] if not df.empty else None
+def grafico_top_deptos(df: pd.DataFrame) -> go.Figure:
+    if df.empty:
+        return figura_vacia("Sin datos de departamentos disponibles")
+
+    top = df.head(TOP_DEPTOS).sort_values(["cuentas_fondeadas", "depto"], ascending=[True, False])
+    etiquetas = top["depto"].tolist()
+    valores = top["cuentas_fondeadas"].tolist()
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                y=etiquetas,
+                x=valores,
+                orientation="h",
+                marker_color=COLORES["amarillo_opt"],
+                text=[f"{v:,}" for v in valores],
+                textposition="outside",
+                hovertemplate="Departamento: %{y}<br>Cuentas fondeadas: %{x:,}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"Top {TOP_DEPTOS} departamentos con mas cuentas fondeadas (Q1 2026)",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=55, b=40, l=140, r=20),
+        xaxis=dict(title="Cuentas fondeadas"),
+        yaxis=dict(title="Departamento"),
+    )
+    return fig
+
+
+def construir_layout(df_dias: pd.DataFrame, df_deptos: pd.DataFrame) -> html.Div:
+    dias_con_fondeo = len(df_dias)
+    promedio_diario = float(df_dias["cuentas_fondeadas"].mean()) if not df_dias.empty else 0.0
+    mejor = df_dias.iloc[0] if not df_dias.empty else None
     mejor_fecha = mejor["fecha"].strftime("%Y-%m-%d") if mejor is not None else "-"
     mejor_valor = int(mejor["cuentas_fondeadas"]) if mejor is not None else 0
+    depto_lider = df_deptos.iloc[0]["depto"] if not df_deptos.empty else "-"
 
     return html.Div(
         style={"padding": "32px", "backgroundColor": COLORES["gris_fondo"], "fontFamily": "Arial, sans-serif"},
@@ -157,17 +205,33 @@ def construir_layout(df: pd.DataFrame) -> html.Div:
                             html.H2(f"{promedio_diario:,.1f}", style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
                         ],
                     ),
+                    html.Div(
+                        style={
+                            "backgroundColor": COLORES["blanco"],
+                            "borderRadius": "10px",
+                            "padding": "12px 14px",
+                            "boxShadow": "0 1px 6px rgba(0, 56, 101, 0.12)",
+                            "borderTop": f"4px solid {COLORES['azul_financiero']}",
+                        },
+                        children=[
+                            html.P("Depto lider de fondeo", style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "13px"}),
+                            html.H2(str(depto_lider), style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
+                        ],
+                    ),
                 ],
             ),
-            dcc.Graph(figure=grafico_top_dias(df), style={"width": "100%"}),
+            dcc.Graph(figure=grafico_top_dias(df_dias), style={"width": "100%"}),
+            dcc.Graph(figure=grafico_top_deptos(df_deptos), style={"width": "100%"}),
         ],
     )
 
 
 def main() -> None:
-    print(f"Cargando datos desde: {QUERY_PATH}")
+    print(f"Cargando datos de dias desde: {QUERY_PATH_DIAS}")
+    print(f"Cargando datos de deptos desde: {QUERY_PATH_DEPTOS}")
     try:
-        df = cargar_datos()
+        df_dias = cargar_top_dias()
+        df_deptos = cargar_top_deptos()
     except SQLAlchemyError as exc:
         print(f"[ERROR] No se pudo ejecutar la query en SQL Server: {exc}")
         raise SystemExit(1) from exc
@@ -175,9 +239,10 @@ def main() -> None:
         print(f"[ERROR] Fallo cargando datos: {exc}")
         raise SystemExit(1) from exc
 
-    print(f"Dias cargados: {len(df)}")
+    print(f"Dias cargados: {len(df_dias)}")
+    print(f"Deptos cargados: {len(df_deptos)}")
     app = Dash(__name__)
-    app.layout = construir_layout(df)
+    app.layout = construir_layout(df_dias, df_deptos)
     print("Dashboard corriendo en http://127.0.0.1:8071")
     app.run(debug=True, use_reloader=False, port=8071)
 
