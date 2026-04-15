@@ -16,8 +16,8 @@ base_fondeo_semanal AS (
         CAST(
             DATEADD(
                 DAY,
-                -((DATEPART(WEEKDAY, CAST(h.dw_fecha_informacion AS DATE)) + @@DATEFIRST - 2) % 7),
-                CAST(h.dw_fecha_informacion AS DATE)
+                (DATEDIFF(DAY, CAST('2026-01-01' AS DATE), CAST(h.dw_fecha_informacion AS DATE)) / 7) * 7,
+                CAST('2026-01-01' AS DATE)
             ) AS DATE
         ) AS semana_inicio,
         h.DW_CUENTA_CORPORATIVA
@@ -31,15 +31,18 @@ base_fondeo_semanal AS (
         CAST(
             DATEADD(
                 DAY,
-                -((DATEPART(WEEKDAY, CAST(h.dw_fecha_informacion AS DATE)) + @@DATEFIRST - 2) % 7),
-                CAST(h.dw_fecha_informacion AS DATE)
+                (DATEDIFF(DAY, CAST('2026-01-01' AS DATE), CAST(h.dw_fecha_informacion AS DATE)) / 7) * 7,
+                CAST('2026-01-01' AS DATE)
             ) AS DATE
         ),
         h.DW_CUENTA_CORPORATIVA
 )
 SELECT
     semana_inicio,
-    DATEADD(DAY, 6, semana_inicio) AS semana_fin,
+    CASE
+        WHEN DATEADD(DAY, 6, semana_inicio) > CAST('2026-03-31' AS DATE) THEN CAST('2026-03-31' AS DATE)
+        ELSE DATEADD(DAY, 6, semana_inicio)
+    END AS semana_fin,
     COUNT(DISTINCT DW_CUENTA_CORPORATIVA) AS cuentas_fondeadas,
     ROW_NUMBER() OVER (ORDER BY semana_inicio ASC) AS orden_semana
 FROM base_fondeo_semanal
