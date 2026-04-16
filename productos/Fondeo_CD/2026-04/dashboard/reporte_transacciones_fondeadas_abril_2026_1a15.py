@@ -11,6 +11,7 @@ Ejecucion:
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -21,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.db import run_query_file
+from core.db import get_engine
 
 
 QUERY_PATH = (
@@ -30,14 +31,41 @@ QUERY_PATH = (
     / "Fondeo_CD"
     / "2026-04"
     / "queries"
-    / "UsoDineroCuentasFondeadasAbril2026_1a15.sql"
+    / "UsoDineroCuentasFondeadasAbril2026_1a15_TEMP.sql"
 )
 
 TOP_N = 15
 
 
 def cargar_datos() -> pd.DataFrame:
-    df = run_query_file(str(QUERY_PATH))
+    with open(QUERY_PATH, "r", encoding="utf-8") as f:
+        sql = f.read()
+
+    engine = get_engine()
+    conn = engine.raw_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(sql)
+        columnas: list[str] | None = None
+        filas = []
+
+        while True:
+            if cursor.description is not None:
+                columnas = [str(c[0]).strip().lower() for c in cursor.description]
+                filas = cursor.fetchall()
+
+            if not cursor.nextset():
+                break
+
+        if columnas is None:
+            return pd.DataFrame()
+
+        df = pd.DataFrame.from_records(filas, columns=columnas)
+    finally:
+        cursor.close()
+        conn.close()
+        engine.dispose()
+
     df.columns = [str(c).strip().lower() for c in df.columns]
 
     columnas = ["tipo_uso", "total_transacciones", "clientes_unicos", "monto_total", "monto_promedio"]
@@ -96,7 +124,9 @@ def imprimir_reporte(df: pd.DataFrame) -> None:
 def main() -> None:
     print(f"Cargando datos desde: {QUERY_PATH}")
     try:
+        inicio = time.perf_counter()
         df = cargar_datos()
+        duracion = time.perf_counter() - inicio
     except SQLAlchemyError as exc:
         print(f"[ERROR] No se pudo ejecutar la query en SQL Server: {exc}")
         raise SystemExit(1) from exc
@@ -105,6 +135,7 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     imprimir_reporte(df)
+    print(f"Tiempo de ejecucion: {duracion:.2f} segundos")
 
 
 if __name__ == "__main__":
