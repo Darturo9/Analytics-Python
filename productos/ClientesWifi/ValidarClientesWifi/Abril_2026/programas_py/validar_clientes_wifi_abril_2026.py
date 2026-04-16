@@ -19,6 +19,7 @@ from __future__ import annotations
 import sys
 import unicodedata
 from pathlib import Path
+from zipfile import BadZipFile
 
 import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
@@ -97,6 +98,10 @@ def normalizar_telefono(serie: pd.Series) -> pd.Series:
 
 
 def buscar_archivo_clientes_wifi_abril() -> Path:
+    return buscar_archivos_clientes_wifi_abril()[0]
+
+
+def buscar_archivos_clientes_wifi_abril() -> list[Path]:
     preferidos = [
         "Clientes Wifi para abril.xlsx",
         "Clientes Wifi para abril.xls",
@@ -112,13 +117,14 @@ def buscar_archivo_clientes_wifi_abril() -> Path:
         "ClientesWifiAbril.csv",
     ]
 
+    candidatos: list[Path] = []
     for nombre in preferidos:
         ruta = RUTA_ARCHIVOS_EXCEL / nombre
         if ruta.exists():
-            return ruta
+            candidatos.append(ruta)
 
     if RUTA_ARCHIVOS_EXCEL.exists():
-        candidatos = [
+        encontrados = [
             p for p in RUTA_ARCHIVOS_EXCEL.iterdir()
             if p.is_file()
             and p.suffix.lower() in {".xlsx", ".xls", ".csv"}
@@ -126,16 +132,116 @@ def buscar_archivo_clientes_wifi_abril() -> Path:
             and "wifi" in p.stem.lower()
             and "abril" in p.stem.lower()
         ]
-        if candidatos:
-            prioridad_ext = {".xlsx": 0, ".csv": 1, ".xls": 2}
-            candidatos.sort(key=lambda p: (prioridad_ext.get(p.suffix.lower(), 99), p.name.lower()))
-            return candidatos[0]
+        prioridad_ext = {".xlsx": 0, ".csv": 1, ".xls": 2}
+        encontrados.sort(key=lambda p: (prioridad_ext.get(p.suffix.lower(), 99), p.name.lower()))
+        candidatos.extend(encontrados)
+
+    # Deduplicar manteniendo orden
+    vistos: set[str] = set()
+    unicos: list[Path] = []
+    for c in candidatos:
+        key = str(c.resolve())
+        if key not in vistos:
+            vistos.add(key)
+            unicos.append(c)
+
+    if unicos:
+        return unicos
 
     raise FileNotFoundError(
         "No se encontro archivo de clientes Wifi de abril en:\n"
         f"{RUTA_ARCHIVOS_EXCEL}\n"
         "Esperado: nombre similar a 'Clientes Wifi para abril.xlsx'."
     )
+
+
+def _es_xls_binario(ruta: Path) -> bool:
+    # Firma OLE2 (xls clásico)
+    firma_xls = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
+    try:
+        with open(ruta, "rb") as f:
+            head = f.read(8)
+        return head.startswith(firma_xls)
+    except Exception:
+        return False
+
+
+def _leer_csv_robusto(ruta: Path) -> pd.DataFrame:
+    errores: list[str] = []
+    for encoding in ["utf-8-sig", "latin-1"]:
+        try:
+            return pd.read_csv(ruta, sep=None, engine="python", encoding=encoding)
+        except Exception as exc:
+            errores.append(f"{encoding}: {exc}")
+    raise RuntimeError("No se pudo leer como CSV. " + " | ".join(errores))
+
+
+def _leer_excel_robusto(ruta: Path) -> pd.DataFrame:
+    errores: list[str] = []
+    ext = ruta.suffix.lower()
+    es_xls_bin = _es_xls_binario(ruta)
+
+    intentos: list[tuple[str, dict]] = []
+    if ext == ".xlsx":
+        intentos.append(("openpyxl", {"engine": "openpyxl"}))
+        if es_xls_bin:
+            intentos.append(("xlrd", {"engine": "xlrd"}))
+    elif ext == ".xls":
+        intentos.append(("xlrd", {"engine": "xlrd"}))
+        intentos.append(("openpyxl", {"engine": "openpyxl"}))
+    else:
+        intentos.append(("openpyxl", {"engine": "openpyxl"}))
+        intentos.append(("xlrd", {"engine": "xlrd"}))
+
+    # fallback auto de pandas
+    intentos.append(("auto", {}))
+
+    for etiqueta, kwargs in intentos:
+        try:
+            return pd.read_excel(ruta, **kwargs)
+        except ImportError as exc:
+            errores.append(f"{etiqueta}: libreria faltante ({exc})")
+        except BadZipFile:
+            errores.append(f"{etiqueta}: archivo no es zip valido para xlsx")
+        except ValueError as exc:
+            errores.append(f"{etiqueta}: {exc}")
+        except Exception as exc:
+            errores.append(f"{etiqueta}: {exc}")
+
+    raise RuntimeError("No se pudo leer como Excel. " + " | ".join(errores))
+
+
+def leer_archivo_clientes_robusto(ruta: Path) -> pd.DataFrame:
+    ext = ruta.suffix.lower()
+    errores: list[str] = []
+
+    if ext in {".xlsx", ".xls"}:
+        try:
+            return _leer_excel_robusto(ruta)
+        except Exception as exc_excel:
+            errores.append(str(exc_excel))
+            # fallback por si el archivo excel realmente es texto/csv mal renombrado
+            try:
+                return _leer_csv_robusto(ruta)
+            except Exception as exc_csv:
+                errores.append(str(exc_csv))
+    elif ext == ".csv":
+        try:
+            return _leer_csv_robusto(ruta)
+        except Exception as exc_csv:
+            errores.append(str(exc_csv))
+    else:
+        raise RuntimeError(f"Extension no soportada: {ext}")
+
+    detalle = " | ".join(errores)
+    if ext in {".xlsx", ".xls"}:
+        raise RuntimeError(
+            "No se pudo abrir el archivo Excel. "
+            "Si el archivo es .xls, instala xlrd (pip install xlrd>=2.0.1) "
+            "o guardalo como .xlsx. "
+            f"Detalle: {detalle}"
+        )
+    raise RuntimeError(f"No se pudo abrir el archivo. Detalle: {detalle}")
 
 
 def detectar_columna(df: pd.DataFrame, objetivo_normalizado: str) -> str | None:
@@ -147,34 +253,33 @@ def detectar_columna(df: pd.DataFrame, objetivo_normalizado: str) -> str | None:
 
 
 def cargar_clientes_wifi() -> tuple[pd.DataFrame, Path, str, str]:
-    ruta_excel = buscar_archivo_clientes_wifi_abril()
-    try:
-        if ruta_excel.suffix.lower() == ".xlsx":
-            df = pd.read_excel(ruta_excel, engine="openpyxl")
-        elif ruta_excel.suffix.lower() == ".xls":
-            df = pd.read_excel(ruta_excel, engine="xlrd")
-        else:
-            df = pd.read_csv(ruta_excel)
-    except ImportError as exc:
-        if ruta_excel.suffix.lower() == ".xls":
-            raise RuntimeError(
-                "El archivo detectado es .xls y falta la libreria xlrd.\n"
-                "Opciones:\n"
-                "1) Instalar xlrd: pip install xlrd>=2.0.1\n"
-                "2) Guardar el archivo como .xlsx en la misma carpeta (recomendado)."
-            ) from exc
-        raise
+    candidatos = buscar_archivos_clientes_wifi_abril()
+    errores: list[str] = []
 
-    col_correo = detectar_columna(df, "correo")
-    col_telefono = detectar_columna(df, "telefono_formateado")
+    for ruta_excel in candidatos:
+        try:
+            df = leer_archivo_clientes_robusto(ruta_excel)
+        except Exception as exc:
+            errores.append(f"{ruta_excel.name}: {exc}")
+            continue
 
-    if col_correo is None or col_telefono is None:
-        raise ValueError(
-            "El archivo debe contener columnas 'Correo' y 'Telefono Formateado'. "
-            f"Columnas encontradas: {list(df.columns)}"
-        )
+        col_correo = detectar_columna(df, "correo")
+        col_telefono = detectar_columna(df, "telefono_formateado")
 
-    return df.copy(), ruta_excel, col_correo, col_telefono
+        if col_correo is None or col_telefono is None:
+            errores.append(
+                f"{ruta_excel.name}: faltan columnas requeridas "
+                f"(detectadas: {list(df.columns)})"
+            )
+            continue
+
+        return df.copy(), ruta_excel, col_correo, col_telefono
+
+    raise RuntimeError(
+        "No se pudo cargar ningun archivo valido de clientes Wifi para abril.\n"
+        "Revisa formato y columnas requeridas ('Correo', 'Telefono Formateado').\n"
+        "Detalle intentos:\n- " + "\n- ".join(errores)
+    )
 
 
 def cargar_cuentas_digitales_abril() -> pd.DataFrame:
