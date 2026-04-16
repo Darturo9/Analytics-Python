@@ -59,17 +59,22 @@ def main() -> int:
         modulo = cargar_modulo_cruce()
 
         print(f"Leyendo query1: {modulo.QUERY1_PATH}")
-        df1 = modulo.cargar_query(modulo.QUERY1_PATH)
-        df1 = modulo.preparar_query1(df1)
+        print(f"Leyendo query2: {modulo.QUERY2_PATH}")
+        df1 = modulo.preparar_query1(modulo.cargar_query(modulo.QUERY1_PATH))
+        df2 = modulo.preparar_query2(modulo.cargar_query(modulo.QUERY2_PATH))
+
+        cruce = modulo.left_join_tableau(df1, df2)
 
         inicio = pd.Timestamp("2026-03-01")
         fin = pd.Timestamp("2026-04-01")
-        marzo = df1[(df1["fecha_q1"] >= inicio) & (df1["fecha_q1"] < fin)].copy()
+
+        # Replica Tableau: filtro por Mes basado en fecha de query2 y excluyendo NULL.
+        marzo = cruce[(cruce["fecha_q2"] >= inicio) & (cruce["fecha_q2"] < fin)].copy()
 
         print()
-        print("Resumen marzo 2026")
-        print(f"Registros totales en marzo: {len(marzo):,}")
-        print(f"Clientes unicos en marzo: {marzo['padded_codigo_cliente'].nunique():,}")
+        print("Resumen marzo 2026 (mes de Query2, excluyendo NULL)")
+        print(f"Registros totales tras filtro de mes q2: {len(marzo):,}")
+        print(f"Clientes unicos tras filtro de mes q2: {marzo['padded_codigo_cliente'].nunique():,}")
         print()
 
         resumen = construir_resumen(marzo)
