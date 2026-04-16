@@ -233,37 +233,63 @@ def imprimir_valores_modulo(df1: pd.DataFrame) -> None:
     print("============================================================\n")
 
 
-def cruzar(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
-    merge = df1.merge(df2, on="padded_codigo_cliente", how="inner")
-    cruce = merge[merge["fecha_q1"] >= merge["fecha_q2"]].copy()
-    return cruce
+def left_join_tableau(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+    """
+    Emula el LEFT JOIN de Tableau:
+    query1 LEFT JOIN query2
+      ON q1.padded_codigo_cliente = q2.padded_codigo_cliente
+     AND q1.fecha_q1 >= q2.fecha_q2
+
+    Comportamiento:
+    - Conserva todos los registros de query1.
+    - Si una fila de query1 no cumple la condicion con ninguna fila de query2,
+      se conserva con columnas de query2 en NULL.
+    - Si cumple con varias filas de query2, mantiene multiples filas (como SQL).
+    """
+    left = df1.reset_index(drop=True).reset_index().rename(columns={"index": "_q1_id"})
+    base = left.merge(df2, on="padded_codigo_cliente", how="left")
+
+    cumple_condicion = base["fecha_q2"].notna() & (base["fecha_q1"] >= base["fecha_q2"])
+    empates = base[cumple_condicion].copy()
+
+    ids_con_match = set(empates["_q1_id"].tolist())
+    sin_match = left[~left["_q1_id"].isin(ids_con_match)].copy()
+    sin_match["fecha_q2"] = pd.NaT
+
+    resultado = pd.concat([empates, sin_match], ignore_index=True, sort=False)
+    resultado["match_q2"] = resultado["fecha_q2"].notna().astype(int)
+    return resultado
 
 
-def imprimir_resumen_cruce(df1: pd.DataFrame, df2: pd.DataFrame, cruce: pd.DataFrame) -> None:
+def imprimir_resumen_cruce(df1: pd.DataFrame, df2: pd.DataFrame, cruce_left: pd.DataFrame) -> None:
     print("============================================================")
-    print(" RESUMEN CRUCE QUERY1 VS QUERY2")
+    print(" RESUMEN CRUCE QUERY1 LEFT JOIN QUERY2")
     print("============================================================")
     print(f"Registros Query1:                             {len(df1):>12,}")
     print(f"Clientes unicos Query1:                       {df1['padded_codigo_cliente'].nunique():>12,}")
     print(f"Registros Query2:                             {len(df2):>12,}")
     print(f"Clientes unicos Query2:                       {df2['padded_codigo_cliente'].nunique():>12,}")
     print("-" * 60)
-    print(f"Registros cruzados (cliente igual):           {df1.merge(df2, on='padded_codigo_cliente', how='inner').shape[0]:>12,}")
-    print(f"Registros cruzados (cliente + fecha q1>=q2):  {len(cruce):>12,}")
-    print(f"Clientes unicos en cruce final:               {cruce['padded_codigo_cliente'].nunique():>12,}")
+    total_left = len(cruce_left)
+    total_match = int((cruce_left["match_q2"] == 1).sum())
+    total_sin_match = total_left - total_match
+    print(f"Registros resultado LEFT JOIN:                {total_left:>12,}")
+    print(f"Registros con match q2 (cliente+fecha):       {total_match:>12,}")
+    print(f"Registros sin match q2:                       {total_sin_match:>12,}")
+    print(f"Clientes unicos en resultado final:           {cruce_left['padded_codigo_cliente'].nunique():>12,}")
     print("============================================================\n")
 
-    if cruce.empty:
-        print("[INFO] El cruce final no devolvio filas.")
+    if cruce_left.empty:
+        print("[INFO] El LEFT JOIN final no devolvio filas.")
         return
 
     resumen_modulo_cruce = (
-        cruce["modulo_regla"]
+        cruce_left["modulo_regla"]
         .value_counts(dropna=False)
         .rename_axis("modulo_regla")
         .reset_index(name="registros")
     )
-    print("Distribucion de modulo_regla en el cruce final:")
+    print("Distribucion de modulo_regla en resultado LEFT JOIN:")
     print(resumen_modulo_cruce.to_string(index=False))
 
 
@@ -281,8 +307,8 @@ def main() -> None:
         df2 = preparar_query2(raw_q2)
 
         imprimir_valores_modulo(df1)  # <- lo primero solicitado en consola
-        cruce = cruzar(df1, df2)
-        imprimir_resumen_cruce(df1, df2, cruce)
+        cruce_left = left_join_tableau(df1, df2)
+        imprimir_resumen_cruce(df1, df2, cruce_left)
 
         print(f"\nTiempo total de ejecucion: {time.perf_counter() - t0:.2f} segundos")
         print(f"Tiempo de carga SQL:       {t1 - t0:.2f} segundos")
