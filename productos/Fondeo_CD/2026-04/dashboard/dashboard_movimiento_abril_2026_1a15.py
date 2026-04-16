@@ -4,6 +4,9 @@ dashboard_movimiento_abril_2026_1a15.py
 Dashboard (grafico de pastel) de cuentas con movimiento vs sin movimiento
 para cuentas de Cuenta Digital creadas del 1 al 15 de abril 2026.
 
+Incluye un segundo pastel con el top 3 de generaciones con mas cuentas
+fondeadas (considerando cuentas con movimiento).
+
 Ejecucion:
     python3 productos/Fondeo_CD/2026-04/dashboard/dashboard_movimiento_abril_2026_1a15.py
 """
@@ -41,11 +44,15 @@ def cargar_datos() -> pd.DataFrame:
     df = run_query_file(str(QUERY_PATH))
     df.columns = [str(c).strip().lower() for c in df.columns]
 
-    if "numero_cuenta" not in df.columns or "con_movimiento" not in df.columns:
-        raise ValueError("La query debe devolver 'numero_cuenta' y 'con_movimiento'.")
+    columnas_requeridas = ["numero_cuenta", "con_movimiento", "fondeada_1_15", "generacion"]
+    faltantes = [c for c in columnas_requeridas if c not in df.columns]
+    if faltantes:
+        raise ValueError(f"La query debe devolver columnas requeridas: {faltantes}")
 
     df["numero_cuenta"] = df["numero_cuenta"].astype(str).str.strip()
     df["con_movimiento"] = pd.to_numeric(df["con_movimiento"], errors="coerce").fillna(0).astype(int)
+    df["fondeada_1_15"] = pd.to_numeric(df["fondeada_1_15"], errors="coerce").fillna(0).astype(int)
+    df["generacion"] = df["generacion"].astype(str).str.strip().replace("", "SIN DATO")
     df = df.drop_duplicates(subset=["numero_cuenta"]).reset_index(drop=True)
     return df
 
@@ -111,7 +118,75 @@ def grafico_pastel(resumen: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def construir_layout(resumen: pd.DataFrame) -> html.Div:
+def construir_top3_generaciones_fondeadas(df: pd.DataFrame) -> pd.DataFrame:
+    base = df[(df["fondeada_1_15"] == 1) & (df["con_movimiento"] == 1)].copy()
+    if base.empty:
+        return pd.DataFrame(columns=["generacion", "cuentas", "porcentaje"])
+
+    top = (
+        base.groupby("generacion", as_index=False)["numero_cuenta"]
+        .nunique()
+        .rename(columns={"numero_cuenta": "cuentas"})
+        .sort_values(["cuentas", "generacion"], ascending=[False, True])
+        .head(3)
+        .reset_index(drop=True)
+    )
+    total_top = int(top["cuentas"].sum())
+    top["porcentaje"] = (top["cuentas"] / total_top * 100.0) if total_top > 0 else 0.0
+    return top
+
+
+def grafico_pastel_generaciones(top3: pd.DataFrame) -> go.Figure:
+    if top3.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            plot_bgcolor=COLORES["blanco"],
+            paper_bgcolor=COLORES["blanco"],
+            annotations=[
+                dict(
+                    text="Sin datos de generaciones fondeadas con movimiento",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color=COLORES["gris_texto"], size=14),
+                )
+            ],
+        )
+        return fig
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=top3["generacion"],
+                values=top3["cuentas"],
+                hole=0.45,
+                marker=dict(
+                    colors=[
+                        COLORES["azul_financiero"],
+                        COLORES["aqua_digital"],
+                        COLORES["amarillo_opt"],
+                    ][: len(top3)]
+                ),
+                text=[f"{int(v):,}" for v in top3["cuentas"]],
+                textinfo="label+percent",
+                hovertemplate="%{label}<br>Cuentas: %{value:,}<br>Participacion: %{percent}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Top 3 generaciones con mas cuentas fondeadas (con movimiento, 1 al 15)",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=60, b=20, l=20, r=20),
+        legend_title_text="",
+    )
+    return fig
+
+
+def construir_layout(resumen: pd.DataFrame, top3_generaciones: pd.DataFrame) -> html.Div:
     total = int(resumen["cuentas"].sum())
     con_mov = int(resumen.loc[resumen["categoria"] == "Con movimiento", "cuentas"].sum())
     pct_con_mov = (con_mov / total * 100.0) if total > 0 else 0.0
@@ -165,7 +240,8 @@ def construir_layout(resumen: pd.DataFrame) -> html.Div:
                     ),
                 ],
             ),
-            dcc.Graph(figure=grafico_pastel(resumen), style={"width": "100%"}),
+            dcc.Graph(figure=grafico_pastel(resumen), style={"width": "100%", "marginBottom": "16px"}),
+            dcc.Graph(figure=grafico_pastel_generaciones(top3_generaciones), style={"width": "100%"}),
         ],
     )
 
@@ -182,11 +258,15 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     resumen = construir_resumen(df)
+    top3_generaciones = construir_top3_generaciones_fondeadas(df)
     print("Resumen movimiento:")
     print(resumen.to_string(index=False))
+    if not top3_generaciones.empty:
+        print("\nTop 3 generaciones fondeadas con movimiento:")
+        print(top3_generaciones.to_string(index=False))
 
     app = Dash(__name__)
-    app.layout = construir_layout(resumen)
+    app.layout = construir_layout(resumen, top3_generaciones)
     print("Dashboard corriendo en http://127.0.0.1:8064")
     app.run(debug=False, use_reloader=False, port=8064)
 
