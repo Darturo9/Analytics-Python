@@ -10,6 +10,7 @@ Muestra:
 - total de clientes unicos con login
 - detalle por cliente (logins y cambios de password)
 - export diario a Excel (logins y cambios por dia, y top dias)
+- export de clientes con cambio password en formato 'numerocliente',
 
 Ejecucion:
     python3 productos/LoginUsuarios/2026-04/programas_py/reporte_clientes_arbol_semana1_abril.py
@@ -36,6 +37,7 @@ RUTA_QUERY_LOGINS = PROJECT_ROOT / "productos" / "LoginUsuarios" / "2026-04" / "
 RUTA_QUERY_CAMBIOS = PROJECT_ROOT / "productos" / "LoginUsuarios" / "2026-04" / "queries" / "CambiosPassword_01_07_Abril.sql"
 RUTA_EXPORTS = PROJECT_ROOT / "productos" / "LoginUsuarios" / "2026-04" / "exports"
 RUTA_SALIDA_DIARIO = RUTA_EXPORTS / "Resumen_Diario_Logins_Cambios_2026-04-01_a_2026-04-07.xlsx"
+RUTA_SALIDA_CLIENTES_CAMBIO = RUTA_EXPORTS / "Clientes_Cambio_Password_Management.txt"
 
 FECHA_INICIO = pd.Timestamp("2026-04-01")
 FECHA_FIN_EXCLUSIVA = pd.Timestamp("2026-04-08")
@@ -280,10 +282,22 @@ def exportar_resumen_diario_excel(
     return RUTA_SALIDA_DIARIO
 
 
+def exportar_clientes_cambio_password_formato_management(df_cambios_filtrado: pd.DataFrame) -> Path:
+    clientes = sorted(df_cambios_filtrado["padded_codigo_cliente"].dropna().astype(str).unique().tolist())
+    RUTA_EXPORTS.mkdir(parents=True, exist_ok=True)
+
+    with open(RUTA_SALIDA_CLIENTES_CAMBIO, "w", encoding="utf-8") as f:
+        for codigo in clientes:
+            f.write(f"'{codigo}',\n")
+
+    return RUTA_SALIDA_CLIENTES_CAMBIO
+
+
 def imprimir_reporte(
     df_resumen: pd.DataFrame,
     ruta_archivo: Path,
     ruta_salida_excel: Path,
+    ruta_clientes_cambio: Path,
 ) -> None:
     total_clientes_excel = int(df_resumen["padded_codigo_cliente"].nunique())
     total_logins = int(df_resumen["total_logins"].sum())
@@ -321,6 +335,7 @@ def imprimir_reporte(
     print("-" * 96)
 
     print(f"Export diario generado: {ruta_salida_excel}")
+    print(f"Lista clientes cambio password (management): {ruta_clientes_cambio}")
     print("=" * 96)
 
 
@@ -359,11 +374,13 @@ def main() -> None:
         cambios_por_dia=cambios_por_dia,
         detalle_diario=detalle_diario,
     )
+    ruta_clientes_cambio = exportar_clientes_cambio_password_formato_management(df_cambios_filtrado)
 
     imprimir_reporte(
         df_resumen=df_resumen,
         ruta_archivo=ruta_archivo,
         ruta_salida_excel=ruta_salida_excel,
+        ruta_clientes_cambio=ruta_clientes_cambio,
     )
 
 
