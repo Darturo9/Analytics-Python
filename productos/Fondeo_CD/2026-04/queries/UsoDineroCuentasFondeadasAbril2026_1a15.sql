@@ -14,54 +14,52 @@ Salida:
 */
 
 WITH cuentas_abiertas_1a15 AS (
-    SELECT DISTINCT
+    SELECT
         d.DW_CUENTA_CORPORATIVA,
         RIGHT('00000000' + LTRIM(RTRIM(d.CLDOC)), 8) AS padded_codigo_cliente
     FROM dw_dep_depositos d
     WHERE d.dw_producto = 'CUENTA DIGITAL'
       AND d.PRCODP = 1
       AND d.PRSUBP = 51
-      AND CAST(d.dw_feha_apertura AS DATE) >= '2026-04-01'
-      AND CAST(d.dw_feha_apertura AS DATE) <  '2026-04-16'
-),
-cuentas_fondeadas_1a15 AS (
-    SELECT DISTINCT
-        h.DW_CUENTA_CORPORATIVA
-    FROM HIS_DEP_DEPOSITOS_VIEW h
-    INNER JOIN cuentas_abiertas_1a15 a
-        ON a.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
-    WHERE CAST(h.dw_fecha_informacion AS DATE) >= '2026-04-01'
-      AND CAST(h.dw_fecha_informacion AS DATE) <  '2026-04-16'
-      AND h.ctt001 > 0
+      AND d.dw_feha_apertura >= '2026-04-01'
+      AND d.dw_feha_apertura <  '2026-04-16'
+    GROUP BY
+        d.DW_CUENTA_CORPORATIVA,
+        RIGHT('00000000' + LTRIM(RTRIM(d.CLDOC)), 8)
 ),
 universo_fondeado AS (
-    SELECT DISTINCT
+    SELECT
         a.padded_codigo_cliente
     FROM cuentas_abiertas_1a15 a
-    INNER JOIN cuentas_fondeadas_1a15 f
-        ON f.DW_CUENTA_CORPORATIVA = a.DW_CUENTA_CORPORATIVA
+    WHERE EXISTS (
+        SELECT 1
+        FROM HIS_DEP_DEPOSITOS_VIEW h
+        WHERE h.DW_CUENTA_CORPORATIVA = a.DW_CUENTA_CORPORATIVA
+          AND h.dw_fecha_informacion >= '2026-04-01'
+          AND h.dw_fecha_informacion <  '2026-04-16'
+          AND h.ctt001 > 0
+    )
+    GROUP BY a.padded_codigo_cliente
 ),
 pagos_bxi AS (
     SELECT
         u.padded_codigo_cliente,
-        CAST(j.dw_fecha_journal AS DATE) AS fecha_transaccion,
+        CONVERT(date, j.dw_fecha_journal) AS fecha_transaccion,
         CASE
-            WHEN s.secode IN ('ap-pagclar', 'app-pagcla', 'ope-rccl', 'app-reccla') THEN 'Pago Claro'
-            WHEN s.secode IN ('app-ptigo', 'pag-tigo', 'app-rectig', 'ope-rctg') THEN 'Pago Tigo'
-            WHEN s.secode IN ('app-paenee', 'pag-enee') THEN 'Pago Electricidad'
-            WHEN s.secode IN ('app-asps', 'pag-asps') THEN 'Pago Agua'
-            WHEN s.secode IN ('app-achtrf', 'app-trach', 'app-transh') THEN 'Transferencias ACH'
-            WHEN s.secode = 'app-transf' THEN 'Transferencias Propias'
-            WHEN s.secode = 'app-transt' THEN 'Transferencias a terceros'
-            WHEN s.secode = 'app-tcpago' THEN 'Pago TC'
-            WHEN s.secode = 'app-pagotc' THEN 'Pago TC terceros'
+            WHEN j.secode IN ('ap-pagclar', 'app-pagcla', 'ope-rccl', 'app-reccla') THEN 'Pago Claro'
+            WHEN j.secode IN ('app-ptigo', 'pag-tigo', 'app-rectig', 'ope-rctg') THEN 'Pago Tigo'
+            WHEN j.secode IN ('app-paenee', 'pag-enee') THEN 'Pago Electricidad'
+            WHEN j.secode IN ('app-asps', 'pag-asps') THEN 'Pago Agua'
+            WHEN j.secode IN ('app-achtrf', 'app-trach', 'app-transh') THEN 'Transferencias ACH'
+            WHEN j.secode = 'app-transf' THEN 'Transferencias Propias'
+            WHEN j.secode = 'app-transt' THEN 'Transferencias a terceros'
+            WHEN j.secode = 'app-tcpago' THEN 'Pago TC'
+            WHEN j.secode = 'app-pagotc' THEN 'Pago TC terceros'
             ELSE 'OTRAS_TRANSACCIONES_BXI'
         END AS tipo_uso,
         CAST(j.jovalo AS DECIMAL(18, 2)) AS valor,
         'BXI' AS origen
     FROM dw_bel_ibjour j
-    LEFT JOIN dw_bel_ibserv s
-        ON j.secode = s.secode
     CROSS APPLY (
         VALUES (RIGHT('00000000' + LTRIM(RTRIM(j.clccli)), 8))
     ) AS n(padded_codigo_cliente)
@@ -76,9 +74,9 @@ pagos_bxi AS (
 pagos_multi_raw AS (
     SELECT
         u.padded_codigo_cliente,
-        CAST(p.dw_fecha_operacion_sp AS DATE) AS fecha_transaccion,
-        TRY_CONVERT(INT, p.spcodc) AS codigo_int,
-        TRY_CONVERT(INT, m.SPCCAT) AS categoria_int,
+        CONVERT(date, p.dw_fecha_operacion_sp) AS fecha_transaccion,
+        cv.codigo_int,
+        cv.categoria_int,
         CAST(p.sppava AS DECIMAL(18, 2)) AS valor
     FROM dw_mul_sppadat p
     INNER JOIN dw_mul_spmaco m
@@ -99,14 +97,20 @@ pagos_multi_raw AS (
             )
         )
     ) AS n(padded_codigo_cliente)
+    CROSS APPLY (
+        VALUES (
+            TRY_CONVERT(INT, p.spcodc),
+            TRY_CONVERT(INT, m.SPCCAT)
+        )
+    ) AS cv(codigo_int, categoria_int)
     INNER JOIN universo_fondeado u
         ON u.padded_codigo_cliente = n.padded_codigo_cliente
     WHERE p.dw_fecha_operacion_sp >= '2026-04-01'
       AND p.dw_fecha_operacion_sp <  '2026-04-16'
       AND p.sppafr = 'N'
       AND (
-          TRY_CONVERT(INT, p.spcodc) IN (481, 907, 693, 524, 572, 573, 732, 498, 866, 882, 513, 868, 869)
-          OR TRY_CONVERT(INT, m.SPCCAT) IN (3, 11)
+          cv.codigo_int IN (481, 907, 693, 524, 572, 573, 732, 498, 866, 882, 513, 868, 869)
+          OR cv.categoria_int IN (3, 11)
       )
 ),
 pagos_multi AS (
