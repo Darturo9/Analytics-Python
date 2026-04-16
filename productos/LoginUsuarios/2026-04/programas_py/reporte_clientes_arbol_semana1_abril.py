@@ -5,11 +5,10 @@ Reporte en consola para clientes del archivo ClientesArbol (columna "Clientes"),
 usando solo la primera semana de abril 2026 (del 1 al 7, inclusive).
 
 Muestra:
-- cuales clientes han hecho login
 - cuantos clientes cambiaron password
-- top 5 por logins y cambios de password
 - total de eventos login
 - total de clientes unicos con login
+- export diario a Excel (logins y cambios por dia, y top dias)
 
 Ejecucion:
     python3 productos/LoginUsuarios/2026-04/programas_py/reporte_clientes_arbol_semana1_abril.py
@@ -34,6 +33,8 @@ from core.db import run_query_file
 RUTA_EXCEL_BASE = PROJECT_ROOT / "productos" / "LoginUsuarios" / "2026-04" / "archivosExcel"
 RUTA_QUERY_LOGINS = PROJECT_ROOT / "productos" / "LoginUsuarios" / "2026-04" / "queries" / "Logins_01_07_Abril.sql"
 RUTA_QUERY_CAMBIOS = PROJECT_ROOT / "productos" / "LoginUsuarios" / "2026-04" / "queries" / "CambiosPassword_01_07_Abril.sql"
+RUTA_EXPORTS = PROJECT_ROOT / "productos" / "LoginUsuarios" / "2026-04" / "exports"
+RUTA_SALIDA_DIARIO = RUTA_EXPORTS / "Resumen_Diario_Logins_Cambios_2026-04-01_a_2026-04-07.xlsx"
 
 FECHA_INICIO = pd.Timestamp("2026-04-01")
 FECHA_FIN_EXCLUSIVA = pd.Timestamp("2026-04-08")
@@ -244,11 +245,44 @@ def _construir_resumen_diario(
     return logins_por_dia, cambios_por_dia, detalle_diario
 
 
+def exportar_resumen_diario_excel(
+    logins_por_dia: pd.Series,
+    cambios_por_dia: pd.Series,
+    detalle_diario: pd.DataFrame,
+) -> Path:
+    top_dias_logins = (
+        logins_por_dia.reset_index()
+        .rename(columns={"index": "dia", 0: "total_logins"})
+        .sort_values(["total_logins", "dia"], ascending=[False, True])
+        .head(5)
+    )
+    top_dias_cambios = (
+        cambios_por_dia.reset_index()
+        .rename(columns={"index": "dia", 0: "total_cambios_password"})
+        .sort_values(["total_cambios_password", "dia"], ascending=[False, True])
+        .head(5)
+    )
+
+    detalle_export = detalle_diario.copy()
+    detalle_export["dia"] = detalle_export["dia"].dt.strftime("%Y-%m-%d")
+    top_logins_export = top_dias_logins.copy()
+    top_logins_export["dia"] = top_logins_export["dia"].dt.strftime("%Y-%m-%d")
+    top_cambios_export = top_dias_cambios.copy()
+    top_cambios_export["dia"] = top_cambios_export["dia"].dt.strftime("%Y-%m-%d")
+
+    RUTA_EXPORTS.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(RUTA_SALIDA_DIARIO) as writer:
+        detalle_export.to_excel(writer, sheet_name="detalle_diario", index=False)
+        top_logins_export.to_excel(writer, sheet_name="top_dias_logins", index=False)
+        top_cambios_export.to_excel(writer, sheet_name="top_dias_cambios", index=False)
+
+    return RUTA_SALIDA_DIARIO
+
+
 def imprimir_reporte(
     df_resumen: pd.DataFrame,
     ruta_archivo: Path,
-    df_logins_filtrado: pd.DataFrame,
-    df_cambios_filtrado: pd.DataFrame,
+    ruta_salida_excel: Path,
 ) -> None:
     total_clientes_excel = int(df_resumen["padded_codigo_cliente"].nunique())
     total_logins = int(df_resumen["total_logins"].sum())
@@ -265,83 +299,7 @@ def imprimir_reporte(
     print(f"Logins de clientes unicos: {clientes_unicos_login:,}")
     print(f"Clientes que cambiaron password: {clientes_cambio_password:,}")
     print("-" * 96)
-
-    clientes_con_login = df_resumen[df_resumen["total_logins"] > 0].copy()
-    clientes_con_login = clientes_con_login.sort_values(
-        ["total_logins", "total_cambios_password", "padded_codigo_cliente"],
-        ascending=[False, False, True],
-    )
-
-    print("CLIENTES QUE HAN HECHO LOGIN")
-    if clientes_con_login.empty:
-        print("No hay clientes con login en el periodo.")
-    else:
-        print(
-            clientes_con_login[
-                ["padded_codigo_cliente", "total_logins", "total_cambios_password"]
-            ].to_string(index=False)
-        )
-    print("-" * 96)
-
-    top5 = df_resumen[
-        (df_resumen["total_logins"] > 0) | (df_resumen["total_cambios_password"] > 0)
-    ].copy()
-    top5 = top5.sort_values(
-        ["total_logins", "total_cambios_password", "padded_codigo_cliente"],
-        ascending=[False, False, True],
-    ).head(5)
-
-    print("TOP 5 CLIENTES (MAS LOGINS Y CAMBIOS DE PASSWORD)")
-    if top5.empty:
-        print("No hay datos para top 5 en el periodo.")
-    else:
-        print(
-            top5[
-                ["padded_codigo_cliente", "total_logins", "total_cambios_password"]
-            ].to_string(index=False)
-        )
-    print("-" * 96)
-
-    logins_por_dia, cambios_por_dia, detalle_diario = _construir_resumen_diario(
-        df_logins_filtrado=df_logins_filtrado,
-        df_cambios_filtrado=df_cambios_filtrado,
-    )
-
-    top_dias_logins = (
-        logins_por_dia.reset_index()
-        .rename(columns={"index": "dia", 0: "total_logins"})
-        .sort_values(["total_logins", "dia"], ascending=[False, True])
-        .head(5)
-    )
-    top_dias_cambios = (
-        cambios_por_dia.reset_index()
-        .rename(columns={"index": "dia", 0: "total_cambios_password"})
-        .sort_values(["total_cambios_password", "dia"], ascending=[False, True])
-        .head(5)
-    )
-
-    print("TOP 5 DIAS CON MAS LOGINS")
-    print(
-        top_dias_logins.assign(dia=top_dias_logins["dia"].dt.strftime("%Y-%m-%d")).to_string(
-            index=False
-        )
-    )
-    print("-" * 96)
-
-    print("TOP 5 DIAS CON MAS CAMBIOS DE PASSWORD")
-    print(
-        top_dias_cambios.assign(dia=top_dias_cambios["dia"].dt.strftime("%Y-%m-%d")).to_string(
-            index=False
-        )
-    )
-    print("-" * 96)
-
-    print("LOGINS Y CAMBIOS DE PASSWORD POR DIA (2026-04-01 AL 2026-04-07)")
-    print(
-        detalle_diario.assign(dia=detalle_diario["dia"].dt.strftime("%Y-%m-%d")).to_string(
-            index=False
-        )
-    )
+    print(f"Export diario generado: {ruta_salida_excel}")
     print("=" * 96)
 
 
@@ -371,11 +329,20 @@ def main() -> None:
         df_cambios_filtrado=df_cambios_filtrado,
     )
 
+    logins_por_dia, cambios_por_dia, detalle_diario = _construir_resumen_diario(
+        df_logins_filtrado=df_logins_filtrado,
+        df_cambios_filtrado=df_cambios_filtrado,
+    )
+    ruta_salida_excel = exportar_resumen_diario_excel(
+        logins_por_dia=logins_por_dia,
+        cambios_por_dia=cambios_por_dia,
+        detalle_diario=detalle_diario,
+    )
+
     imprimir_reporte(
         df_resumen=df_resumen,
         ruta_archivo=ruta_archivo,
-        df_logins_filtrado=df_logins_filtrado,
-        df_cambios_filtrado=df_cambios_filtrado,
+        ruta_salida_excel=ruta_salida_excel,
     )
 
 
