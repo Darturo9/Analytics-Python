@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -54,14 +55,40 @@ def construir_resumen(df: pd.DataFrame) -> pd.DataFrame:
     return resumen
 
 
+def preparar_query1_minimo(df1: pd.DataFrame, modulo) -> pd.DataFrame:
+    col_cliente = modulo.buscar_columna(df1, "padded_codigo_cliente", "codigo_cliente", "clccli")
+    col_fecha = modulo.buscar_columna(df1, "fecha")
+    col_modulo = modulo.buscar_columna(df1, "modulo", "modulo (grupo) (grupo)", "modulo (grupo)")
+    col_operacion = modulo.buscar_columna(df1, "operación", "operacion", "operación (consulta sql personalizada)")
+
+    out = pd.DataFrame(
+        {
+            "padded_codigo_cliente": df1[col_cliente].astype(str).str.strip(),
+            "fecha_q1": pd.to_datetime(df1[col_fecha], errors="coerce"),
+            "modulo_original": df1[col_modulo],
+            "operacion_original": df1[col_operacion],
+        }
+    )
+    out = out[out["padded_codigo_cliente"] != ""].copy()
+    out = out.dropna(subset=["fecha_q1"]).copy()
+    return out
+
+
 def main() -> int:
     try:
+        t0 = time.perf_counter()
         modulo = cargar_modulo_cruce()
 
         print(f"Leyendo query1: {modulo.QUERY1_PATH}")
         print(f"Leyendo query2: {modulo.QUERY2_PATH}")
-        df1 = modulo.preparar_query1(modulo.cargar_query(modulo.QUERY1_PATH))
-        df2 = modulo.preparar_query2(modulo.cargar_query(modulo.QUERY2_PATH))
+        raw_q1 = modulo.cargar_query(modulo.QUERY1_PATH)
+        raw_q2 = modulo.cargar_query(modulo.QUERY2_PATH)
+        t1 = time.perf_counter()
+
+        # Optimizacion: no calculamos modulo_regla sobre todo query1.
+        # Primero reducimos a columnas minimas y filtramos; luego clasificamos.
+        df1 = preparar_query1_minimo(raw_q1, modulo)
+        df2 = modulo.preparar_query2(raw_q2)
 
         inicio = pd.Timestamp("2026-03-01")
         fin = pd.Timestamp("2026-04-01")
@@ -73,6 +100,11 @@ def main() -> int:
         marzo_q1 = df1[(df1["fecha_q1"] >= inicio) & (df1["fecha_q1"] < fin)].copy()
         clientes_q2 = set(df2["padded_codigo_cliente"].astype(str).str.strip())
         marzo = marzo_q1[marzo_q1["padded_codigo_cliente"].isin(clientes_q2)].copy()
+        marzo["modulo_regla"] = marzo.apply(
+            lambda r: modulo.clasificar_modulo(r["modulo_original"], r["operacion_original"]),
+            axis=1,
+        )
+        t2 = time.perf_counter()
 
         print()
         print("Resumen marzo 2026")
@@ -86,6 +118,10 @@ def main() -> int:
 
         resumen = construir_resumen(marzo)
         print(resumen.to_string(index=False))
+        print()
+        print(f"Tiempo carga SQL:        {t1 - t0:.2f}s")
+        print(f"Tiempo proceso Python:   {t2 - t1:.2f}s")
+        print(f"Tiempo total:            {t2 - t0:.2f}s")
         return 0
     except SQLAlchemyError as exc:
         print(f"[ERROR] Fallo de base de datos: {exc}")
