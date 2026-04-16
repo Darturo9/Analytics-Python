@@ -383,7 +383,12 @@ def exportar_resultados(df_resultado: pd.DataFrame) -> tuple[Path, Path, Path]:
     return RUTA_SALIDA_COINCIDEN, RUTA_SALIDA_NO_COINCIDEN, RUTA_SALIDA_RESUMEN
 
 
-def imprimir_resumen(df_resultado: pd.DataFrame, ruta_excel: Path) -> None:
+def imprimir_resumen(
+    df_resultado: pd.DataFrame,
+    ruta_excel: Path,
+    col_correo: str,
+    col_telefono: str,
+) -> None:
     total = len(df_resultado)
     coinciden = int(df_resultado["coincide"].sum())
     no_coinciden = total - coinciden
@@ -403,6 +408,33 @@ def imprimir_resumen(df_resultado: pd.DataFrame, ruta_excel: Path) -> None:
     print("Desglose por tipo:")
     for tipo, cantidad in df_resultado["tipo_coincidencia"].value_counts().items():
         print(f"  {tipo:<22} {cantidad:>8,}")
+    print("=" * 52)
+
+    print("\nLISTADO DE CLIENTES QUE COINCIDEN")
+    print("-" * 52)
+    df_coinciden = df_resultado[df_resultado["coincide"]].copy()
+    if df_coinciden.empty:
+        print("No hay clientes con coincidencia.")
+        print("=" * 52)
+        return
+
+    listado = df_coinciden[[col_correo, col_telefono, "tipo_coincidencia"]].copy()
+    listado = listado.rename(
+        columns={
+            col_correo: "Correo",
+            col_telefono: "Telefono Formateado",
+            "tipo_coincidencia": "Coincidencia",
+        }
+    )
+    listado["Correo"] = listado["Correo"].astype(str).replace("nan", "")
+    listado["Telefono Formateado"] = (
+        listado["Telefono Formateado"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .replace("nan", "")
+    )
+
+    print(listado.to_string(index=False))
     print("=" * 52)
 
 
@@ -438,7 +470,12 @@ def main() -> None:
     )
 
     ruta_coinciden, ruta_no_coinciden, ruta_resumen = exportar_resultados(df_resultado)
-    imprimir_resumen(df_resultado, ruta_excel)
+    imprimir_resumen(
+        df_resultado=df_resultado,
+        ruta_excel=ruta_excel,
+        col_correo=col_correo,
+        col_telefono=col_telefono,
+    )
 
     print(f"[OK] Archivo generado: {ruta_coinciden}")
     print(f"[OK] Archivo generado: {ruta_no_coinciden}")
