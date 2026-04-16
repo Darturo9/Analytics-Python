@@ -1,10 +1,10 @@
 """
 reporte_fondeo_mensual_feb_mar_2026.py
 --------------------------------------
-Reporte en consola para medir, por mes completo:
-- cuentas de Cuenta Digital creadas en febrero 2026 y marzo 2026
+Reporte en consola para medir:
+- cuentas de Cuenta Digital creadas del dia 1 al 15 de febrero y marzo 2026
 - cuantas de esas cuentas tuvieron saldo > 0 al menos una vez
-  durante ese mismo mes
+  durante el mes completo de su creacion
 
 Ejecucion:
     python3 productos/Fondeo_CD/2026-04/programas_py/reporte_fondeo_mensual_feb_mar_2026.py
@@ -40,9 +40,9 @@ def cargar_datos() -> pd.DataFrame:
     df = run_query_file(str(RUTA_QUERY))
     df.columns = [str(c) for c in df.columns]
     columnas_numericas = [
-        "cuentas_creadas_mes",
-        "cuentas_fondeadas_al_menos_una_vez_mes",
-        "cuentas_sin_fondear_mes",
+        "cuentas_creadas_1_15",
+        "cuentas_fondeadas_al_menos_una_vez_en_mes_creacion",
+        "cuentas_sin_fondear_en_mes_creacion",
         "tasa_fondeo_pct",
     ]
     for col in columnas_numericas:
@@ -53,26 +53,26 @@ def cargar_datos() -> pd.DataFrame:
 
 def imprimir_reporte(df: pd.DataFrame) -> None:
     if df.empty:
-        print("No se devolvieron registros para los meses consultados.")
+        print("No se devolvieron registros para los periodos consultados.")
         return
 
     print("=" * 78)
-    print("FONDEO CUENTA DIGITAL - FEBRERO Y MARZO 2026 (MES COMPLETO)")
+    print("FONDEO CUENTA DIGITAL - ALTAS 1-15 Y FONDEO EN MES DE CREACION")
     print("=" * 78)
 
     for _, row in df.iterrows():
         mes = str(row.get("mes", "Mes sin nombre"))
-        creadas = int(row.get("cuentas_creadas_mes", 0) or 0)
-        fondeadas = int(row.get("cuentas_fondeadas_al_menos_una_vez_mes", 0) or 0)
-        sin_fondear = int(row.get("cuentas_sin_fondear_mes", 0) or 0)
+        creadas = int(row.get("cuentas_creadas_1_15", 0) or 0)
+        fondeadas = int(row.get("cuentas_fondeadas_al_menos_una_vez_en_mes_creacion", 0) or 0)
+        sin_fondear = int(row.get("cuentas_sin_fondear_en_mes_creacion", 0) or 0)
         tasa = float(row.get("tasa_fondeo_pct", 0.0) or 0.0)
 
         print(f"\n{mes}")
         print("-" * 78)
-        print(f"Cuentas creadas en el mes:                          {creadas:>10,}")
-        print(f"Cuentas con fondos al menos 1 vez en el mes:        {fondeadas:>10,}")
-        print(f"Cuentas sin fondear en el mes:                      {sin_fondear:>10,}")
-        print(f"Tasa de fondeo del mes:                             {tasa:>9.2f}%")
+        print(f"Cuentas creadas del 1 al 15:                        {creadas:>10,}")
+        print(f"Cuentas fondeadas >=1 vez en mes de creacion:       {fondeadas:>10,}")
+        print(f"Cuentas sin fondeo en mes de creacion:              {sin_fondear:>10,}")
+        print(f"Tasa de fondeo:                                     {tasa:>9.2f}%")
 
     print("\n" + "=" * 78)
 
