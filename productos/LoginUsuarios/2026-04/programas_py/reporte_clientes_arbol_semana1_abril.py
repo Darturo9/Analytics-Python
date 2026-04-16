@@ -214,7 +214,42 @@ def construir_resumen_por_cliente(
     return df_resumen
 
 
-def imprimir_reporte(df_resumen: pd.DataFrame, ruta_archivo: Path) -> None:
+def _construir_resumen_diario(
+    df_logins_filtrado: pd.DataFrame,
+    df_cambios_filtrado: pd.DataFrame,
+) -> tuple[pd.Series, pd.Series, pd.DataFrame]:
+    fechas = pd.date_range(FECHA_INICIO, FECHA_FIN_EXCLUSIVA - pd.Timedelta(days=1), freq="D")
+
+    logins_por_dia = (
+        df_logins_filtrado.assign(dia=df_logins_filtrado["fecha_inicio"].dt.normalize())
+        .groupby("dia")
+        .size()
+        .reindex(fechas, fill_value=0)
+    )
+
+    cambios_por_dia = (
+        df_cambios_filtrado.assign(dia=df_cambios_filtrado["fecha_cambio_pass"].dt.normalize())
+        .groupby("dia")
+        .size()
+        .reindex(fechas, fill_value=0)
+    )
+
+    detalle_diario = pd.DataFrame(
+        {
+            "dia": fechas,
+            "total_logins": logins_por_dia.values,
+            "total_cambios_password": cambios_por_dia.values,
+        }
+    )
+    return logins_por_dia, cambios_por_dia, detalle_diario
+
+
+def imprimir_reporte(
+    df_resumen: pd.DataFrame,
+    ruta_archivo: Path,
+    df_logins_filtrado: pd.DataFrame,
+    df_cambios_filtrado: pd.DataFrame,
+) -> None:
     total_clientes_excel = int(df_resumen["padded_codigo_cliente"].nunique())
     total_logins = int(df_resumen["total_logins"].sum())
     clientes_unicos_login = int((df_resumen["total_logins"] > 0).sum())
@@ -265,6 +300,48 @@ def imprimir_reporte(df_resumen: pd.DataFrame, ruta_archivo: Path) -> None:
                 ["padded_codigo_cliente", "total_logins", "total_cambios_password"]
             ].to_string(index=False)
         )
+    print("-" * 96)
+
+    logins_por_dia, cambios_por_dia, detalle_diario = _construir_resumen_diario(
+        df_logins_filtrado=df_logins_filtrado,
+        df_cambios_filtrado=df_cambios_filtrado,
+    )
+
+    top_dias_logins = (
+        logins_por_dia.reset_index()
+        .rename(columns={"index": "dia", 0: "total_logins"})
+        .sort_values(["total_logins", "dia"], ascending=[False, True])
+        .head(5)
+    )
+    top_dias_cambios = (
+        cambios_por_dia.reset_index()
+        .rename(columns={"index": "dia", 0: "total_cambios_password"})
+        .sort_values(["total_cambios_password", "dia"], ascending=[False, True])
+        .head(5)
+    )
+
+    print("TOP 5 DIAS CON MAS LOGINS")
+    print(
+        top_dias_logins.assign(dia=top_dias_logins["dia"].dt.strftime("%Y-%m-%d")).to_string(
+            index=False
+        )
+    )
+    print("-" * 96)
+
+    print("TOP 5 DIAS CON MAS CAMBIOS DE PASSWORD")
+    print(
+        top_dias_cambios.assign(dia=top_dias_cambios["dia"].dt.strftime("%Y-%m-%d")).to_string(
+            index=False
+        )
+    )
+    print("-" * 96)
+
+    print("LOGINS Y CAMBIOS DE PASSWORD POR DIA (2026-04-01 AL 2026-04-07)")
+    print(
+        detalle_diario.assign(dia=detalle_diario["dia"].dt.strftime("%Y-%m-%d")).to_string(
+            index=False
+        )
+    )
     print("=" * 96)
 
 
@@ -294,7 +371,12 @@ def main() -> None:
         df_cambios_filtrado=df_cambios_filtrado,
     )
 
-    imprimir_reporte(df_resumen=df_resumen, ruta_archivo=ruta_archivo)
+    imprimir_reporte(
+        df_resumen=df_resumen,
+        ruta_archivo=ruta_archivo,
+        df_logins_filtrado=df_logins_filtrado,
+        df_cambios_filtrado=df_cambios_filtrado,
+    )
 
 
 if __name__ == "__main__":
