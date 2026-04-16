@@ -6,7 +6,7 @@ Reporte en consola para cuentas de Cuenta Digital creadas del 1 al 15 de abril 2
 Imprime:
 - porcentaje de cuentas MUJER / HOMBRE
 - top departamentos con mas cuentas fondeadas (1 al 15)
-- rango de edad y generacion que mas fondean
+- top 3 generaciones que mas fondean
 - cantidad y porcentaje de cuentas con movimiento
 
 Nota: "con movimiento" se calcula con cant_transacciones > 0
@@ -42,6 +42,7 @@ RUTA_QUERY = (
 )
 
 TOP_DEPTOS = 10
+TOP_GENERACIONES = 3
 
 
 def pct(valor: int, total: int) -> float:
@@ -58,7 +59,6 @@ def cargar_datos() -> pd.DataFrame:
         "numero_cuenta",
         "genero",
         "depto",
-        "rango_edad",
         "generacion",
         "fondeada_1_15",
         "con_movimiento",
@@ -71,7 +71,6 @@ def cargar_datos() -> pd.DataFrame:
     df["numero_cuenta"] = df["numero_cuenta"].astype(str).str.strip()
     df["genero"] = df["genero"].astype(str).str.strip().str.upper().replace("", "SIN_DATO")
     df["depto"] = df["depto"].astype(str).str.strip().replace("", "SIN DEPTO")
-    df["rango_edad"] = df["rango_edad"].astype(str).str.strip().replace("", "SIN DATO")
     df["generacion"] = df["generacion"].astype(str).str.strip().replace("", "SIN DATO")
     df["fondeada_1_15"] = pd.to_numeric(df["fondeada_1_15"], errors="coerce").fillna(0).astype(int)
     df["con_movimiento"] = pd.to_numeric(df["con_movimiento"], errors="coerce").fillna(0).astype(int)
@@ -114,44 +113,29 @@ def imprimir_top_deptos_fondeadas(df: pd.DataFrame) -> None:
         print(f"{i + 1:>2}. {str(row['depto']):<25} {int(row['cuentas_fondeadas']):>10,}")
 
 
-def imprimir_top_edad_generacion_fondeo(df: pd.DataFrame) -> None:
+def imprimir_top_3_generaciones_fondeo(df: pd.DataFrame) -> None:
     base = df[df["fondeada_1_15"] == 1].copy()
     total_fondeadas = len(base)
     if total_fondeadas == 0:
-        print("Rango de edad y generacion con mas fondeo: sin datos (0 fondeadas).")
+        print("Top generaciones con mas fondeo: sin datos (0 fondeadas).")
         return
-
-    rango = (
-        base.groupby("rango_edad", as_index=False)["numero_cuenta"]
-        .nunique()
-        .rename(columns={"numero_cuenta": "cuentas_fondeadas"})
-        .sort_values(["cuentas_fondeadas", "rango_edad"], ascending=[False, True])
-        .reset_index(drop=True)
-    )
-    rango["porcentaje"] = (rango["cuentas_fondeadas"] / total_fondeadas * 100.0).round(2)
 
     gen = (
         base.groupby("generacion", as_index=False)["numero_cuenta"]
         .nunique()
         .rename(columns={"numero_cuenta": "cuentas_fondeadas"})
         .sort_values(["cuentas_fondeadas", "generacion"], ascending=[False, True])
+        .head(TOP_GENERACIONES)
         .reset_index(drop=True)
     )
     gen["porcentaje"] = (gen["cuentas_fondeadas"] / total_fondeadas * 100.0).round(2)
 
-    top_rango = rango.iloc[0]
-    top_gen = gen.iloc[0]
-
-    print("Rango de edad que mas fondea (sobre cuentas fondeadas del 1 al 15):")
-    print(
-        f"- {top_rango['rango_edad']}: "
-        f"{int(top_rango['cuentas_fondeadas']):,} cuentas ({float(top_rango['porcentaje']):.2f}%)"
-    )
-    print("Generacion que mas fondea (sobre cuentas fondeadas del 1 al 15):")
-    print(
-        f"- {top_gen['generacion']}: "
-        f"{int(top_gen['cuentas_fondeadas']):,} cuentas ({float(top_gen['porcentaje']):.2f}%)"
-    )
+    print(f"Top {TOP_GENERACIONES} generaciones que mas fondean (sobre cuentas fondeadas 1-15):")
+    for i, row in gen.iterrows():
+        print(
+            f"{i + 1:>2}. {row['generacion']}: "
+            f"{int(row['cuentas_fondeadas']):,} cuentas ({float(row['porcentaje']):.2f}%)"
+        )
 
 
 def imprimir_movimiento(df: pd.DataFrame) -> None:
@@ -184,7 +168,7 @@ def imprimir_reporte(df: pd.DataFrame) -> None:
     print("-" * 88)
     imprimir_top_deptos_fondeadas(df)
     print("-" * 88)
-    imprimir_top_edad_generacion_fondeo(df)
+    imprimir_top_3_generaciones_fondeo(df)
     print("-" * 88)
     imprimir_movimiento(df)
     print("=" * 88)
