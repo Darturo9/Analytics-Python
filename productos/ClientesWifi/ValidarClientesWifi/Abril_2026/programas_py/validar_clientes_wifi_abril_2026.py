@@ -300,9 +300,11 @@ def cargar_cuentas_digitales_abril() -> pd.DataFrame:
     return df
 
 
-def obtener_sets_contacto_cuentas(df_cuentas: pd.DataFrame) -> tuple[set[str], set[str]]:
+def obtener_sets_contacto_cuentas(
+    df_cuentas: pd.DataFrame,
+) -> tuple[set[str], set[str], dict[str, pd.Timestamp], dict[str, pd.Timestamp]]:
     if df_cuentas.empty:
-        return set(), set()
+        return set(), set(), {}, {}
 
     col_correo = None
     for candidato in ["correo", "direccion_3"]:
@@ -314,8 +316,11 @@ def obtener_sets_contacto_cuentas(df_cuentas: pd.DataFrame) -> tuple[set[str], s
 
     if "telefono_1" not in df_cuentas.columns and "telefono_2" not in df_cuentas.columns:
         raise ValueError("La query debe devolver al menos 'telefono_1' o 'telefono_2'.")
+    if "fecha_apertura" not in df_cuentas.columns:
+        raise ValueError("La query debe devolver la columna 'fecha_apertura'.")
 
     df = df_cuentas.copy()
+    df["_fecha_apertura"] = pd.to_datetime(df["fecha_apertura"], errors="coerce")
     df["_correo_norm"] = normalizar_correo(df[col_correo])
 
     if "telefono_1" in df.columns:
@@ -331,7 +336,25 @@ def obtener_sets_contacto_cuentas(df_cuentas: pd.DataFrame) -> tuple[set[str], s
     set_correos = set(df["_correo_norm"].dropna().loc[lambda x: x != ""])
     set_telefonos = set(df["_telefono_1_norm"].dropna()) | set(df["_telefono_2_norm"].dropna())
     set_telefonos.discard("")
-    return set_correos, set_telefonos
+
+    mapa_fecha_correo = (
+        df[df["_correo_norm"].notna() & (df["_correo_norm"] != "") & df["_fecha_apertura"].notna()]
+        .groupby("_correo_norm")["_fecha_apertura"]
+        .min()
+        .to_dict()
+    )
+
+    tel1 = df[["_telefono_1_norm", "_fecha_apertura"]].rename(columns={"_telefono_1_norm": "_telefono_norm"})
+    tel2 = df[["_telefono_2_norm", "_fecha_apertura"]].rename(columns={"_telefono_2_norm": "_telefono_norm"})
+    df_tels = pd.concat([tel1, tel2], ignore_index=True)
+    mapa_fecha_telefono = (
+        df_tels[df_tels["_telefono_norm"].notna() & (df_tels["_telefono_norm"] != "") & df_tels["_fecha_apertura"].notna()]
+        .groupby("_telefono_norm")["_fecha_apertura"]
+        .min()
+        .to_dict()
+    )
+
+    return set_correos, set_telefonos, mapa_fecha_correo, mapa_fecha_telefono
 
 
 def evaluar_coincidencias(
@@ -340,6 +363,8 @@ def evaluar_coincidencias(
     col_telefono: str,
     set_correos: set[str],
     set_telefonos: set[str],
+    mapa_fecha_correo: dict[str, pd.Timestamp],
+    mapa_fecha_telefono: dict[str, pd.Timestamp],
 ) -> pd.DataFrame:
     df = df_clientes.copy()
     df["_correo_norm"] = normalizar_correo(df[col_correo])
@@ -353,6 +378,17 @@ def evaluar_coincidencias(
     df.loc[df["_correo_match"] & df["_telefono_match"], "tipo_coincidencia"] = "Correo y Telefono"
     df.loc[df["_correo_match"] & ~df["_telefono_match"], "tipo_coincidencia"] = "Solo Correo"
     df.loc[~df["_correo_match"] & df["_telefono_match"], "tipo_coincidencia"] = "Solo Telefono"
+
+    df["_fecha_apertura_correo"] = df["_correo_norm"].map(mapa_fecha_correo)
+    df["_fecha_apertura_telefono"] = df["_telefono_norm"].map(mapa_fecha_telefono)
+    df["fecha_apertura_cuenta_digital"] = pd.concat(
+        [
+            pd.to_datetime(df["_fecha_apertura_correo"], errors="coerce"),
+            pd.to_datetime(df["_fecha_apertura_telefono"], errors="coerce"),
+        ],
+        axis=1,
+    ).min(axis=1)
+
     return df
 
 
@@ -418,13 +454,19 @@ def imprimir_resumen(
         print("=" * 52)
         return
 
-    listado = df_coinciden[[col_correo, col_telefono, "tipo_coincidencia"]].copy()
+    listado = df_coinciden[[col_correo, col_telefono, "tipo_coincidencia", "fecha_apertura_cuenta_digital"]].copy()
     listado = listado.rename(
         columns={
             col_correo: "Correo",
             col_telefono: "Telefono Formateado",
             "tipo_coincidencia": "Coincidencia",
+            "fecha_apertura_cuenta_digital": "Fecha Apertura",
         }
+    )
+    listado["Fecha Apertura"] = (
+        pd.to_datetime(listado["Fecha Apertura"], errors="coerce")
+        .dt.strftime("%Y-%m-%d")
+        .fillna("")
     )
     listado["Correo"] = listado["Correo"].astype(str).replace("nan", "")
     listado["Telefono Formateado"] = (
@@ -434,7 +476,7 @@ def imprimir_resumen(
         .replace("nan", "")
     )
 
-    print(listado.to_string(index=False))
+    print(listado[["Correo", "Telefono Formateado", "Coincidencia", "Fecha Apertura"]].to_string(index=False))
     print("=" * 52)
 
 
@@ -456,7 +498,7 @@ def main() -> None:
     print(f"Cuentas digitales abril 2026 cargadas: {len(df_cuentas):,}")
 
     try:
-        set_correos, set_telefonos = obtener_sets_contacto_cuentas(df_cuentas)
+        set_correos, set_telefonos, mapa_fecha_correo, mapa_fecha_telefono = obtener_sets_contacto_cuentas(df_cuentas)
     except Exception as exc:
         print(f"[ERROR] No se pudieron construir sets de contacto desde cuentas: {exc}")
         raise SystemExit(1) from exc
@@ -467,6 +509,8 @@ def main() -> None:
         col_telefono=col_telefono,
         set_correos=set_correos,
         set_telefonos=set_telefonos,
+        mapa_fecha_correo=mapa_fecha_correo,
+        mapa_fecha_telefono=mapa_fecha_telefono,
     )
 
     ruta_coinciden, ruta_no_coinciden, ruta_resumen = exportar_resultados(df_resultado)
