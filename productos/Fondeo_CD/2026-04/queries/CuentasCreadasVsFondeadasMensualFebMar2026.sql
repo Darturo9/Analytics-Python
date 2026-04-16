@@ -1,27 +1,27 @@
--- Cuentas de Cuenta Digital creadas en la primera quincena (1-15)
--- de febrero y marzo 2026, y cuantas tuvieron saldo > 0 al menos
--- una vez en esa misma quincena.
+-- Cuentas de Cuenta Digital creadas en febrero y marzo 2026
+-- (mes completo), y cuantas tuvieron saldo > 0 al menos
+-- una vez en ese mismo mes.
 -- Basado en la lógica de ComparacionMensual.sql.
 
 WITH Periodos AS (
     SELECT
         1 AS orden,
-        'Febrero 2026 (1-15)' AS mes,
+        'Febrero 2026' AS mes,
         CAST('2026-02-01' AS date) AS fecha_inicio,
-        CAST('2026-02-16' AS date) AS fecha_fin
+        CAST('2026-03-01' AS date) AS fecha_fin
     UNION ALL
     SELECT
         2 AS orden,
-        'Marzo 2026 (1-15)' AS mes,
+        'Marzo 2026' AS mes,
         CAST('2026-03-01' AS date) AS fecha_inicio,
-        CAST('2026-03-16' AS date) AS fecha_fin
+        CAST('2026-04-01' AS date) AS fecha_fin
 )
 SELECT
     p.mes,
-    COUNT(DISTINCT d.DW_CUENTA_CORPORATIVA) AS cuentas_creadas_quincena,
-    COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN d.DW_CUENTA_CORPORATIVA END) AS cuentas_fondeadas_al_menos_una_vez_quincena,
+    COUNT(DISTINCT d.DW_CUENTA_CORPORATIVA) AS cuentas_creadas_mes,
+    COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN d.DW_CUENTA_CORPORATIVA END) AS cuentas_fondeadas_al_menos_una_vez_mes,
     COUNT(DISTINCT d.DW_CUENTA_CORPORATIVA)
-        - COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN d.DW_CUENTA_CORPORATIVA END) AS cuentas_sin_fondear_quincena,
+        - COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN d.DW_CUENTA_CORPORATIVA END) AS cuentas_sin_fondear_mes,
     CAST(
         CASE
             WHEN COUNT(DISTINCT d.DW_CUENTA_CORPORATIVA) = 0 THEN 0
