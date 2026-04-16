@@ -3,7 +3,7 @@ WITH campanas_objetivo AS (
         c.campaignid,
         c.start_date
     FROM dwhbi.dbo.dw_rtm_app_campaign c
-    WHERE c.start_date >= '2025-05-01'
+    WHERE c.start_date >= '2026-01-01'
       AND c.countryid = 3
       AND c.name LIKE '%app empresarial%'
       AND c.name LIKE '%72049%'

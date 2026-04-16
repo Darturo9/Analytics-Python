@@ -292,6 +292,39 @@ def imprimir_resumen_cruce(df1: pd.DataFrame, df2: pd.DataFrame, cruce_left: pd.
     print("Distribucion de modulo_regla en resultado LEFT JOIN:")
     print(resumen_modulo_cruce.to_string(index=False))
 
+    cruce_tmp = cruce_left.copy()
+    cruce_tmp["periodo_mes"] = cruce_tmp["fecha_q1"].dt.to_period("M").astype(str)
+    resumen_mensual = (
+        cruce_tmp.groupby("periodo_mes", as_index=False)
+        .agg(
+            registros=("padded_codigo_cliente", "size"),
+            clientes_unicos=("padded_codigo_cliente", "nunique"),
+            con_match_q2=("match_q2", "sum"),
+        )
+        .sort_values("periodo_mes")
+        .reset_index(drop=True)
+    )
+    resumen_mensual["sin_match_q2"] = resumen_mensual["registros"] - resumen_mensual["con_match_q2"]
+    resumen_mensual["pct_match_q2"] = (
+        resumen_mensual["con_match_q2"] / resumen_mensual["registros"] * 100.0
+    ).round(2)
+
+    print("\nResumen por meses (segun fecha de Query1):")
+    print(
+        resumen_mensual[
+            ["periodo_mes", "registros", "clientes_unicos", "con_match_q2", "sin_match_q2", "pct_match_q2"]
+        ].to_string(
+            index=False,
+            formatters={
+                "registros": "{:,.0f}".format,
+                "clientes_unicos": "{:,.0f}".format,
+                "con_match_q2": "{:,.0f}".format,
+                "sin_match_q2": "{:,.0f}".format,
+                "pct_match_q2": "{:,.2f}%".format,
+            },
+        )
+    )
+
 
 def main() -> None:
     print(f"Cargando Query1 desde: {QUERY1_PATH}")
