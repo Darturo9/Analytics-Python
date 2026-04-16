@@ -103,6 +103,15 @@ def buscar_archivo_clientes_wifi_abril() -> Path:
 
 def buscar_archivos_clientes_wifi_abril() -> list[Path]:
     preferidos = [
+        "Clientes Wifi Abril.xlsx",
+        "Clientes Wifi Abril.xls",
+        "Clientes Wifi Abril.csv",
+        "Clientes_Wifi_Abril.xlsx",
+        "Clientes_Wifi_Abril.xls",
+        "Clientes_Wifi_Abril.csv",
+        "clientes_wifi_abril.xlsx",
+        "clientes_wifi_abril.xls",
+        "clientes_wifi_abril.csv",
         "Clientes Wifi para abril.xlsx",
         "Clientes Wifi para abril.xls",
         "Clientes Wifi para abril.csv",
