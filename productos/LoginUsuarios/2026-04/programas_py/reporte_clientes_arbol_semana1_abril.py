@@ -8,6 +8,7 @@ Muestra:
 - cuantos clientes cambiaron password
 - total de eventos login
 - total de clientes unicos con login
+- detalle por cliente (logins y cambios de password)
 - export diario a Excel (logins y cambios por dia, y top dias)
 
 Ejecucion:
@@ -299,6 +300,26 @@ def imprimir_reporte(
     print(f"Logins de clientes unicos: {clientes_unicos_login:,}")
     print(f"Clientes que cambiaron password: {clientes_cambio_password:,}")
     print("-" * 96)
+
+    detalle_clientes = df_resumen[
+        (df_resumen["total_logins"] > 0) | (df_resumen["total_cambios_password"] > 0)
+    ].copy()
+    detalle_clientes = detalle_clientes.sort_values(
+        ["total_logins", "total_cambios_password", "padded_codigo_cliente"],
+        ascending=[False, False, True],
+    )
+
+    print("CLIENTE / LOGINS / CAMBIOS DE PASSWORD")
+    if detalle_clientes.empty:
+        print("No hay clientes con actividad en el periodo.")
+    else:
+        print(
+            detalle_clientes[
+                ["padded_codigo_cliente", "total_logins", "total_cambios_password"]
+            ].to_string(index=False)
+        )
+    print("-" * 96)
+
     print(f"Export diario generado: {ruta_salida_excel}")
     print("=" * 96)
 
