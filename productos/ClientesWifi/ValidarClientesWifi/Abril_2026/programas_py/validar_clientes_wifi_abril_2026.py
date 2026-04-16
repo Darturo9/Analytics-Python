@@ -118,15 +118,17 @@ def buscar_archivo_clientes_wifi_abril() -> Path:
             return ruta
 
     if RUTA_ARCHIVOS_EXCEL.exists():
-        candidatos = sorted(
+        candidatos = [
             p for p in RUTA_ARCHIVOS_EXCEL.iterdir()
             if p.is_file()
             and p.suffix.lower() in {".xlsx", ".xls", ".csv"}
             and "cliente" in p.stem.lower()
             and "wifi" in p.stem.lower()
             and "abril" in p.stem.lower()
-        )
+        ]
         if candidatos:
+            prioridad_ext = {".xlsx": 0, ".csv": 1, ".xls": 2}
+            candidatos.sort(key=lambda p: (prioridad_ext.get(p.suffix.lower(), 99), p.name.lower()))
             return candidatos[0]
 
     raise FileNotFoundError(
@@ -146,10 +148,22 @@ def detectar_columna(df: pd.DataFrame, objetivo_normalizado: str) -> str | None:
 
 def cargar_clientes_wifi() -> tuple[pd.DataFrame, Path, str, str]:
     ruta_excel = buscar_archivo_clientes_wifi_abril()
-    if ruta_excel.suffix.lower() in {".xlsx", ".xls"}:
-        df = pd.read_excel(ruta_excel)
-    else:
-        df = pd.read_csv(ruta_excel)
+    try:
+        if ruta_excel.suffix.lower() == ".xlsx":
+            df = pd.read_excel(ruta_excel, engine="openpyxl")
+        elif ruta_excel.suffix.lower() == ".xls":
+            df = pd.read_excel(ruta_excel, engine="xlrd")
+        else:
+            df = pd.read_csv(ruta_excel)
+    except ImportError as exc:
+        if ruta_excel.suffix.lower() == ".xls":
+            raise RuntimeError(
+                "El archivo detectado es .xls y falta la libreria xlrd.\n"
+                "Opciones:\n"
+                "1) Instalar xlrd: pip install xlrd>=2.0.1\n"
+                "2) Guardar el archivo como .xlsx en la misma carpeta (recomendado)."
+            ) from exc
+        raise
 
     col_correo = detectar_columna(df, "correo")
     col_telefono = detectar_columna(df, "telefono_formateado")
