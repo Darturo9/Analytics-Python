@@ -63,18 +63,25 @@ def main() -> int:
         df1 = modulo.preparar_query1(modulo.cargar_query(modulo.QUERY1_PATH))
         df2 = modulo.preparar_query2(modulo.cargar_query(modulo.QUERY2_PATH))
 
-        cruce = modulo.left_join_tableau(df1, df2)
-
         inicio = pd.Timestamp("2026-03-01")
         fin = pd.Timestamp("2026-04-01")
 
-        # Replica Tableau: filtro por Mes basado en fecha de query2 y excluyendo NULL.
-        marzo = cruce[(cruce["fecha_q2"] >= inicio) & (cruce["fecha_q2"] < fin)].copy()
+        # Logica solicitada:
+        # 1) query principal = query1 (actividad)
+        # 2) filtro de mes sobre fecha de query1 (marzo 2026)
+        # 3) mantener solo clientes que existan en query2
+        marzo_q1 = df1[(df1["fecha_q1"] >= inicio) & (df1["fecha_q1"] < fin)].copy()
+        clientes_q2 = set(df2["padded_codigo_cliente"].astype(str).str.strip())
+        marzo = marzo_q1[marzo_q1["padded_codigo_cliente"].isin(clientes_q2)].copy()
 
         print()
-        print("Resumen marzo 2026 (mes de Query2, excluyendo NULL)")
-        print(f"Registros totales tras filtro de mes q2: {len(marzo):,}")
-        print(f"Clientes unicos tras filtro de mes q2: {marzo['padded_codigo_cliente'].nunique():,}")
+        print("Resumen marzo 2026")
+        print("Base principal: Query1 | Universo de clientes: Query2")
+        print(f"Registros marzo en Query1 (antes de cruce): {len(marzo_q1):,}")
+        print(f"Clientes unicos marzo Query1 (antes de cruce): {marzo_q1['padded_codigo_cliente'].nunique():,}")
+        print(f"Clientes unicos disponibles en Query2: {len(clientes_q2):,}")
+        print(f"Registros marzo tras filtrar clientes de Query2: {len(marzo):,}")
+        print(f"Clientes unicos marzo tras filtrar clientes de Query2: {marzo['padded_codigo_cliente'].nunique():,}")
         print()
 
         resumen = construir_resumen(marzo)
