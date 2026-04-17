@@ -7,6 +7,10 @@ Imprime en consola, para marzo 2026:
 - Cantidad de logins y clientes unicos
 - Cantidad de transacciones y clientes unicos
 
+Regla de datos:
+- Actividad principal desde query1 filtrada a marzo 2026.
+- Universo de clientes desde query2 con inicio 2025-05-01.
+
 Ejecucion:
     python3 productos/app_empresarial/2026-03/analysis/resumen_modulos_marzo_2026.py
 """
@@ -25,6 +29,17 @@ from sqlalchemy.exc import SQLAlchemyError
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from core.db import run_query_file
+
+QUERY2_CLIENTES_PATH = (
+    PROJECT_ROOT
+    / "productos"
+    / "app_empresarial"
+    / "2026-03"
+    / "queries"
+    / "query2_clientes_desde_2025_05_01.sql"
+)
 
 
 def cargar_modulo_cruce():
@@ -80,9 +95,9 @@ def main() -> int:
         modulo = cargar_modulo_cruce()
 
         print(f"Leyendo query1: {modulo.QUERY1_PATH}")
-        print(f"Leyendo query2: {modulo.QUERY2_PATH}")
+        print(f"Leyendo universo de clientes (query2): {QUERY2_CLIENTES_PATH}")
         raw_q1 = modulo.cargar_query(modulo.QUERY1_PATH)
-        raw_q2 = modulo.cargar_query(modulo.QUERY2_PATH)
+        raw_q2 = run_query_file(str(QUERY2_CLIENTES_PATH))
         t1 = time.perf_counter()
 
         # Optimizacion: no calculamos modulo_regla sobre todo query1.
