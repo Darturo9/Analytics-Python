@@ -12,6 +12,7 @@ Ejecucion:
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -112,6 +113,7 @@ def imprimir_reporte(df: pd.DataFrame) -> None:
 
 def main() -> None:
     print(f"Cargando query: {RUTA_QUERY}")
+    t0 = time.perf_counter()
     try:
         df = cargar_datos()
     except SQLAlchemyError as exc:
@@ -122,6 +124,8 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     imprimir_reporte(df)
+    t1 = time.perf_counter()
+    print(f"\nTiempo total de ejecucion: {_fmt_dec(t1 - t0)}s")
 
 
 if __name__ == "__main__":

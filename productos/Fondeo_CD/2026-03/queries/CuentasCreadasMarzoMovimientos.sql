@@ -20,16 +20,17 @@ WITH cuentas_marzo AS (
 ),
 transacciones_marzo AS (
     SELECT
-        m.DW_CUENTA_CORPORATIVA,
-        COUNT_BIG(*) AS cant_transacciones_marzo
-    FROM DW_DEP_DPMOVM_VIEW m
-    INNER JOIN cuentas_marzo c
-        ON c.DW_CUENTA_CORPORATIVA = m.DW_CUENTA_CORPORATIVA
-    WHERE m.dw_fecha_operacion >= '2026-03-01'
-      AND m.dw_fecha_operacion <  '2026-04-01'
-      AND COALESCE(m.MVSTAT, '') <> 'R'
-    GROUP BY
-        m.DW_CUENTA_CORPORATIVA
+        c.DW_CUENTA_CORPORATIVA,
+        COALESCE(m.cant_transacciones_marzo, 0) AS cant_transacciones_marzo
+    FROM cuentas_marzo c
+    OUTER APPLY (
+        SELECT COUNT_BIG(1) AS cant_transacciones_marzo
+        FROM DW_DEP_DPMOVM_VIEW mv
+        WHERE mv.DW_CUENTA_CORPORATIVA = c.DW_CUENTA_CORPORATIVA
+          AND mv.dw_fecha_operacion >= '2026-03-01'
+          AND mv.dw_fecha_operacion <  '2026-04-01'
+          AND COALESCE(mv.MVSTAT, '') <> 'R'
+    ) m
 )
 SELECT
     'SOLO_MARZO' AS escenario,
@@ -73,4 +74,5 @@ SELECT
     SUM(cant_transacciones_libre) AS total_transacciones,
     CAST(AVG(CAST(cant_transacciones_libre AS DECIMAL(18, 2))) AS DECIMAL(18, 2)) AS promedio_transacciones_por_cuenta,
     MAX(cant_transacciones_libre) AS max_transacciones_en_una_cuenta
-FROM cuentas_marzo;
+FROM cuentas_marzo
+OPTION (RECOMPILE);
