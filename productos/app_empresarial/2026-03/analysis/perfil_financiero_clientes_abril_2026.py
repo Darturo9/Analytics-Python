@@ -198,6 +198,71 @@ LEFT JOIN segmento_cliente seg
 """
 
 
+def construir_query_top_cuentas_chunk(clientes_chunk: list[str]) -> str:
+    values_sql = ",\n            ".join(f"('{c}')" for c in clientes_chunk)
+    return f"""
+WITH clientes AS (
+    SELECT v.padded_codigo_cliente
+    FROM (VALUES
+            {values_sql}
+    ) v(padded_codigo_cliente)
+),
+clientes_empresariales AS (
+    SELECT
+        x.padded_codigo_cliente
+    FROM (
+        SELECT
+            RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) AS padded_codigo_cliente,
+            c.CLTIPE AS tipo_cliente,
+            c.dw_usuarios_bel_cnt AS banca_e,
+            ROW_NUMBER() OVER (
+                PARTITION BY RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)
+                ORDER BY c.dw_fecha_informacion DESC
+            ) AS rn
+        FROM DW_CIF_CLIENTES c
+        INNER JOIN clientes cli
+            ON cli.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)
+    ) x
+    WHERE x.rn = 1
+      AND x.tipo_cliente = 'J'
+      AND x.banca_e = 1
+),
+saldos_cuenta_dia AS (
+    SELECT
+        ce.padded_codigo_cliente,
+        CAST(h.DW_CUENTA_CORPORATIVA AS VARCHAR(30)) AS numero_cuenta,
+        CAST(h.dw_fecha_informacion AS DATE) AS fecha_saldo,
+        SUM(CAST(COALESCE(h.ctt001, 0) AS DECIMAL(18, 2))) AS saldo_total_dia
+    FROM HIS_DEP_DEPOSITOS_VIEW h
+    INNER JOIN clientes_empresariales ce
+        ON ce.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(h.CLDOC)), 8)
+    WHERE h.dw_fecha_informacion >= '{FECHA_INICIO}'
+      AND h.dw_fecha_informacion <  '{FECHA_FIN}'
+    GROUP BY
+        ce.padded_codigo_cliente,
+        CAST(h.DW_CUENTA_CORPORATIVA AS VARCHAR(30)),
+        CAST(h.dw_fecha_informacion AS DATE)
+)
+SELECT
+    padded_codigo_cliente,
+    numero_cuenta,
+    CAST(AVG(COALESCE(saldo_total_dia, 0)) AS DECIMAL(18, 2)) AS saldo_promedio_periodo,
+    CAST(
+        SUM(
+            CASE WHEN fecha_saldo = '{FECHA_CORTE}'
+                 THEN COALESCE(saldo_total_dia, 0)
+                 ELSE 0
+            END
+        ) AS DECIMAL(18, 2)
+    ) AS saldo_corte,
+    MAX(fecha_saldo) AS ultima_fecha_saldo
+FROM saldos_cuenta_dia
+GROUP BY
+    padded_codigo_cliente,
+    numero_cuenta;
+"""
+
+
 def ejecutar_perfil_clientes(clientes: list[str]) -> pd.DataFrame:
     if not clientes:
         return pd.DataFrame(
@@ -235,6 +300,52 @@ def ejecutar_perfil_clientes(clientes: list[str]) -> pd.DataFrame:
     return df
 
 
+def obtener_top_cuentas_fondeadas(clientes: list[str], top_n: int = 10) -> pd.DataFrame:
+    columnas = [
+        "padded_codigo_cliente",
+        "numero_cuenta",
+        "saldo_promedio_periodo",
+        "saldo_corte",
+        "ultima_fecha_saldo",
+    ]
+    if not clientes:
+        return pd.DataFrame(columns=columnas)
+
+    frames: list[pd.DataFrame] = []
+    total_chunks = (len(clientes) + CHUNK_SIZE - 1) // CHUNK_SIZE
+
+    for idx in range(total_chunks):
+        inicio = idx * CHUNK_SIZE
+        fin = min((idx + 1) * CHUNK_SIZE, len(clientes))
+        chunk = clientes[inicio:fin]
+        sql = construir_query_top_cuentas_chunk(chunk)
+        df_chunk = run_query(sql)
+        df_chunk.columns = [str(c).strip().lower() for c in df_chunk.columns]
+        frames.append(df_chunk)
+
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=columnas)
+    if df.empty:
+        return pd.DataFrame(columns=columnas)
+
+    for col in ["saldo_promedio_periodo", "saldo_corte"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    df["ultima_fecha_saldo"] = pd.to_datetime(df["ultima_fecha_saldo"], errors="coerce")
+
+    # Consolidacion por seguridad (si una cuenta aparece repetida por origenes).
+    df = (
+        df.groupby(["padded_codigo_cliente", "numero_cuenta"], as_index=False)
+        .agg(
+            saldo_promedio_periodo=("saldo_promedio_periodo", "mean"),
+            saldo_corte=("saldo_corte", "sum"),
+            ultima_fecha_saldo=("ultima_fecha_saldo", "max"),
+        )
+        .sort_values(["saldo_corte", "saldo_promedio_periodo"], ascending=[False, False])
+        .head(top_n)
+        .reset_index(drop=True)
+    )
+    return df
+
+
 def construir_top(df: pd.DataFrame, columna: str, top_n: int = 10) -> pd.DataFrame:
     top = (
         df.groupby(columna, as_index=False)
@@ -250,7 +361,7 @@ def construir_top(df: pd.DataFrame, columna: str, top_n: int = 10) -> pd.DataFra
     return top
 
 
-def imprimir_resumen(df: pd.DataFrame) -> pd.DataFrame:
+def imprimir_resumen(df: pd.DataFrame, top_cuentas: pd.DataFrame) -> pd.DataFrame:
     total_clientes = len(df)
     clientes_empresariales = int(df["es_empresarial"].sum()) if "es_empresarial" in df.columns else total_clientes
     clientes_con_info_saldo = int(df["ultima_fecha_saldo_abril"].notna().sum())
@@ -297,6 +408,22 @@ def imprimir_resumen(df: pd.DataFrame) -> pd.DataFrame:
     )
     print()
 
+    print("Top 10 cuentas con mas fondos (saldo al corte):")
+    if top_cuentas.empty:
+        print("[INFO] No se encontraron cuentas con saldo para el universo evaluado.")
+    else:
+        print(
+            top_cuentas.to_string(
+                index=False,
+                formatters={
+                    "saldo_promedio_periodo": lambda x: _fmt_dec(x),
+                    "saldo_corte": lambda x: _fmt_dec(x),
+                    "ultima_fecha_saldo": lambda x: "" if pd.isna(x) else str(pd.Timestamp(x).date()),
+                },
+            )
+        )
+    print()
+
     return top_segmento
 
 
@@ -317,12 +444,13 @@ def _aplicar_formato_excel(writer: pd.ExcelWriter, sheet_name: str, decimal_cols
                 ws.cell(row=r, column=col_idx).number_format = "#,##0"
 
 
-def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame) -> None:
+def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame, top_cuentas: pd.DataFrame) -> None:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     with pd.ExcelWriter(OUT_XLSX, engine="openpyxl") as writer:
         df.sort_values("padded_codigo_cliente").to_excel(writer, sheet_name="DetalleCliente", index=False)
         top_segmento.to_excel(writer, sheet_name="TopSegmento", index=False)
+        top_cuentas.to_excel(writer, sheet_name="TopCuentasFondos", index=False)
         _aplicar_formato_excel(
             writer,
             "DetalleCliente",
@@ -334,6 +462,12 @@ def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame) -> None:
             "TopSegmento",
             decimal_cols=["saldo_promedio_abril_prom", "saldo_corte_30_abril_total"],
             int_cols=["clientes_unicos"],
+        )
+        _aplicar_formato_excel(
+            writer,
+            "TopCuentasFondos",
+            decimal_cols=["saldo_promedio_periodo", "saldo_corte"],
+            int_cols=[],
         )
 
     total_clientes = len(df)
@@ -373,6 +507,16 @@ def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame) -> None:
             f"saldo_corte_total=L {_fmt_dec(row['saldo_corte_30_abril_total'])}"
         )
 
+    lineas.extend(["", "Top 10 cuentas con mas fondos (saldo al corte)"])
+    for _, row in top_cuentas.iterrows():
+        fecha_txt = "" if pd.isna(row["ultima_fecha_saldo"]) else str(pd.Timestamp(row["ultima_fecha_saldo"]).date())
+        lineas.append(
+            f"- cliente={row['padded_codigo_cliente']} | cuenta={row['numero_cuenta']} | "
+            f"saldo_corte=L {_fmt_dec(row['saldo_corte'])} | "
+            f"saldo_prom_periodo=L {_fmt_dec(row['saldo_promedio_periodo'])} | "
+            f"ultima_fecha_saldo={fecha_txt}"
+        )
+
     OUT_TXT.write_text("\n".join(lineas), encoding="utf-8")
 
 
@@ -397,8 +541,9 @@ def main() -> int:
         df["es_empresarial"] = pd.to_numeric(df["es_empresarial"], errors="coerce").fillna(0).astype(int)
         df["ultima_fecha_saldo_abril"] = pd.to_datetime(df["ultima_fecha_saldo_abril"], errors="coerce")
 
-        top_segmento = imprimir_resumen(df)
-        exportar_resultados(df, top_segmento)
+        top_cuentas = obtener_top_cuentas_fondeadas(clientes, top_n=10)
+        top_segmento = imprimir_resumen(df, top_cuentas)
+        exportar_resultados(df, top_segmento, top_cuentas)
 
         t1 = time.perf_counter()
         print(f"Archivo Excel generado: {OUT_XLSX}")
