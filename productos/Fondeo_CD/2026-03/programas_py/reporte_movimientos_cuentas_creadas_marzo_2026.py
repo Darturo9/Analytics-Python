@@ -58,6 +58,8 @@ def cargar_datos() -> pd.DataFrame:
     for col in columnas_numericas:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+    if "escenario" in df.columns:
+        df["escenario"] = df["escenario"].astype(str).str.strip()
     return df
 
 
@@ -66,26 +68,45 @@ def imprimir_reporte(df: pd.DataFrame) -> None:
         print("No se devolvieron registros para marzo 2026.")
         return
 
-    row = df.iloc[0]
-    creadas = row.get("cuentas_creadas_marzo", 0)
-    con_mov = row.get("cuentas_con_movimiento", 0)
-    sin_mov = row.get("cuentas_sin_movimiento", 0)
-    pct_mov = row.get("pct_cuentas_con_movimiento", 0.0)
-    total_tx = row.get("total_transacciones", 0)
-    prom_tx = row.get("promedio_transacciones_por_cuenta", 0.0)
-    max_tx = row.get("max_transacciones_en_una_cuenta", 0)
+    # Orden esperado de impresion
+    if "escenario" in df.columns:
+        orden = {"SOLO_MARZO": 1, "LIBRE": 2}
+        df = df.copy()
+        df["_orden"] = df["escenario"].map(orden).fillna(999)
+        df = df.sort_values("_orden").drop(columns=["_orden"]).reset_index(drop=True)
 
     print("=" * 78)
     print("MOVIMIENTOS EN CUENTAS CREADAS EN MARZO 2026 - CUENTA DIGITAL")
     print("=" * 78)
-    print(f"Cuentas creadas en marzo 2026:                 {_fmt_int(creadas)}")
-    print(f"Cuentas con movimiento (> 0 trx):              {_fmt_int(con_mov)}")
-    print(f"Cuentas sin movimiento:                         {_fmt_int(sin_mov)}")
-    print(f"% cuentas con movimiento:                       {_fmt_dec(pct_mov)}%")
-    print("-" * 78)
-    print(f"Total de transacciones (ctctrx):               {_fmt_int(total_tx)}")
-    print(f"Promedio de transacciones por cuenta:          {_fmt_dec(prom_tx)}")
-    print(f"Maximo de transacciones en una cuenta:         {_fmt_int(max_tx)}")
+
+    for _, row in df.iterrows():
+        escenario = str(row.get("escenario", "SIN_ESCENARIO"))
+        creadas = row.get("cuentas_creadas_marzo", 0)
+        con_mov = row.get("cuentas_con_movimiento", 0)
+        sin_mov = row.get("cuentas_sin_movimiento", 0)
+        pct_mov = row.get("pct_cuentas_con_movimiento", 0.0)
+        total_tx = row.get("total_transacciones", 0)
+        prom_tx = row.get("promedio_transacciones_por_cuenta", 0.0)
+        max_tx = row.get("max_transacciones_en_una_cuenta", 0)
+
+        if escenario.upper() == "SOLO_MARZO":
+            etiqueta = "ESCENARIO 1 - SOLO_MARZO (movimientos y trx solo en marzo)"
+        elif escenario.upper() == "LIBRE":
+            etiqueta = "ESCENARIO 2 - LIBRE (movimientos/trx acumuladas)"
+        else:
+            etiqueta = f"ESCENARIO - {escenario}"
+
+        print(f"\n{etiqueta}")
+        print("-" * 78)
+        print(f"Cuentas creadas en marzo 2026:                 {_fmt_int(creadas)}")
+        print(f"Cuentas con movimiento (> 0 trx):              {_fmt_int(con_mov)}")
+        print(f"Cuentas sin movimiento:                         {_fmt_int(sin_mov)}")
+        print(f"% cuentas con movimiento:                       {_fmt_dec(pct_mov)}%")
+        print("-" * 78)
+        print(f"Total de transacciones:                         {_fmt_int(total_tx)}")
+        print(f"Promedio de transacciones por cuenta:          {_fmt_dec(prom_tx)}")
+        print(f"Maximo de transacciones en una cuenta:         {_fmt_int(max_tx)}")
+
     print("=" * 78)
 
 
@@ -105,4 +126,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
