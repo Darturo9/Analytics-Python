@@ -290,6 +290,7 @@ def imprimir_reporte(
 ) -> None:
     total_clientes_excel = int(df_resumen["padded_codigo_cliente"].nunique())
     total_logins = int(df_resumen["total_logins"].sum())
+    total_cambios_password = int(df_resumen["total_cambios_password"].sum())
     clientes_unicos_login = int((df_resumen["total_logins"] > 0).sum())
     clientes_cambio_password = int((df_resumen["total_cambios_password"] > 0).sum())
 
@@ -300,27 +301,9 @@ def imprimir_reporte(
     print(f"Clientes en Excel: {total_clientes_excel:,}")
     print("-" * 96)
     print(f"Total de logins (eventos): {total_logins:,}")
+    print(f"Total cambios password (eventos): {total_cambios_password:,}")
     print(f"Logins de clientes unicos: {clientes_unicos_login:,}")
     print(f"Clientes que cambiaron password: {clientes_cambio_password:,}")
-    print("-" * 96)
-
-    detalle_clientes = df_resumen[
-        (df_resumen["total_logins"] > 0) | (df_resumen["total_cambios_password"] > 0)
-    ].copy()
-    detalle_clientes = detalle_clientes.sort_values(
-        ["total_logins", "total_cambios_password", "padded_codigo_cliente"],
-        ascending=[False, False, True],
-    )
-
-    print("CLIENTE / LOGINS / CAMBIOS DE PASSWORD")
-    if detalle_clientes.empty:
-        print("No hay clientes con actividad en el periodo.")
-    else:
-        print(
-            detalle_clientes[
-                ["padded_codigo_cliente", "total_logins", "total_cambios_password"]
-            ].to_string(index=False)
-        )
     print("-" * 96)
 
     _imprimir_resumen_diario(
@@ -328,20 +311,6 @@ def imprimir_reporte(
         cambios_por_dia=cambios_por_dia,
         detalle_diario=detalle_diario,
     )
-
-    clientes_cambio_management = sorted(
-        df_resumen.loc[df_resumen["total_cambios_password"] > 0, "padded_codigo_cliente"]
-        .dropna()
-        .astype(str)
-        .unique()
-        .tolist()
-    )
-    print("CLIENTES CON CAMBIO PASSWORD (FORMATO MANAGEMENT)")
-    if not clientes_cambio_management:
-        print("No hay clientes con cambio de password en el periodo.")
-    else:
-        for codigo in clientes_cambio_management:
-            print(f"'{codigo}',")
     print("=" * 96)
 
 
