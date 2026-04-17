@@ -6,10 +6,10 @@ Clientes_Abril2026_ConModulos.*
 
 Incluye:
 - Total clientes del universo
-- Clientes con saldo positivo en abril 2026
-- Saldo promedio de abril por cliente
-- Saldo al corte del 30-abr-2026
-- Top segmentos y responsables
+- Clientes con saldo positivo en el periodo
+- Saldo promedio del periodo por cliente
+- Saldo al corte
+- Top segmentos
 
 Ejecucion:
     python3 productos/app_empresarial/2026-03/analysis/perfil_financiero_clientes_abril_2026.py
@@ -40,9 +40,11 @@ INPUT_XLSX = EXPORTS_DIR / "Clientes_Abril2026_ConModulos.xlsx"
 OUT_XLSX = EXPORTS_DIR / "PerfilFinancieroClientes_Abril2026.xlsx"
 OUT_TXT = EXPORTS_DIR / "ResumenPerfilFinancieroClientes_Abril2026.txt"
 
-FECHA_INICIO = "2026-04-01"
-FECHA_FIN = "2026-05-01"
-FECHA_CORTE = "2026-04-30"
+# Ventana de saldos solicitada por disponibilidad de informacion.
+FECHA_INICIO = "2026-03-01"
+FECHA_FIN = "2026-03-17"
+FECHA_CORTE = "2026-03-16"
+PERIODO_LABEL = "01 al 16 de marzo 2026"
 CHUNK_SIZE = 400
 
 
@@ -248,7 +250,7 @@ def construir_top(df: pd.DataFrame, columna: str, top_n: int = 10) -> pd.DataFra
     return top
 
 
-def imprimir_resumen(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def imprimir_resumen(df: pd.DataFrame) -> pd.DataFrame:
     total_clientes = len(df)
     clientes_empresariales = int(df["es_empresarial"].sum()) if "es_empresarial" in df.columns else total_clientes
     clientes_con_info_saldo = int(df["ultima_fecha_saldo_abril"].notna().sum())
@@ -261,42 +263,78 @@ def imprimir_resumen(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     ultima_fecha_global = pd.to_datetime(df["ultima_fecha_saldo_abril"], errors="coerce").max()
 
     top_segmento = construir_top(df, "segmento", top_n=10)
-    top_responsable = construir_top(df, "responsable", top_n=10)
 
     print("\n============================================================")
     print(" PERFIL FINANCIERO - CLIENTES ABRIL 2026")
     print("============================================================")
+    print(f"Ventana de saldos evaluada:             {PERIODO_LABEL}")
+    print(f"Fecha de corte utilizada:               {FECHA_CORTE}")
     print(f"Universo de clientes (archivo):        {_fmt_int(total_clientes)}")
     print(f"Clientes empresariales validados:      {_fmt_int(clientes_empresariales)}")
-    print(f"Clientes con info de saldo en abril:   {_fmt_int(clientes_con_info_saldo)}")
-    print(f"Clientes con saldo positivo en abril:  {_fmt_int(clientes_con_saldo)}")
+    print(f"Clientes con info de saldo en periodo: {_fmt_int(clientes_con_info_saldo)}")
+    print(f"Clientes con saldo positivo en periodo:{_fmt_int(clientes_con_saldo)}")
     print(f"% clientes con saldo positivo:         {_fmt_dec(pct_con_saldo)}%")
     print("------------------------------------------------------------")
-    print(f"Saldo promedio abril (por cliente):    L {_fmt_dec(saldo_promedio_universo)}")
-    print(f"Saldo total al 30-abr-2026:            L {_fmt_dec(saldo_total_corte)}")
-    print(f"Saldo promedio al 30-abr-2026:         L {_fmt_dec(saldo_promedio_corte)}")
+    print(f"Saldo promedio periodo (por cliente):  L {_fmt_dec(saldo_promedio_universo)}")
+    print(f"Saldo total al corte ({FECHA_CORTE}):  L {_fmt_dec(saldo_total_corte)}")
+    print(f"Saldo promedio al corte:               L {_fmt_dec(saldo_promedio_corte)}")
     if pd.notna(ultima_fecha_global):
         print(f"Ultima fecha de saldo disponible:      {pd.Timestamp(ultima_fecha_global).date()}")
         if pd.Timestamp(ultima_fecha_global).date() < pd.Timestamp(FECHA_CORTE).date():
-            print("[AVISO] Aun no hay saldo para 30-abr-2026 en base; el saldo al corte puede verse en 0.")
+            print(f"[AVISO] Aun no hay saldo para {FECHA_CORTE} en base; el saldo al corte puede verse en 0.")
     print("============================================================\n")
 
     print("Top segmentos (clientes):")
-    print(top_segmento.to_string(index=False))
-    print("\nTop responsables (clientes):")
-    print(top_responsable.to_string(index=False))
+    print(
+        top_segmento.to_string(
+            index=False,
+            formatters={
+                "clientes_unicos": lambda x: _fmt_int(x),
+                "saldo_promedio_abril_prom": lambda x: _fmt_dec(x),
+                "saldo_corte_30_abril_total": lambda x: _fmt_dec(x),
+            },
+        )
+    )
     print()
 
-    return top_segmento, top_responsable
+    return top_segmento
 
 
-def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame, top_responsable: pd.DataFrame) -> None:
+def _aplicar_formato_excel(writer: pd.ExcelWriter, sheet_name: str, decimal_cols: list[str], int_cols: list[str]) -> None:
+    ws = writer.sheets.get(sheet_name)
+    if ws is None:
+        return
+    headers = {ws.cell(row=1, column=idx).value: idx for idx in range(1, ws.max_column + 1)}
+    for col_name in decimal_cols:
+        if col_name in headers:
+            col_idx = headers[col_name]
+            for r in range(2, ws.max_row + 1):
+                ws.cell(row=r, column=col_idx).number_format = "#,##0.00"
+    for col_name in int_cols:
+        if col_name in headers:
+            col_idx = headers[col_name]
+            for r in range(2, ws.max_row + 1):
+                ws.cell(row=r, column=col_idx).number_format = "#,##0"
+
+
+def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame) -> None:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    with pd.ExcelWriter(OUT_XLSX) as writer:
+    with pd.ExcelWriter(OUT_XLSX, engine="openpyxl") as writer:
         df.sort_values("padded_codigo_cliente").to_excel(writer, sheet_name="DetalleCliente", index=False)
         top_segmento.to_excel(writer, sheet_name="TopSegmento", index=False)
-        top_responsable.to_excel(writer, sheet_name="TopResponsable", index=False)
+        _aplicar_formato_excel(
+            writer,
+            "DetalleCliente",
+            decimal_cols=["saldo_promedio_abril", "saldo_corte_30_abril"],
+            int_cols=["con_saldo_positivo_abril", "es_empresarial"],
+        )
+        _aplicar_formato_excel(
+            writer,
+            "TopSegmento",
+            decimal_cols=["saldo_promedio_abril_prom", "saldo_corte_30_abril_total"],
+            int_cols=["clientes_unicos"],
+        )
 
     total_clientes = len(df)
     clientes_empresariales = int(df["es_empresarial"].sum()) if "es_empresarial" in df.columns else total_clientes
@@ -310,33 +348,27 @@ def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame, top_respon
 
     lineas = [
         "PERFIL FINANCIERO - CLIENTES ABRIL 2026",
+        f"Ventana de saldos evaluada: {PERIODO_LABEL}",
+        f"Fecha de corte utilizada: {FECHA_CORTE}",
         f"Universo de clientes (archivo): {_fmt_int(total_clientes)}",
         f"Clientes empresariales validados: {_fmt_int(clientes_empresariales)}",
-        f"Clientes con info de saldo en abril: {_fmt_int(clientes_con_info_saldo)}",
-        f"Clientes con saldo positivo en abril: {_fmt_int(clientes_con_saldo)}",
+        f"Clientes con info de saldo en periodo: {_fmt_int(clientes_con_info_saldo)}",
+        f"Clientes con saldo positivo en periodo: {_fmt_int(clientes_con_saldo)}",
         f"% clientes con saldo positivo: {_fmt_dec(pct_con_saldo)}%",
-        f"Saldo promedio abril (por cliente): L {_fmt_dec(saldo_promedio_universo)}",
-        f"Saldo total al 30-abr-2026: L {_fmt_dec(saldo_total_corte)}",
-        f"Saldo promedio al 30-abr-2026: L {_fmt_dec(saldo_promedio_corte)}",
+        f"Saldo promedio periodo (por cliente): L {_fmt_dec(saldo_promedio_universo)}",
+        f"Saldo total al corte ({FECHA_CORTE}): L {_fmt_dec(saldo_total_corte)}",
+        f"Saldo promedio al corte: L {_fmt_dec(saldo_promedio_corte)}",
         "",
         "Top 10 segmentos (clientes)",
     ]
     if pd.notna(ultima_fecha_global):
-        lineas.insert(8, f"Ultima fecha de saldo disponible: {pd.Timestamp(ultima_fecha_global).date()}")
+        lineas.insert(11, f"Ultima fecha de saldo disponible: {pd.Timestamp(ultima_fecha_global).date()}")
         if pd.Timestamp(ultima_fecha_global).date() < pd.Timestamp(FECHA_CORTE).date():
-            lineas.insert(9, "AVISO: Aun no hay saldo para 30-abr-2026 en base; el saldo al corte puede verse en 0.")
+            lineas.insert(12, f"AVISO: Aun no hay saldo para {FECHA_CORTE} en base; el saldo al corte puede verse en 0.")
 
     for _, row in top_segmento.iterrows():
         lineas.append(
             f"- {row['segmento']}: clientes={_fmt_int(row['clientes_unicos'])}, "
-            f"saldo_prom_abril=L {_fmt_dec(row['saldo_promedio_abril_prom'])}, "
-            f"saldo_corte_total=L {_fmt_dec(row['saldo_corte_30_abril_total'])}"
-        )
-
-    lineas.extend(["", "Top 10 responsables (clientes)"])
-    for _, row in top_responsable.iterrows():
-        lineas.append(
-            f"- {row['responsable']}: clientes={_fmt_int(row['clientes_unicos'])}, "
             f"saldo_prom_abril=L {_fmt_dec(row['saldo_promedio_abril_prom'])}, "
             f"saldo_corte_total=L {_fmt_dec(row['saldo_corte_30_abril_total'])}"
         )
@@ -365,8 +397,8 @@ def main() -> int:
         df["es_empresarial"] = pd.to_numeric(df["es_empresarial"], errors="coerce").fillna(0).astype(int)
         df["ultima_fecha_saldo_abril"] = pd.to_datetime(df["ultima_fecha_saldo_abril"], errors="coerce")
 
-        top_segmento, top_responsable = imprimir_resumen(df)
-        exportar_resultados(df, top_segmento, top_responsable)
+        top_segmento = imprimir_resumen(df)
+        exportar_resultados(df, top_segmento)
 
         t1 = time.perf_counter()
         print(f"Archivo Excel generado: {OUT_XLSX}")
