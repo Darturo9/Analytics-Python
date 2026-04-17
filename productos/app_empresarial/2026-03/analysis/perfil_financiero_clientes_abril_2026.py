@@ -41,10 +41,10 @@ OUT_XLSX = EXPORTS_DIR / "PerfilFinancieroClientes_Abril2026.xlsx"
 OUT_TXT = EXPORTS_DIR / "ResumenPerfilFinancieroClientes_Abril2026.txt"
 
 # Ventana de saldos solicitada por disponibilidad de informacion.
-FECHA_INICIO = "2026-03-01"
-FECHA_FIN = "2026-03-17"
-FECHA_CORTE = "2026-03-16"
-PERIODO_LABEL = "01 al 16 de marzo 2026"
+FECHA_INICIO = "2026-04-01"
+FECHA_FIN = "2026-04-17"
+FECHA_CORTE = "2026-04-16"
+PERIODO_LABEL = "01 al 16 de abril 2026"
 CHUNK_SIZE = 400
 
 
@@ -135,13 +135,13 @@ saldos_dia AS (
 saldo_cliente AS (
     SELECT
         c.padded_codigo_cliente,
-        AVG(COALESCE(sd.saldo_total_dia, 0)) AS saldo_promedio_abril,
+        AVG(COALESCE(sd.saldo_total_dia, 0)) AS saldo_promedio_periodo,
         SUM(
             CASE WHEN sd.fecha_saldo = '{FECHA_CORTE}'
                  THEN COALESCE(sd.saldo_total_dia, 0)
                  ELSE 0
             END
-        ) AS saldo_corte_30_abril,
+        ) AS saldo_corte_periodo,
         MAX(sd.fecha_saldo) AS ultima_fecha_saldo_abril,
         MAX(CASE WHEN COALESCE(sd.saldo_total_dia, 0) > 0 THEN 1 ELSE 0 END) AS con_saldo_positivo_abril
     FROM clientes_empresariales c
@@ -183,8 +183,8 @@ segmento_cliente AS (
 )
 SELECT
     c.padded_codigo_cliente,
-    CAST(COALESCE(sc.saldo_promedio_abril, 0) AS DECIMAL(18, 2)) AS saldo_promedio_abril,
-    CAST(COALESCE(sc.saldo_corte_30_abril, 0) AS DECIMAL(18, 2)) AS saldo_corte_30_abril,
+    CAST(COALESCE(sc.saldo_promedio_periodo, 0) AS DECIMAL(18, 2)) AS saldo_promedio_periodo,
+    CAST(COALESCE(sc.saldo_corte_periodo, 0) AS DECIMAL(18, 2)) AS saldo_corte_periodo,
     sc.ultima_fecha_saldo_abril,
     CAST(COALESCE(sc.con_saldo_positivo_abril, 0) AS INT) AS con_saldo_positivo_abril,
     COALESCE(seg.segmento, 'SIN SEGMENTO') AS segmento,
@@ -268,8 +268,8 @@ def ejecutar_perfil_clientes(clientes: list[str]) -> pd.DataFrame:
         return pd.DataFrame(
             columns=[
                 "padded_codigo_cliente",
-                "saldo_promedio_abril",
-                "saldo_corte_30_abril",
+                "saldo_promedio_periodo",
+                "saldo_corte_periodo",
                 "ultima_fecha_saldo_abril",
                 "con_saldo_positivo_abril",
                 "segmento",
@@ -351,10 +351,10 @@ def construir_top(df: pd.DataFrame, columna: str, top_n: int = 10) -> pd.DataFra
         df.groupby(columna, as_index=False)
         .agg(
             clientes_unicos=("padded_codigo_cliente", "nunique"),
-            saldo_promedio_abril_prom=("saldo_promedio_abril", "mean"),
-            saldo_corte_30_abril_total=("saldo_corte_30_abril", "sum"),
+            saldo_promedio_periodo_prom=("saldo_promedio_periodo", "mean"),
+            saldo_corte_periodo_total=("saldo_corte_periodo", "sum"),
         )
-        .sort_values(["clientes_unicos", "saldo_corte_30_abril_total"], ascending=[False, False])
+        .sort_values(["clientes_unicos", "saldo_corte_periodo_total"], ascending=[False, False])
         .head(top_n)
         .reset_index(drop=True)
     )
@@ -368,9 +368,9 @@ def imprimir_resumen(df: pd.DataFrame, top_cuentas: pd.DataFrame) -> pd.DataFram
     clientes_con_saldo = int((df["con_saldo_positivo_abril"] == 1).sum())
     pct_con_saldo = (clientes_con_saldo / total_clientes * 100.0) if total_clientes > 0 else 0.0
 
-    saldo_promedio_universo = float(df["saldo_promedio_abril"].mean()) if total_clientes > 0 else 0.0
-    saldo_total_corte = float(df["saldo_corte_30_abril"].sum()) if total_clientes > 0 else 0.0
-    saldo_promedio_corte = float(df["saldo_corte_30_abril"].mean()) if total_clientes > 0 else 0.0
+    saldo_promedio_universo = float(df["saldo_promedio_periodo"].mean()) if total_clientes > 0 else 0.0
+    saldo_total_corte = float(df["saldo_corte_periodo"].sum()) if total_clientes > 0 else 0.0
+    saldo_promedio_corte = float(df["saldo_corte_periodo"].mean()) if total_clientes > 0 else 0.0
     ultima_fecha_global = pd.to_datetime(df["ultima_fecha_saldo_abril"], errors="coerce").max()
 
     top_segmento = construir_top(df, "segmento", top_n=10)
@@ -401,8 +401,8 @@ def imprimir_resumen(df: pd.DataFrame, top_cuentas: pd.DataFrame) -> pd.DataFram
             index=False,
             formatters={
                 "clientes_unicos": lambda x: _fmt_int(x),
-                "saldo_promedio_abril_prom": lambda x: _fmt_dec(x),
-                "saldo_corte_30_abril_total": lambda x: _fmt_dec(x),
+                "saldo_promedio_periodo_prom": lambda x: _fmt_dec(x),
+                "saldo_corte_periodo_total": lambda x: _fmt_dec(x),
             },
         )
     )
@@ -454,13 +454,13 @@ def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame, top_cuenta
         _aplicar_formato_excel(
             writer,
             "DetalleCliente",
-            decimal_cols=["saldo_promedio_abril", "saldo_corte_30_abril"],
+            decimal_cols=["saldo_promedio_periodo", "saldo_corte_periodo"],
             int_cols=["con_saldo_positivo_abril", "es_empresarial"],
         )
         _aplicar_formato_excel(
             writer,
             "TopSegmento",
-            decimal_cols=["saldo_promedio_abril_prom", "saldo_corte_30_abril_total"],
+            decimal_cols=["saldo_promedio_periodo_prom", "saldo_corte_periodo_total"],
             int_cols=["clientes_unicos"],
         )
         _aplicar_formato_excel(
@@ -475,9 +475,9 @@ def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame, top_cuenta
     clientes_con_info_saldo = int(df["ultima_fecha_saldo_abril"].notna().sum())
     clientes_con_saldo = int((df["con_saldo_positivo_abril"] == 1).sum()) if total_clientes > 0 else 0
     pct_con_saldo = (clientes_con_saldo / total_clientes * 100.0) if total_clientes > 0 else 0.0
-    saldo_promedio_universo = float(df["saldo_promedio_abril"].mean()) if total_clientes > 0 else 0.0
-    saldo_total_corte = float(df["saldo_corte_30_abril"].sum()) if total_clientes > 0 else 0.0
-    saldo_promedio_corte = float(df["saldo_corte_30_abril"].mean()) if total_clientes > 0 else 0.0
+    saldo_promedio_universo = float(df["saldo_promedio_periodo"].mean()) if total_clientes > 0 else 0.0
+    saldo_total_corte = float(df["saldo_corte_periodo"].sum()) if total_clientes > 0 else 0.0
+    saldo_promedio_corte = float(df["saldo_corte_periodo"].mean()) if total_clientes > 0 else 0.0
     ultima_fecha_global = pd.to_datetime(df["ultima_fecha_saldo_abril"], errors="coerce").max()
 
     lineas = [
@@ -503,8 +503,8 @@ def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame, top_cuenta
     for _, row in top_segmento.iterrows():
         lineas.append(
             f"- {row['segmento']}: clientes={_fmt_int(row['clientes_unicos'])}, "
-            f"saldo_prom_abril=L {_fmt_dec(row['saldo_promedio_abril_prom'])}, "
-            f"saldo_corte_total=L {_fmt_dec(row['saldo_corte_30_abril_total'])}"
+            f"saldo_prom_periodo=L {_fmt_dec(row['saldo_promedio_periodo_prom'])}, "
+            f"saldo_corte_total=L {_fmt_dec(row['saldo_corte_periodo_total'])}"
         )
 
     lineas.extend(["", "Top 10 cuentas con mas fondos (saldo al corte)"])
@@ -535,7 +535,7 @@ def main() -> int:
             print("[INFO] No se encontraron datos para los clientes consultados.")
             return 0
 
-        for col in ["saldo_promedio_abril", "saldo_corte_30_abril", "con_saldo_positivo_abril"]:
+        for col in ["saldo_promedio_periodo", "saldo_corte_periodo", "con_saldo_positivo_abril"]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         df["con_saldo_positivo_abril"] = df["con_saldo_positivo_abril"].astype(int)
         df["es_empresarial"] = pd.to_numeric(df["es_empresarial"], errors="coerce").fillna(0).astype(int)
