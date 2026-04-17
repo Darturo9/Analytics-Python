@@ -96,29 +96,38 @@ WITH clientes AS (
             {values_sql}
     ) v(padded_codigo_cliente)
 ),
-cuentas_cliente AS (
-    SELECT DISTINCT
-        RIGHT('00000000' + LTRIM(RTRIM(d.CLDOC)), 8) AS padded_codigo_cliente,
-        d.DW_CUENTA_CORPORATIVA
-    FROM dw_dep_depositos d
-    INNER JOIN clientes c
-        ON c.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(d.CLDOC)), 8)
-    WHERE d.DW_PRODUCTO = 'CUENTA DIGITAL'
-      AND d.PRCODP = 1
-      AND d.PRSUBP = 51
+clientes_empresariales AS (
+    SELECT
+        x.padded_codigo_cliente
+    FROM (
+        SELECT
+            RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) AS padded_codigo_cliente,
+            c.CLTIPE AS tipo_cliente,
+            c.dw_usuarios_bel_cnt AS banca_e,
+            ROW_NUMBER() OVER (
+                PARTITION BY RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)
+                ORDER BY c.dw_fecha_informacion DESC
+            ) AS rn
+        FROM DW_CIF_CLIENTES c
+        INNER JOIN clientes cli
+            ON cli.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)
+    ) x
+    WHERE x.rn = 1
+      AND x.tipo_cliente = 'J'
+      AND x.banca_e = 1
 ),
 saldos_dia AS (
     SELECT
-        cc.padded_codigo_cliente,
+        ce.padded_codigo_cliente,
         CAST(h.dw_fecha_informacion AS DATE) AS fecha_saldo,
         SUM(CAST(COALESCE(h.ctt001, 0) AS DECIMAL(18, 2))) AS saldo_total_dia
     FROM HIS_DEP_DEPOSITOS_VIEW h
-    INNER JOIN cuentas_cliente cc
-        ON cc.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
+    INNER JOIN clientes_empresariales ce
+        ON ce.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(h.CLDOC)), 8)
     WHERE h.dw_fecha_informacion >= '{FECHA_INICIO}'
       AND h.dw_fecha_informacion <  '{FECHA_FIN}'
     GROUP BY
-        cc.padded_codigo_cliente,
+        ce.padded_codigo_cliente,
         CAST(h.dw_fecha_informacion AS DATE)
 ),
 saldo_cliente AS (
@@ -131,8 +140,9 @@ saldo_cliente AS (
                  ELSE 0
             END
         ) AS saldo_corte_30_abril,
+        MAX(sd.fecha_saldo) AS ultima_fecha_saldo_abril,
         MAX(CASE WHEN COALESCE(sd.saldo_total_dia, 0) > 0 THEN 1 ELSE 0 END) AS con_saldo_positivo_abril
-    FROM clientes c
+    FROM clientes_empresariales c
     LEFT JOIN saldos_dia sd
         ON sd.padded_codigo_cliente = c.padded_codigo_cliente
     GROUP BY
@@ -158,7 +168,7 @@ segmento_cliente AS (
            AND e.EMPCOD = 1
         LEFT JOIN DWHBP..TR_CIF_CLTIEJ t
             ON t.CLTJCO = e.CLTJCO
-        INNER JOIN clientes c
+        INNER JOIN clientes_empresariales c
             ON c.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(d.CLDOC)), 8)
         WHERE t.CLTJDE IN (
             'GTE CTA INTER COMERCIAL',
@@ -173,10 +183,12 @@ SELECT
     c.padded_codigo_cliente,
     CAST(COALESCE(sc.saldo_promedio_abril, 0) AS DECIMAL(18, 2)) AS saldo_promedio_abril,
     CAST(COALESCE(sc.saldo_corte_30_abril, 0) AS DECIMAL(18, 2)) AS saldo_corte_30_abril,
+    sc.ultima_fecha_saldo_abril,
     CAST(COALESCE(sc.con_saldo_positivo_abril, 0) AS INT) AS con_saldo_positivo_abril,
     COALESCE(seg.segmento, 'SIN SEGMENTO') AS segmento,
-    COALESCE(seg.responsable, 'SIN RESPONSABLE') AS responsable
-FROM clientes c
+    COALESCE(seg.responsable, 'SIN RESPONSABLE') AS responsable,
+    CAST(1 AS INT) AS es_empresarial
+FROM clientes_empresariales c
 LEFT JOIN saldo_cliente sc
     ON sc.padded_codigo_cliente = c.padded_codigo_cliente
 LEFT JOIN segmento_cliente seg
@@ -191,9 +203,11 @@ def ejecutar_perfil_clientes(clientes: list[str]) -> pd.DataFrame:
                 "padded_codigo_cliente",
                 "saldo_promedio_abril",
                 "saldo_corte_30_abril",
+                "ultima_fecha_saldo_abril",
                 "con_saldo_positivo_abril",
                 "segmento",
                 "responsable",
+                "es_empresarial",
             ]
         )
 
@@ -236,12 +250,15 @@ def construir_top(df: pd.DataFrame, columna: str, top_n: int = 10) -> pd.DataFra
 
 def imprimir_resumen(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     total_clientes = len(df)
+    clientes_empresariales = int(df["es_empresarial"].sum()) if "es_empresarial" in df.columns else total_clientes
+    clientes_con_info_saldo = int(df["ultima_fecha_saldo_abril"].notna().sum())
     clientes_con_saldo = int((df["con_saldo_positivo_abril"] == 1).sum())
     pct_con_saldo = (clientes_con_saldo / total_clientes * 100.0) if total_clientes > 0 else 0.0
 
     saldo_promedio_universo = float(df["saldo_promedio_abril"].mean()) if total_clientes > 0 else 0.0
     saldo_total_corte = float(df["saldo_corte_30_abril"].sum()) if total_clientes > 0 else 0.0
     saldo_promedio_corte = float(df["saldo_corte_30_abril"].mean()) if total_clientes > 0 else 0.0
+    ultima_fecha_global = pd.to_datetime(df["ultima_fecha_saldo_abril"], errors="coerce").max()
 
     top_segmento = construir_top(df, "segmento", top_n=10)
     top_responsable = construir_top(df, "responsable", top_n=10)
@@ -249,13 +266,19 @@ def imprimir_resumen(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     print("\n============================================================")
     print(" PERFIL FINANCIERO - CLIENTES ABRIL 2026")
     print("============================================================")
-    print(f"Universo de clientes:                  {_fmt_int(total_clientes)}")
+    print(f"Universo de clientes (archivo):        {_fmt_int(total_clientes)}")
+    print(f"Clientes empresariales validados:      {_fmt_int(clientes_empresariales)}")
+    print(f"Clientes con info de saldo en abril:   {_fmt_int(clientes_con_info_saldo)}")
     print(f"Clientes con saldo positivo en abril:  {_fmt_int(clientes_con_saldo)}")
     print(f"% clientes con saldo positivo:         {_fmt_dec(pct_con_saldo)}%")
     print("------------------------------------------------------------")
     print(f"Saldo promedio abril (por cliente):    L {_fmt_dec(saldo_promedio_universo)}")
     print(f"Saldo total al 30-abr-2026:            L {_fmt_dec(saldo_total_corte)}")
     print(f"Saldo promedio al 30-abr-2026:         L {_fmt_dec(saldo_promedio_corte)}")
+    if pd.notna(ultima_fecha_global):
+        print(f"Ultima fecha de saldo disponible:      {pd.Timestamp(ultima_fecha_global).date()}")
+        if pd.Timestamp(ultima_fecha_global).date() < pd.Timestamp(FECHA_CORTE).date():
+            print("[AVISO] Aun no hay saldo para 30-abr-2026 en base; el saldo al corte puede verse en 0.")
     print("============================================================\n")
 
     print("Top segmentos (clientes):")
@@ -276,15 +299,20 @@ def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame, top_respon
         top_responsable.to_excel(writer, sheet_name="TopResponsable", index=False)
 
     total_clientes = len(df)
+    clientes_empresariales = int(df["es_empresarial"].sum()) if "es_empresarial" in df.columns else total_clientes
+    clientes_con_info_saldo = int(df["ultima_fecha_saldo_abril"].notna().sum())
     clientes_con_saldo = int((df["con_saldo_positivo_abril"] == 1).sum()) if total_clientes > 0 else 0
     pct_con_saldo = (clientes_con_saldo / total_clientes * 100.0) if total_clientes > 0 else 0.0
     saldo_promedio_universo = float(df["saldo_promedio_abril"].mean()) if total_clientes > 0 else 0.0
     saldo_total_corte = float(df["saldo_corte_30_abril"].sum()) if total_clientes > 0 else 0.0
     saldo_promedio_corte = float(df["saldo_corte_30_abril"].mean()) if total_clientes > 0 else 0.0
+    ultima_fecha_global = pd.to_datetime(df["ultima_fecha_saldo_abril"], errors="coerce").max()
 
     lineas = [
         "PERFIL FINANCIERO - CLIENTES ABRIL 2026",
-        f"Universo de clientes: {_fmt_int(total_clientes)}",
+        f"Universo de clientes (archivo): {_fmt_int(total_clientes)}",
+        f"Clientes empresariales validados: {_fmt_int(clientes_empresariales)}",
+        f"Clientes con info de saldo en abril: {_fmt_int(clientes_con_info_saldo)}",
         f"Clientes con saldo positivo en abril: {_fmt_int(clientes_con_saldo)}",
         f"% clientes con saldo positivo: {_fmt_dec(pct_con_saldo)}%",
         f"Saldo promedio abril (por cliente): L {_fmt_dec(saldo_promedio_universo)}",
@@ -293,6 +321,11 @@ def exportar_resultados(df: pd.DataFrame, top_segmento: pd.DataFrame, top_respon
         "",
         "Top 10 segmentos (clientes)",
     ]
+    if pd.notna(ultima_fecha_global):
+        lineas.insert(8, f"Ultima fecha de saldo disponible: {pd.Timestamp(ultima_fecha_global).date()}")
+        if pd.Timestamp(ultima_fecha_global).date() < pd.Timestamp(FECHA_CORTE).date():
+            lineas.insert(9, "AVISO: Aun no hay saldo para 30-abr-2026 en base; el saldo al corte puede verse en 0.")
+
     for _, row in top_segmento.iterrows():
         lineas.append(
             f"- {row['segmento']}: clientes={_fmt_int(row['clientes_unicos'])}, "
@@ -329,6 +362,8 @@ def main() -> int:
         for col in ["saldo_promedio_abril", "saldo_corte_30_abril", "con_saldo_positivo_abril"]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         df["con_saldo_positivo_abril"] = df["con_saldo_positivo_abril"].astype(int)
+        df["es_empresarial"] = pd.to_numeric(df["es_empresarial"], errors="coerce").fillna(0).astype(int)
+        df["ultima_fecha_saldo_abril"] = pd.to_datetime(df["ultima_fecha_saldo_abril"], errors="coerce")
 
         top_segmento, top_responsable = imprimir_resumen(df)
         exportar_resultados(df, top_segmento, top_responsable)
@@ -351,4 +386,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
