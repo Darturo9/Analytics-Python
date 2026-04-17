@@ -41,6 +41,9 @@ QUERY2_CLIENTES_PATH = (
     / "query2_clientes_desde_2025_05_01.sql"
 )
 
+EXPORTS_DIR = PROJECT_ROOT / "productos" / "app_empresarial" / "2026-03" / "exports"
+MODULOS_OBJETIVO = ["Consulta", "Gestiones CRM", "Login", "Transacción"]
+
 
 def cargar_modulo_cruce():
     script_cruce = Path(__file__).resolve().parent / "cruce_query1_query2_modulos.py"
@@ -53,9 +56,8 @@ def cargar_modulo_cruce():
 
 
 def construir_resumen(df: pd.DataFrame) -> pd.DataFrame:
-    categorias = ["Consulta", "Gestiones CRM", "Login", "Transacción"]
     resumen = (
-        df[df["modulo_regla"].isin(categorias)]
+        df[df["modulo_regla"].isin(MODULOS_OBJETIVO)]
         .groupby("modulo_regla", as_index=False)
         .agg(
             cantidad=("padded_codigo_cliente", "size"),
@@ -63,11 +65,35 @@ def construir_resumen(df: pd.DataFrame) -> pd.DataFrame:
         )
     )
 
-    base = pd.DataFrame({"modulo_regla": categorias})
+    base = pd.DataFrame({"modulo_regla": MODULOS_OBJETIVO})
     resumen = base.merge(resumen, on="modulo_regla", how="left").fillna(0)
     resumen["cantidad"] = resumen["cantidad"].astype(int)
     resumen["clientes_unicos"] = resumen["clientes_unicos"].astype(int)
     return resumen
+
+
+def exportar_clientes_modulos(df: pd.DataFrame) -> tuple[Path | None, Path, int]:
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    clientes = (
+        df[df["modulo_regla"].isin(MODULOS_OBJETIVO)][["padded_codigo_cliente"]]
+        .dropna()
+        .drop_duplicates()
+        .sort_values("padded_codigo_cliente")
+        .rename(columns={"padded_codigo_cliente": "codigo_cliente"})
+        .reset_index(drop=True)
+    )
+
+    txt_path = EXPORTS_DIR / "Clientes_Marzo2026_ConModulos.txt"
+    clientes["codigo_cliente"].to_csv(txt_path, index=False, header=False, encoding="utf-8")
+
+    excel_path: Path | None = EXPORTS_DIR / "Clientes_Marzo2026_ConModulos.xlsx"
+    try:
+        clientes.to_excel(excel_path, index=False)
+    except Exception:
+        excel_path = None
+
+    return excel_path, txt_path, len(clientes)
 
 
 def preparar_query1_minimo(df1: pd.DataFrame, modulo) -> pd.DataFrame:
@@ -134,9 +160,21 @@ def main() -> int:
         resumen = construir_resumen(marzo)
         print(resumen.to_string(index=False))
         print()
+
+        excel_path, txt_path, total_clientes_exportados = exportar_clientes_modulos(marzo)
+        print(f"Clientes unicos exportados (modulos objetivo): {total_clientes_exportados:,}")
+        if excel_path is not None:
+            print(f"Archivo Excel:          {excel_path}")
+        else:
+            print("Archivo Excel:          No se pudo generar (motor Excel no disponible).")
+        print(f"Archivo texto plano:    {txt_path}")
+        print()
+
+        t3 = time.perf_counter()
         print(f"Tiempo carga SQL:        {t1 - t0:.2f}s")
         print(f"Tiempo proceso Python:   {t2 - t1:.2f}s")
-        print(f"Tiempo total:            {t2 - t0:.2f}s")
+        print(f"Tiempo exportacion:      {t3 - t2:.2f}s")
+        print(f"Tiempo total:            {t3 - t0:.2f}s")
         return 0
     except SQLAlchemyError as exc:
         print(f"[ERROR] Fallo de base de datos: {exc}")
