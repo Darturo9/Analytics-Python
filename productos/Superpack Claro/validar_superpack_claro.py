@@ -232,6 +232,15 @@ def construir_salidas(
     }
 
 
+def normalizar_columnas_para_export(sheets: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    normalizadas: dict[str, pd.DataFrame] = {}
+    for nombre_hoja, df in sheets.items():
+        copia = df.copy()
+        copia.columns = [str(col) for col in copia.columns]
+        normalizadas[nombre_hoja] = copia
+    return normalizadas
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Valida una lista de clientes (Excel/CSV) contra compradores de Superpack Claro."
@@ -291,6 +300,7 @@ def main() -> None:
             fecha_fin_exclusiva=args.fecha_fin_exclusiva,
             codigo_superpack=args.codigo_superpack,
         )
+        sheets = normalizar_columnas_para_export(sheets)
 
         output_path = Path(args.output.strip()) if args.output.strip() else DEFAULT_OUTPUT
         exportar_excel_multi(sheets, str(output_path))
