@@ -39,7 +39,9 @@ def exportar_excel(df: pd.DataFrame, path: str, hoja: str = "Datos") -> None:
         worksheet = writer.sheets[hoja]
         fmt_text  = workbook.add_format({"num_format": "@"})  # formato texto
         for i, col in enumerate(df.columns):
-            ancho = max(df[col].astype(str).map(len).max(), len(col)) + 2
+            # Usar iloc por posicion evita problemas con columnas duplicadas.
+            serie = df.iloc[:, i].astype(str)
+            ancho = max(serie.map(len).max(), len(str(col))) + 2
             worksheet.set_column(i, i, ancho, fmt_text)
     print(f"[OK] Excel exportado: {path}")
 
@@ -61,7 +63,9 @@ def exportar_excel_multi(sheets: dict, path: str) -> None:
             df.to_excel(writer, sheet_name=nombre, index=False)
             worksheet = writer.sheets[nombre]
             for i, col in enumerate(df.columns):
-                ancho = max(df[col].astype(str).map(len).max(), len(col)) + 2
+                # Usar iloc por posicion evita problemas con columnas duplicadas.
+                serie = df.iloc[:, i].astype(str)
+                ancho = max(serie.map(len).max(), len(str(col))) + 2
                 worksheet.set_column(i, i, ancho)
     print(f"[OK] Excel multi-hoja exportado: {path}")
 
