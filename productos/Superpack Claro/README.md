@@ -26,11 +26,16 @@ Este modulo contiene una query para:
 
 ## Uso rapido (Python para listas grandes)
 
-Para archivos grandes (200K+), usa el script Python:
+Para archivos grandes (200K+), usa el script Python.
+
+1. Coloca el archivo en:
+
+- `productos/Superpack Claro/inputs/clientes Contactados promo Claro.xlsx`
+
+2. Ejecuta sin parametros:
 
 ```bash
-python3 "productos/Superpack Claro/validar_superpack_claro.py" \
-  --input "/ruta/a/tu_lista_clientes.xlsx"
+python3 "productos/Superpack Claro/validar_superpack_claro.py"
 ```
 
 Salida por defecto:
@@ -47,6 +52,7 @@ Hojas de salida:
 
 Opciones utiles:
 
+- `--input "/ruta/a/tu_lista_clientes.xlsx"` para usar un archivo distinto al default.
 - `--sheet "NombreHoja"` para indicar hoja de Excel.
 - `--cliente-column "codigo_cliente"` para fijar columna de cliente.
 - `--output "/ruta/salida.xlsx"` para cambiar archivo de salida.

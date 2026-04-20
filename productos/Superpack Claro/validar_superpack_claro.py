@@ -13,6 +13,7 @@ from core.utils import exportar_excel_multi
 
 
 BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_INPUT = BASE_DIR / "inputs" / "clientes Contactados promo Claro.xlsx"
 DEFAULT_OUTPUT = BASE_DIR / "exports" / "validacion_superpack_claro_abril_2026.xlsx"
 PREFERRED_COLUMNS = (
     "codigo_cliente",
@@ -235,7 +236,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Valida una lista de clientes (Excel/CSV) contra compradores de Superpack Claro."
     )
-    parser.add_argument("--input", required=True, help="Ruta del Excel/CSV con la lista de clientes.")
+    parser.add_argument(
+        "--input",
+        default="",
+        help=(
+            "Ruta del Excel/CSV con la lista de clientes (opcional). "
+            "Default: inputs/clientes Contactados promo Claro.xlsx"
+        ),
+    )
     parser.add_argument(
         "--sheet",
         default="",
@@ -261,8 +269,9 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        print(f"Leyendo archivo: {args.input}")
-        df_lista = cargar_lista(args.input, args.sheet)
+        input_path = Path(args.input.strip()) if args.input.strip() else DEFAULT_INPUT
+        print(f"Leyendo archivo: {input_path}")
+        df_lista = cargar_lista(str(input_path), args.sheet)
         col_cliente = seleccionar_columna_cliente(df_lista, args.cliente_column)
         print(f"Columna de cliente usada: {col_cliente}")
         print(f"Filas en lista de entrada: {len(df_lista):,}")
