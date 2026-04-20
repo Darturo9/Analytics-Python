@@ -241,6 +241,13 @@ def normalizar_columnas_para_export(sheets: dict[str, pd.DataFrame]) -> dict[str
     return normalizadas
 
 
+def to_int_safe(value: object) -> int:
+    try:
+        return int(float(value))
+    except Exception:
+        return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Valida una lista de clientes (Excel/CSV) contra compradores de Superpack Claro."
@@ -275,6 +282,11 @@ def main() -> None:
         help="Fecha fin exclusiva (YYYY-MM-DD).",
     )
     parser.add_argument("--codigo-superpack", type=int, default=498, help="Codigo de servicio Multipago.")
+    parser.add_argument(
+        "--no-export",
+        action="store_true",
+        help="No genera Excel. Muestra resultados solo en consola.",
+    )
     args = parser.parse_args()
 
     try:
@@ -301,6 +313,24 @@ def main() -> None:
             codigo_superpack=args.codigo_superpack,
         )
         sheets = normalizar_columnas_para_export(sheets)
+
+        resumen_df = sheets["resumen"].copy()
+        resumen_map = {
+            str(row["metrica"]): row["valor"]
+            for _, row in resumen_df.iterrows()
+        }
+        print("\n===== RESUMEN =====")
+        print(f"Total registros lista: {to_int_safe(resumen_map.get('total_registros_lista', 0)):,}")
+        print(f"Total codigos validos: {to_int_safe(resumen_map.get('total_codigos_validos_lista', 0)):,}")
+        print(f"Total clientes unicos lista: {to_int_safe(resumen_map.get('total_clientes_unicos_lista', 0)):,}")
+        print(f"Clientes unicos que compraron: {to_int_safe(resumen_map.get('clientes_unicos_que_compraron', 0)):,}")
+        print(f"Clientes unicos que no compraron: {to_int_safe(resumen_map.get('clientes_unicos_que_no_compraron', 0)):,}")
+        print(f"% que compraron: {resumen_map.get('pct_clientes_unicos_que_compraron', 0)}")
+        print("===================\n")
+
+        if args.no_export:
+            print("Modo --no-export activo. No se genero archivo Excel.")
+            return
 
         output_path = Path(args.output.strip()) if args.output.strip() else DEFAULT_OUTPUT
         exportar_excel_multi(sheets, str(output_path))
