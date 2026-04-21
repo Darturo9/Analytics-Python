@@ -11,6 +11,7 @@ Este modulo contiene una query para:
 - `queries/clientes_contactados_rtm_claro_abril_2026.sql`
 - `validar_superpack_claro.py`
 - `resumen_superpack_mensual.py`
+- `unificar_clientes_contactados.py`
 
 ## Logica usada
 
@@ -85,3 +86,26 @@ Con parametros:
 ```bash
 python3 "productos/Superpack Claro/resumen_superpack_mensual.py" --anio 2026 --mes-inicio 1 --mes-fin 4 --codigo-superpack 498
 ```
+
+## Unificar clientes contactados (RTM prioridad)
+
+Este script une 2 archivos de `inputs`:
+
+- `Clientes Contactados RTM.xlsx`
+- `clientes Contactados promo Claro.xlsx`
+
+Reglas:
+
+- agrega columna `origen` con `RTM` o `PAUTA`
+- elimina duplicados por cliente
+- si un cliente esta en ambos archivos, se conserva con `origen = RTM`
+
+Ejecucion:
+
+```bash
+python3 "productos/Superpack Claro/unificar_clientes_contactados.py"
+```
+
+Salida:
+
+- `productos/Superpack Claro/exports/clientes_contactados_unificados_prioridad_rtm.xlsx`
