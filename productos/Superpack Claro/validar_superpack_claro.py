@@ -13,8 +13,20 @@ from core.utils import exportar_excel
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_INPUT = BASE_DIR / "inputs" / "clientes Contactados promo Claro.xlsx"
-DEFAULT_OUTPUT_COMPRADORES = BASE_DIR / "exports" / "clientes_que_compraron_superpack_abril_2026.xlsx"
+DEFAULT_INPUT_PROMO = BASE_DIR / "inputs" / "clientes Contactados promo Claro.xlsx"
+DEFAULT_INPUT_RTM = BASE_DIR / "inputs" / "Clientes Contactados RTM.xlsx"
+DEFAULT_ANALISIS = (
+    {
+        "nombre": "Promo Claro",
+        "input_path": DEFAULT_INPUT_PROMO,
+        "output_path": BASE_DIR / "exports" / "clientes_que_compraron_superpack_abril_2026.xlsx",
+    },
+    {
+        "nombre": "Contactados RTM",
+        "input_path": DEFAULT_INPUT_RTM,
+        "output_path": BASE_DIR / "exports" / "clientes_que_compraron_superpack_abril_2026_rtm.xlsx",
+    },
+)
 PREFERRED_COLUMNS = (
     "codigo_cliente",
     "cod_cliente",
@@ -344,6 +356,94 @@ def to_int_safe(value: object) -> int:
         return 0
 
 
+def normalizar_nombre_archivo(nombre: str) -> str:
+    base = re.sub(r"\s+", "_", nombre.strip())
+    base = re.sub(r"[^A-Za-z0-9_\\-]", "", base)
+    return base.lower() or "lista_clientes"
+
+
+def imprimir_resumen_validacion(resumen_map: dict[str, object]) -> None:
+    print("\n===== RESUMEN =====")
+    print(f"Total registros lista: {to_int_safe(resumen_map.get('total_registros_lista', 0)):,}")
+    print(f"Total codigos validos: {to_int_safe(resumen_map.get('total_codigos_validos_lista', 0)):,}")
+    print(f"Total clientes unicos lista: {to_int_safe(resumen_map.get('total_clientes_unicos_lista', 0)):,}")
+    print(f"Clientes unicos que compraron: {to_int_safe(resumen_map.get('clientes_unicos_que_compraron', 0)):,}")
+    print(f"Clientes unicos que no compraron: {to_int_safe(resumen_map.get('clientes_unicos_que_no_compraron', 0)):,}")
+    print(f"% que compraron: {resumen_map.get('pct_clientes_unicos_que_compraron', 0)}")
+    print("===================\n")
+
+
+def construir_trabajos(input_arg: str) -> list[dict[str, object]]:
+    if input_arg.strip():
+        input_path = Path(input_arg.strip())
+        salida = BASE_DIR / "exports" / (
+            f"clientes_que_compraron_superpack_abril_2026_{normalizar_nombre_archivo(input_path.stem)}.xlsx"
+        )
+        return [
+            {
+                "nombre": f"Personalizado ({input_path.name})",
+                "input_path": input_path,
+                "output_path": salida,
+            }
+        ]
+    return [dict(item) for item in DEFAULT_ANALISIS]
+
+
+def ejecutar_analisis_lista(
+    trabajo: dict[str, object],
+    args: argparse.Namespace,
+    df_compradores: pd.DataFrame,
+) -> dict[str, object]:
+    nombre = str(trabajo["nombre"])
+    input_path = Path(trabajo["input_path"])
+    output_path = Path(trabajo["output_path"])
+
+    if not input_path.exists():
+        print(f"[WARN] Se omite '{nombre}': no existe el archivo {input_path}")
+        return {
+            "nombre": nombre,
+            "input_path": str(input_path),
+            "ejecutado": 0,
+            "compraron": 0,
+        }
+
+    print(f"\n===== ANALISIS: {nombre} =====")
+    print(f"Leyendo archivo: {input_path}")
+    df_lista = cargar_lista(str(input_path), args.sheet)
+    col_cliente = seleccionar_columna_cliente(df_lista, args.cliente_column)
+    print(f"Columna de cliente usada: {col_cliente}")
+    print(f"Filas en lista de entrada: {len(df_lista):,}")
+
+    print("Construyendo validacion y resumen...")
+    sheets = construir_salidas(
+        df_lista=df_lista,
+        col_cliente=col_cliente,
+        df_compradores=df_compradores,
+        fecha_inicio=args.fecha_inicio,
+        fecha_fin_exclusiva=args.fecha_fin_exclusiva,
+        codigo_superpack=args.codigo_superpack,
+    )
+
+    resumen_df = sheets["resumen"].copy()
+    resumen_map = {str(row["metrica"]): row["valor"] for _, row in resumen_df.iterrows()}
+    imprimir_resumen_validacion(resumen_map)
+
+    if args.no_export:
+        print("Modo --no-export activo. No se genero archivo Excel para este analisis.")
+    else:
+        compradores_df = sheets["clientes_match"].copy()
+        compradores_df.columns = [str(col) for col in compradores_df.columns]
+        exportar_excel(compradores_df, str(output_path), hoja="compradores_superpack")
+        print(f"Archivo compradores generado: {output_path}")
+
+    return {
+        "nombre": nombre,
+        "input_path": str(input_path),
+        "ejecutado": 1,
+        "compraron": to_int_safe(resumen_map.get("clientes_unicos_que_compraron", 0)),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Valida una lista de clientes (Excel/CSV) contra compradores de Superpack Claro."
@@ -353,7 +453,8 @@ def main() -> None:
         default="",
         help=(
             "Ruta del Excel/CSV con la lista de clientes (opcional). "
-            "Default: inputs/clientes Contactados promo Claro.xlsx"
+            "Si no se indica, ejecuta 2 analisis por defecto: "
+            "'clientes Contactados promo Claro.xlsx' y 'Clientes Contactados RTM.xlsx'."
         ),
     )
     parser.add_argument(
@@ -381,13 +482,6 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        input_path = Path(args.input.strip()) if args.input.strip() else DEFAULT_INPUT
-        print(f"Leyendo archivo: {input_path}")
-        df_lista = cargar_lista(str(input_path), args.sheet)
-        col_cliente = seleccionar_columna_cliente(df_lista, args.cliente_column)
-        print(f"Columna de cliente usada: {col_cliente}")
-        print(f"Filas en lista de entrada: {len(df_lista):,}")
-
         print("Consultando compradores de Superpack en SQL Server...")
         df_compradores = obtener_compradores_superpack(
             args.fecha_inicio, args.fecha_fin_exclusiva, args.codigo_superpack
@@ -398,39 +492,30 @@ def main() -> None:
         )
         imprimir_resumen_diario_en_consola(df_resumen_diario)
 
-        print("Construyendo validacion y resumen...")
-        sheets = construir_salidas(
-            df_lista=df_lista,
-            col_cliente=col_cliente,
-            df_compradores=df_compradores,
-            fecha_inicio=args.fecha_inicio,
-            fecha_fin_exclusiva=args.fecha_fin_exclusiva,
-            codigo_superpack=args.codigo_superpack,
-        )
+        trabajos = construir_trabajos(args.input)
+        resultados: list[dict[str, object]] = []
+        for trabajo in trabajos:
+            resultado = ejecutar_analisis_lista(
+                trabajo=trabajo,
+                args=args,
+                df_compradores=df_compradores,
+            )
+            resultados.append(resultado)
 
-        resumen_df = sheets["resumen"].copy()
-        resumen_map = {
-            str(row["metrica"]): row["valor"]
-            for _, row in resumen_df.iterrows()
-        }
-        print("\n===== RESUMEN =====")
-        print(f"Total registros lista: {to_int_safe(resumen_map.get('total_registros_lista', 0)):,}")
-        print(f"Total codigos validos: {to_int_safe(resumen_map.get('total_codigos_validos_lista', 0)):,}")
-        print(f"Total clientes unicos lista: {to_int_safe(resumen_map.get('total_clientes_unicos_lista', 0)):,}")
-        print(f"Clientes unicos que compraron: {to_int_safe(resumen_map.get('clientes_unicos_que_compraron', 0)):,}")
-        print(f"Clientes unicos que no compraron: {to_int_safe(resumen_map.get('clientes_unicos_que_no_compraron', 0)):,}")
-        print(f"% que compraron: {resumen_map.get('pct_clientes_unicos_que_compraron', 0)}")
-        print("===================\n")
+        ejecutados = [r for r in resultados if to_int_safe(r.get("ejecutado", 0)) == 1]
+        total_ejecutados = len(ejecutados)
+        total_compraron = sum(to_int_safe(r.get("compraron", 0)) for r in ejecutados)
 
-        if args.no_export:
-            print("Modo --no-export activo. No se genero archivo Excel.")
-            return
-
-        compradores_path = DEFAULT_OUTPUT_COMPRADORES
-        compradores_df = sheets["clientes_match"].copy()
-        compradores_df.columns = [str(col) for col in compradores_df.columns]
-        exportar_excel(compradores_df, str(compradores_path), hoja="compradores_superpack")
-        print(f"Archivo compradores generado: {compradores_path}")
+        print("===== RESUMEN CONSOLIDADO =====")
+        print(f"Analisis ejecutados: {total_ejecutados}")
+        print(f"Total clientes que compraron (suma por analisis): {total_compraron:,}")
+        for r in resultados:
+            estado = "OK" if to_int_safe(r.get("ejecutado", 0)) == 1 else "OMITIDO"
+            print(
+                f"- {r.get('nombre')}: {estado} | compraron={to_int_safe(r.get('compraron', 0)):,} | "
+                f"archivo={r.get('input_path')}"
+            )
+        print("================================")
 
     except SQLAlchemyError as exc:
         print(construir_error_amigable(exc))

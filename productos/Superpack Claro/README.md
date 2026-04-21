@@ -28,9 +28,10 @@ Este modulo contiene una query para:
 
 Para archivos grandes (200K+), usa el script Python.
 
-1. Coloca el archivo en:
+1. Coloca los archivos en:
 
 - `productos/Superpack Claro/inputs/clientes Contactados promo Claro.xlsx`
+- `productos/Superpack Claro/inputs/Clientes Contactados RTM.xlsx`
 
 2. Ejecuta sin parametros:
 
@@ -41,14 +42,22 @@ python3 "productos/Superpack Claro/validar_superpack_claro.py"
 Salida por defecto:
 
 - `productos/Superpack Claro/exports/clientes_que_compraron_superpack_abril_2026.xlsx`
+- `productos/Superpack Claro/exports/clientes_que_compraron_superpack_abril_2026_rtm.xlsx`
 
 Hojas de salida:
 
 - `compradores_superpack`
 
+En consola tambien imprime una tabla diaria con:
+
+- fecha
+- clientes unicos compradores
+- total de transacciones del dia
+- monto mas comun y su frecuencia
+
 Opciones utiles:
 
-- `--input "/ruta/a/tu_lista_clientes.xlsx"` para usar un archivo distinto al default.
+- `--input "/ruta/a/tu_lista_clientes.xlsx"` para ejecutar un solo analisis personalizado.
 - `--sheet "NombreHoja"` para indicar hoja de Excel.
 - `--cliente-column "codigo_cliente"` para fijar columna de cliente.
 - `--no-export` para correr solo validacion y ver resumen en consola, sin generar archivo.
