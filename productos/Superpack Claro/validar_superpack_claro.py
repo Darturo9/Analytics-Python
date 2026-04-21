@@ -9,12 +9,12 @@ from sqlalchemy.exc import SQLAlchemyError
 sys.path.insert(0, ".")
 
 from core.db import run_query
-from core.utils import exportar_excel_multi
+from core.utils import exportar_excel
 
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_INPUT = BASE_DIR / "inputs" / "clientes Contactados promo Claro.xlsx"
-DEFAULT_OUTPUT = BASE_DIR / "exports" / "validacion_superpack_claro_abril_2026.xlsx"
+DEFAULT_OUTPUT_COMPRADORES = BASE_DIR / "exports" / "clientes_que_compraron_superpack_abril_2026.xlsx"
 PREFERRED_COLUMNS = (
     "codigo_cliente",
     "cod_cliente",
@@ -57,6 +57,72 @@ SELECT
 FROM trx_superpack
 WHERE padded_codigo_cliente IS NOT NULL
 GROUP BY padded_codigo_cliente
+"""
+
+SQL_RESUMEN_DIARIO_SUPERPACK = """
+WITH trx_superpack AS (
+    SELECT
+        RIGHT(
+            '00000000' + LTRIM(RTRIM(
+                CASE
+                    WHEN p.spinus IS NULL THEN NULL
+                    WHEN PATINDEX('%[A-Za-z]%', p.spinus) > 1
+                        THEN LEFT(p.spinus, PATINDEX('%[A-Za-z]%', p.spinus) - 1)
+                    WHEN PATINDEX('%[A-Za-z]%', p.spinus) = 1 THEN NULL
+                    ELSE p.spinus
+                END
+            )),
+            8
+        ) AS padded_codigo_cliente,
+        CONVERT(date, p.dw_fecha_operacion_sp) AS fecha_operacion,
+        CAST(p.sppava AS DECIMAL(18, 2)) AS monto_operacion
+    FROM dw_mul_sppadat p
+    INNER JOIN dw_mul_spmaco m
+        ON p.spcodc = m.spcodc
+    WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
+      AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
+      AND p.sppafr = 'N'
+      AND TRY_CONVERT(INT, p.spcodc) = :codigo_superpack
+),
+trx_validas AS (
+    SELECT
+        padded_codigo_cliente,
+        fecha_operacion,
+        monto_operacion
+    FROM trx_superpack
+    WHERE padded_codigo_cliente IS NOT NULL
+),
+clientes_diarios AS (
+    SELECT
+        fecha_operacion,
+        COUNT(DISTINCT padded_codigo_cliente) AS clientes_unicos_compradores,
+        COUNT(*) AS total_tx_dia
+    FROM trx_validas
+    GROUP BY fecha_operacion
+),
+montos_diarios AS (
+    SELECT
+        fecha_operacion,
+        monto_operacion,
+        COUNT(*) AS frecuencia_monto,
+        ROW_NUMBER() OVER (
+            PARTITION BY fecha_operacion
+            ORDER BY COUNT(*) DESC, monto_operacion ASC
+        ) AS rn
+    FROM trx_validas
+    GROUP BY fecha_operacion, monto_operacion
+)
+SELECT
+    c.fecha_operacion,
+    c.clientes_unicos_compradores,
+    c.total_tx_dia,
+    m.monto_operacion AS monto_mas_comun,
+    m.frecuencia_monto AS frecuencia_monto_mas_comun
+FROM clientes_diarios c
+LEFT JOIN montos_diarios m
+    ON c.fecha_operacion = m.fecha_operacion
+   AND m.rn = 1
+ORDER BY c.fecha_operacion
 """
 
 
@@ -149,6 +215,45 @@ def obtener_compradores_superpack(
     return run_query(SQL_COMPRADORES_SUPERPACK, params=params)
 
 
+def obtener_resumen_diario_superpack(
+    fecha_inicio: str, fecha_fin_exclusiva: str, codigo_superpack: int
+) -> pd.DataFrame:
+    params = {
+        "fecha_inicio": fecha_inicio,
+        "fecha_fin_exclusiva": fecha_fin_exclusiva,
+        "codigo_superpack": codigo_superpack,
+    }
+    return run_query(SQL_RESUMEN_DIARIO_SUPERPACK, params=params)
+
+
+def imprimir_resumen_diario_en_consola(df_resumen_diario: pd.DataFrame) -> None:
+    print("===== RESUMEN DIARIO SUPERPACK =====")
+    if df_resumen_diario.empty:
+        print("Sin compras en el periodo consultado.")
+        print("====================================\n")
+        return
+
+    tabla = df_resumen_diario.copy()
+    tabla["fecha_operacion"] = pd.to_datetime(tabla["fecha_operacion"]).dt.strftime("%Y-%m-%d")
+    tabla["clientes_unicos_compradores"] = tabla["clientes_unicos_compradores"].fillna(0).astype(int)
+    tabla["total_tx_dia"] = tabla["total_tx_dia"].fillna(0).astype(int)
+    tabla["frecuencia_monto_mas_comun"] = tabla["frecuencia_monto_mas_comun"].fillna(0).astype(int)
+    tabla["monto_mas_comun"] = pd.to_numeric(tabla["monto_mas_comun"], errors="coerce").fillna(0.0)
+    tabla["monto_mas_comun"] = tabla["monto_mas_comun"].map(lambda x: f"{x:,.2f}")
+
+    tabla = tabla.rename(
+        columns={
+            "fecha_operacion": "fecha",
+            "clientes_unicos_compradores": "clientes_unicos",
+            "total_tx_dia": "total_tx",
+            "monto_mas_comun": "monto_mas_comun",
+            "frecuencia_monto_mas_comun": "frecuencia_monto",
+        }
+    )
+    print(tabla.to_string(index=False))
+    print("====================================\n")
+
+
 def construir_salidas(
     df_lista: pd.DataFrame,
     col_cliente: str,
@@ -232,15 +337,6 @@ def construir_salidas(
     }
 
 
-def normalizar_columnas_para_export(sheets: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    normalizadas: dict[str, pd.DataFrame] = {}
-    for nombre_hoja, df in sheets.items():
-        copia = df.copy()
-        copia.columns = [str(col) for col in copia.columns]
-        normalizadas[nombre_hoja] = copia
-    return normalizadas
-
-
 def to_int_safe(value: object) -> int:
     try:
         return int(float(value))
@@ -270,11 +366,6 @@ def main() -> None:
         default="",
         help="Nombre de columna del cliente (opcional). Si no se indica, se detecta automaticamente.",
     )
-    parser.add_argument(
-        "--output",
-        default="",
-        help="Ruta de salida del Excel (opcional). Default: exports/validacion_superpack_claro_abril_2026.xlsx",
-    )
     parser.add_argument("--fecha-inicio", default="2026-04-01", help="Fecha inicio inclusiva (YYYY-MM-DD).")
     parser.add_argument(
         "--fecha-fin-exclusiva",
@@ -302,6 +393,10 @@ def main() -> None:
             args.fecha_inicio, args.fecha_fin_exclusiva, args.codigo_superpack
         )
         print(f"Clientes unicos compradores en el periodo: {len(df_compradores):,}")
+        df_resumen_diario = obtener_resumen_diario_superpack(
+            args.fecha_inicio, args.fecha_fin_exclusiva, args.codigo_superpack
+        )
+        imprimir_resumen_diario_en_consola(df_resumen_diario)
 
         print("Construyendo validacion y resumen...")
         sheets = construir_salidas(
@@ -312,7 +407,6 @@ def main() -> None:
             fecha_fin_exclusiva=args.fecha_fin_exclusiva,
             codigo_superpack=args.codigo_superpack,
         )
-        sheets = normalizar_columnas_para_export(sheets)
 
         resumen_df = sheets["resumen"].copy()
         resumen_map = {
@@ -332,9 +426,11 @@ def main() -> None:
             print("Modo --no-export activo. No se genero archivo Excel.")
             return
 
-        output_path = Path(args.output.strip()) if args.output.strip() else DEFAULT_OUTPUT
-        exportar_excel_multi(sheets, str(output_path))
-        print(f"Archivo generado: {output_path}")
+        compradores_path = DEFAULT_OUTPUT_COMPRADORES
+        compradores_df = sheets["clientes_match"].copy()
+        compradores_df.columns = [str(col) for col in compradores_df.columns]
+        exportar_excel(compradores_df, str(compradores_path), hoja="compradores_superpack")
+        print(f"Archivo compradores generado: {compradores_path}")
 
     except SQLAlchemyError as exc:
         print(construir_error_amigable(exc))

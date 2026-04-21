@@ -40,19 +40,15 @@ python3 "productos/Superpack Claro/validar_superpack_claro.py"
 
 Salida por defecto:
 
-- `productos/Superpack Claro/exports/validacion_superpack_claro_abril_2026.xlsx`
+- `productos/Superpack Claro/exports/clientes_que_compraron_superpack_abril_2026.xlsx`
 
 Hojas de salida:
 
-- `resumen`
-- `detalle_lista`
-- `clientes_match`
-- `clientes_no_match`
-- `universo_superpack`
+- `compradores_superpack`
 
 Opciones utiles:
 
 - `--input "/ruta/a/tu_lista_clientes.xlsx"` para usar un archivo distinto al default.
 - `--sheet "NombreHoja"` para indicar hoja de Excel.
 - `--cliente-column "codigo_cliente"` para fijar columna de cliente.
-- `--output "/ruta/salida.xlsx"` para cambiar archivo de salida.
+- `--no-export` para correr solo validacion y ver resumen en consola, sin generar archivo.
