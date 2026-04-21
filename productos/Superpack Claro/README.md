@@ -129,6 +129,7 @@ Y muestra en consola:
 
 - cuantos clientes de la lista compraron superpack
 - desglose por canal `RTM` y `PAUTA`
+- resumen de canal de compra (`APP` / `WEB` / `MIXTO` / `SIN_DATO`)
 
 Ejecucion:
 

@@ -101,6 +101,32 @@ def normalizar_origen(value: object) -> str:
     return "SIN_ORIGEN"
 
 
+def normalizar_canal_compra(canal_raw: object, canal_codigo: object) -> str:
+    text = "" if pd.isna(canal_raw) else str(canal_raw).strip().upper()
+    if "APP" in text or text in ("AP", "APP"):
+        return "APP"
+    if "WEB" in text or text in ("IB",):
+        return "WEB"
+
+    # Si no viene texto util, se deja sin dato para no asumir mapeos no confirmados.
+    if text in ("", "SIN_DATO", "NULL", "NONE", "NAN"):
+        return "SIN_DATO"
+
+    # Conserva valor original si viene otro canal no esperado.
+    return text
+
+
+def consolidar_canales_cliente(series: pd.Series) -> str:
+    valores = sorted(set(v for v in series.dropna().astype(str).tolist() if v and v != "SIN_DATO"))
+    if not valores:
+        return "SIN_DATO"
+    if "APP" in valores and "WEB" in valores:
+        return "MIXTO"
+    if len(valores) == 1:
+        return valores[0]
+    return "+".join(valores)
+
+
 def cargar_clientes_unificados(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"No existe el archivo de clientes unificados: {path}")
@@ -130,25 +156,40 @@ def cargar_compras_superpack(query_path: Path) -> pd.DataFrame:
     compras = run_query_file(str(query_path))
     if compras.empty:
         return pd.DataFrame(
-            columns=["codigo_cliente", "fecha_operacion", "codigo_superpack", "monto_operacion"]
+            columns=[
+                "codigo_cliente",
+                "fecha_operacion",
+                "codigo_superpack",
+                "canal_compra",
+                "monto_operacion",
+            ]
         )
 
     compras = compras.copy()
     compras["codigo_cliente"] = compras["padded_codigo_cliente"].astype(str).apply(normalizar_codigo_cliente)
     compras["fecha_operacion"] = pd.to_datetime(compras["fecha_operacion"], errors="coerce").dt.date
+    compras["canal_compra"] = compras.apply(
+        lambda row: normalizar_canal_compra(
+            row.get("canal_operacion_raw"),
+            row.get("canal_operacion_codigo"),
+        ),
+        axis=1,
+    )
     compras["monto_operacion"] = pd.to_numeric(compras["monto_operacion"], errors="coerce").fillna(0.0)
     compras = compras.loc[
         compras["codigo_cliente"].notna(),
-        ["codigo_cliente", "fecha_operacion", "codigo_superpack", "monto_operacion"],
+        ["codigo_cliente", "fecha_operacion", "codigo_superpack", "canal_compra", "monto_operacion"],
     ].copy()
     return compras
 
 
 def preparar_validacion(clientes: pd.DataFrame, compras: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     if compras.empty:
-        resumen_compras = pd.DataFrame(columns=["codigo_cliente", "total_tx", "monto_total_tx"])
+        resumen_compras = pd.DataFrame(
+            columns=["codigo_cliente", "total_tx", "monto_total_tx", "canal_compra_cliente"]
+        )
     else:
-        resumen_compras = (
+        resumen_tx = (
             compras.groupby("codigo_cliente", as_index=False)
             .agg(
                 total_tx=("codigo_cliente", "size"),
@@ -156,11 +197,17 @@ def preparar_validacion(clientes: pd.DataFrame, compras: pd.DataFrame) -> tuple[
             )
             .sort_values(["total_tx", "monto_total_tx"], ascending=[False, False])
         )
+        resumen_canal_cliente = (
+            compras.groupby("codigo_cliente", as_index=False)
+            .agg(canal_compra_cliente=("canal_compra", consolidar_canales_cliente))
+        )
+        resumen_compras = resumen_tx.merge(resumen_canal_cliente, on="codigo_cliente", how="left")
 
     detalle = clientes.merge(resumen_compras, on="codigo_cliente", how="left")
     detalle["compro_superpack"] = detalle["total_tx"].notna().astype(int)
     detalle["total_tx"] = pd.to_numeric(detalle["total_tx"], errors="coerce").fillna(0).astype(int)
     detalle["monto_total_tx"] = pd.to_numeric(detalle["monto_total_tx"], errors="coerce").fillna(0.0)
+    detalle["canal_compra_cliente"] = detalle["canal_compra_cliente"].fillna("NO_COMPRA")
     return detalle, resumen_compras
 
 
@@ -202,6 +249,45 @@ def imprimir_resumen(detalle: pd.DataFrame, compras: pd.DataFrame) -> None:
     tabla["clientes_que_no_compraron"] = tabla["clientes_que_no_compraron"].map(lambda x: f"{int(x):,}")
     tabla["monto_total_clientes"] = tabla["monto_total_clientes"].map(lambda x: f"{float(x):,.2f}")
     print(tabla.to_string(index=False))
+
+    print("\nResumen por canal de compra (universo abril):")
+    if compras.empty:
+        print("Sin transacciones para clasificar canal de compra.")
+    else:
+        resumen_canal_compra = (
+            compras.groupby("canal_compra", as_index=False)
+            .agg(
+                clientes_unicos=("codigo_cliente", "nunique"),
+                total_tx=("codigo_cliente", "size"),
+                monto_total=("monto_operacion", "sum"),
+            )
+            .sort_values("canal_compra")
+        )
+        tabla_canal = resumen_canal_compra.copy()
+        tabla_canal["clientes_unicos"] = tabla_canal["clientes_unicos"].map(lambda x: f"{int(x):,}")
+        tabla_canal["total_tx"] = tabla_canal["total_tx"].map(lambda x: f"{int(x):,}")
+        tabla_canal["monto_total"] = tabla_canal["monto_total"].map(lambda x: f"{float(x):,.2f}")
+        print(tabla_canal.to_string(index=False))
+
+    print("\nCruce origen (RTM/PAUTA) vs canal de compra (solo quienes compraron):")
+    compradores_lista = detalle.loc[detalle["compro_superpack"] == 1].copy()
+    if compradores_lista.empty:
+        print("Ningun cliente de la lista compro superpack en abril.")
+    else:
+        cruce = (
+            compradores_lista.groupby(["origen", "canal_compra_cliente"], as_index=False)
+            .agg(
+                clientes_unicos=("codigo_cliente", "nunique"),
+                total_tx=("total_tx", "sum"),
+                monto_total=("monto_total_tx", "sum"),
+            )
+            .sort_values(["origen", "canal_compra_cliente"])
+        )
+        tabla_cruce = cruce.copy()
+        tabla_cruce["clientes_unicos"] = tabla_cruce["clientes_unicos"].map(lambda x: f"{int(x):,}")
+        tabla_cruce["total_tx"] = tabla_cruce["total_tx"].map(lambda x: f"{int(x):,}")
+        tabla_cruce["monto_total"] = tabla_cruce["monto_total"].map(lambda x: f"{float(x):,.2f}")
+        print(tabla_cruce.to_string(index=False))
     print("====================================================\n")
 
 

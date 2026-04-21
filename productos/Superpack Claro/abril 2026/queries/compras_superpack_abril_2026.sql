@@ -21,6 +21,8 @@ WITH trx_superpack AS (
         ) AS padded_codigo_cliente,
         CONVERT(date, p.dw_fecha_operacion_sp) AS fecha_operacion,
         TRY_CONVERT(INT, p.spcodc) AS codigo_superpack,
+        COALESCE(NULLIF(LTRIM(RTRIM(CAST(p.spcpde AS VARCHAR(60)))), ''), 'SIN_DATO') AS canal_operacion_raw,
+        TRY_CONVERT(INT, p.spcpco) AS canal_operacion_codigo,
         CAST(p.sppava AS DECIMAL(18, 2)) AS monto_operacion
     FROM dw_mul_sppadat p
     INNER JOIN dw_mul_spmaco m
@@ -34,6 +36,8 @@ SELECT
     padded_codigo_cliente,
     fecha_operacion,
     codigo_superpack,
+    canal_operacion_raw,
+    canal_operacion_codigo,
     monto_operacion
 FROM trx_superpack
 WHERE padded_codigo_cliente IS NOT NULL
