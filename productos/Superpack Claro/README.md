@@ -109,3 +109,33 @@ python3 "productos/Superpack Claro/unificar_clientes_contactados.py"
 Salida:
 
 - `productos/Superpack Claro/exports/clientes_contactados_unificados_prioridad_rtm.xlsx`
+
+## Abril 2026 (validacion por canal)
+
+Carpeta:
+
+- `productos/Superpack Claro/abril 2026`
+
+Archivos:
+
+- `queries/compras_superpack_abril_2026.sql` (solo compras Superpack abril 2026)
+- `validar_superpack_abril_canales.py`
+
+Este flujo toma el archivo unificado:
+
+- `productos/Superpack Claro/exports/clientes_contactados_unificados_prioridad_rtm.xlsx`
+
+Y muestra en consola:
+
+- cuantos clientes de la lista compraron superpack
+- desglose por canal `RTM` y `PAUTA`
+
+Ejecucion:
+
+```bash
+python3 "productos/Superpack Claro/abril 2026/validar_superpack_abril_canales.py"
+```
+
+Salida detalle:
+
+- `productos/Superpack Claro/abril 2026/exports/validacion_superpack_abril_canales.xlsx`
