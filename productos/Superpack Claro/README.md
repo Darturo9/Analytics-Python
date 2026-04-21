@@ -8,7 +8,9 @@ Este modulo contiene una query para:
 ## Archivos principales
 
 - `queries/superpack_claro_abril_2026.sql`
+- `queries/clientes_contactados_rtm_claro_abril_2026.sql`
 - `validar_superpack_claro.py`
+- `resumen_superpack_mensual.py`
 
 ## Logica usada
 
@@ -61,3 +63,24 @@ Opciones utiles:
 - `--sheet "NombreHoja"` para indicar hoja de Excel.
 - `--cliente-column "codigo_cliente"` para fijar columna de cliente.
 - `--no-export` para correr solo validacion y ver resumen en consola, sin generar archivo.
+
+## Resumen mensual en consola (enero-abril)
+
+Imprime por mes:
+
+- clientes unicos compradores
+- total de transacciones
+- monto promedio
+- monto mas comun y su frecuencia
+
+Uso por defecto (enero a abril 2026, codigo 498):
+
+```bash
+python3 "productos/Superpack Claro/resumen_superpack_mensual.py"
+```
+
+Con parametros:
+
+```bash
+python3 "productos/Superpack Claro/resumen_superpack_mensual.py" --anio 2026 --mes-inicio 1 --mes-fin 4 --codigo-superpack 498
+```
