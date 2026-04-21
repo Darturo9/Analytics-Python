@@ -70,8 +70,9 @@ Imprime por mes:
 
 - clientes unicos compradores
 - total de transacciones
+- suma de montos de transacciones
 - monto promedio
-- monto mas comun y su frecuencia
+- monto mas comun
 
 Uso por defecto (enero a abril 2026, codigo 498):
 

@@ -64,6 +64,7 @@ resumen AS (
         MONTH(fecha_operacion) AS mes,
         COUNT(DISTINCT padded_codigo_cliente) AS clientes_unicos,
         COUNT(*) AS total_transacciones,
+        CAST(SUM(monto_operacion) AS DECIMAL(18, 2)) AS monto_total_transacciones,
         CAST(AVG(monto_operacion) AS DECIMAL(18, 2)) AS monto_promedio
     FROM trx_validas
     GROUP BY YEAR(fecha_operacion), MONTH(fecha_operacion)
@@ -86,9 +87,9 @@ SELECT
     r.mes,
     r.clientes_unicos,
     r.total_transacciones,
+    r.monto_total_transacciones,
     r.monto_promedio,
-    m.monto_operacion AS monto_mas_comun,
-    m.frecuencia_monto AS frecuencia_monto_mas_comun
+    m.monto_operacion AS monto_mas_comun
 FROM resumen r
 LEFT JOIN montos m
     ON r.anio = m.anio
@@ -142,11 +143,11 @@ def preparar_salida(df_sql: pd.DataFrame, anio: int, mes_inicio: int, mes_fin: i
     base = construir_base_meses(anio, mes_inicio, mes_fin)
     df = base.merge(df_sql, on=["anio", "mes"], how="left")
 
-    int_cols = ["clientes_unicos", "total_transacciones", "frecuencia_monto_mas_comun"]
+    int_cols = ["clientes_unicos", "total_transacciones"]
     for col in int_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
 
-    money_cols = ["monto_promedio", "monto_mas_comun"]
+    money_cols = ["monto_total_transacciones", "monto_promedio", "monto_mas_comun"]
     for col in money_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
@@ -157,9 +158,9 @@ def preparar_salida(df_sql: pd.DataFrame, anio: int, mes_inicio: int, mes_fin: i
             "periodo",
             "clientes_unicos",
             "total_transacciones",
+            "monto_total_transacciones",
             "monto_promedio",
             "monto_mas_comun",
-            "frecuencia_monto_mas_comun",
         ]
     ]
     return df
@@ -167,8 +168,17 @@ def preparar_salida(df_sql: pd.DataFrame, anio: int, mes_inicio: int, mes_fin: i
 
 def imprimir_tabla(df: pd.DataFrame, anio: int, mes_inicio: int, mes_fin: int, codigo_superpack: int) -> None:
     tabla = df.copy()
+    tabla["clientes_unicos"] = tabla["clientes_unicos"].map(lambda x: f"{int(x):,}")
+    tabla["total_transacciones"] = tabla["total_transacciones"].map(lambda x: f"{int(x):,}")
+    tabla["monto_total_transacciones"] = tabla["monto_total_transacciones"].map(lambda x: f"{x:,.2f}")
     tabla["monto_promedio"] = tabla["monto_promedio"].map(lambda x: f"{x:,.2f}")
     tabla["monto_mas_comun"] = tabla["monto_mas_comun"].map(lambda x: f"{x:,.2f}")
+    tabla = tabla.rename(
+        columns={
+            "total_transacciones": "total_tx",
+            "monto_total_transacciones": "monto_total_tx",
+        }
+    )
 
     print("\n===== RESUMEN MENSUAL SUPERPACK =====")
     print(
