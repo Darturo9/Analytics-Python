@@ -15,8 +15,8 @@ SELECT DISTINCT
         ),
         8
     ) AS padded_codigo_cliente
-FROM DW_RTM_APP_CAMPAIGN c
-INNER JOIN DW_RTM_APP_HISCAMPAIGNUNIVERSO hu
+FROM dwhbi.dbo.DW_RTM_APP_CAMPAIGN c
+INNER JOIN dwhbi.dbo.DW_RTM_APP_HISCAMPAIGNUNIVERSO hu
     ON c.CampaignID = hu.CampaignID
 WHERE c.Name LIKE '%72049%'
   AND c.Name LIKE '%login%'
