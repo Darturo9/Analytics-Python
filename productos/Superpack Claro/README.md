@@ -12,6 +12,7 @@ Este modulo contiene una query para:
 - `validar_superpack_claro.py`
 - `resumen_superpack_mensual.py`
 - `unificar_clientes_contactados.py`
+- `demografia_superpack_periodo.py`
 
 ## Logica usada
 
@@ -140,3 +141,28 @@ python3 "productos/Superpack Claro/abril 2026/validar_superpack_abril_canales.py
 Salida detalle:
 
 - `productos/Superpack Claro/abril 2026/exports/validacion_superpack_abril_canales.xlsx`
+
+## Demografia de compradores superpack (periodo configurable)
+
+Este script toma la lista unificada RTM/PAUTA y calcula demografia de quienes
+si compraron superpack en el periodo indicado.
+
+Datos en consola:
+
+- total clientes de la lista
+- total compradores en la lista
+- distribucion por genero (cantidad y %)
+- distribucion por generacion (cantidad y %)
+- top N departamentos (cantidad y %)
+
+Ejecucion por defecto:
+
+```bash
+python3 "productos/Superpack Claro/demografia_superpack_periodo.py"
+```
+
+Con parametros:
+
+```bash
+python3 "productos/Superpack Claro/demografia_superpack_periodo.py" --fecha-inicio 2026-04-01 --fecha-fin-exclusiva 2026-05-01 --codigo-superpack 498 --top-deptos 5
+```
