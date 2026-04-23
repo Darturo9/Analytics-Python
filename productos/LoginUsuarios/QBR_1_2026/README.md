@@ -11,13 +11,19 @@ Dashboard para medir logins de clientes durante el primer trimestre de 2026.
 - `queries/Logins_Marzo.sql`: eventos de login de marzo 2026.
 - `queries/CambiosPassword_16_31_Marzo.sql`: clientes con cambio de contraseña del 16 al 31 de marzo de 2026.
 - `queries/sin_login/post_login_q1_2026.sql`: eventos operativos generales Q1 2026 para análisis post-login, filtrados en SQL por los clientes del Excel.
+- `queries/sin_login/clientes_contactados_campana_72049_login_desde_2026_04_18.sql`: listado de clientes contactados para campaña con nombre `72049` y `login`, desde `2026-04-18`.
 - `dashboards/dashboard_qbr1_2026.py`: dashboard principal.
 - `dashboards/dashboard_qbr1_arbol_rtm.py`: dashboard para base `Arbol RTM`.
 - `dashboards/dashboard_qbr1_post_login.py`: dashboard de comportamiento post-login Q1 usando `queries/sin_login/post_login_q1_2026.sql`.
+- `programas_py/reporte_rendimiento_campana_72049_desde_2026_04_18.py`: reporte en consola de rendimiento (logins/cambios password) para clientes contactados por campaña `72049 + login` desde `2026-04-18`.
 - `ArchivosExcel/Contactados_Enero_2026.*`: base de clientes a evaluar.
 - `ArchivosExcel/ArbolRTM.*`: base alternativa para evaluación RTM.
 
 ## Ejecucion
 ```bash
 python3 productos/LoginUsuarios/QBR_1_2026/dashboards/dashboard_qbr1_2026.py
+```
+
+```bash
+python3 productos/LoginUsuarios/QBR_1_2026/programas_py/reporte_rendimiento_campana_72049_desde_2026_04_18.py
 ```
