@@ -61,6 +61,46 @@ def preparar_tabla(df: pd.DataFrame) -> pd.DataFrame:
     return out_show
 
 
+def imprimir_tabla_ascii(df: pd.DataFrame) -> None:
+    if df.empty:
+        print("Sin datos para mostrar.")
+        return
+
+    headers = list(df.columns)
+    rows = [[str(row[h]) for h in headers] for _, row in df.iterrows()]
+
+    widths = []
+    for idx, h in enumerate(headers):
+        max_row_len = max(len(r[idx]) for r in rows) if rows else 0
+        widths.append(max(len(h), max_row_len))
+
+    right_align_cols = {"clientes_fondeadores", "cuentas_fondeadas", "pct_clientes", "pct_cuentas"}
+
+    def build_border(sep: str = "-") -> str:
+        return "+" + "+".join(sep * (w + 2) for w in widths) + "+"
+
+    def format_cell(text: str, width: int, right_align: bool) -> str:
+        if right_align:
+            return " " + text.rjust(width) + " "
+        return " " + text.ljust(width) + " "
+
+    print(build_border("-"))
+    header_cells = [
+        format_cell(h, widths[i], h in right_align_cols) for i, h in enumerate(headers)
+    ]
+    print("|" + "|".join(header_cells) + "|")
+    print(build_border("="))
+
+    for row in rows:
+        data_cells = [
+            format_cell(row[i], widths[i], headers[i] in right_align_cols)
+            for i in range(len(headers))
+        ]
+        print("|" + "|".join(data_cells) + "|")
+
+    print(build_border("-"))
+
+
 def main() -> None:
     print(f"Cargando datos desde: {QUERY_PATH}")
     try:
@@ -87,7 +127,7 @@ def main() -> None:
         return
 
     tabla = preparar_tabla(df)
-    print(tabla.to_string(index=False))
+    imprimir_tabla_ascii(tabla)
 
 
 if __name__ == "__main__":
