@@ -11,6 +11,7 @@ Ejecucion:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -44,15 +45,43 @@ COLOR_NORMAL = COLORES["aqua_digital"]
 COLOR_CAMPANA = "#D62828"
 
 SQL_LOGINS = """
+WITH clientes AS (
+    SELECT DISTINCT
+        RIGHT('00000000' + LTRIM(RTRIM([value])), 8) AS padded_codigo_cliente
+    FROM OPENJSON(CAST(:codigos_json AS NVARCHAR(MAX)))
+    WHERE [value] IS NOT NULL
+      AND LTRIM(RTRIM([value])) <> ''
+),
+base AS (
+    SELECT
+        CAST(st.dw_fecha_trx AS DATE) AS fecha,
+        RIGHT('00000000' + RTRIM(LTRIM(st.clccli)), 8) AS padded_codigo_usuario
+    FROM dw_bel_IBSTTRA_VIEW st
+    INNER JOIN clientes c
+        ON RIGHT('00000000' + RTRIM(LTRIM(st.clccli)), 8) = c.padded_codigo_cliente
+    WHERE st.dw_fecha_trx >= :fecha_inicio
+      AND st.dw_fecha_trx < :fecha_fin_exclusiva
+      AND st.secode IN ('app-login', 'web-login', 'login')
+      AND st.clccli IS NOT NULL
+)
 SELECT
-    RIGHT('00000000' + RTRIM(LTRIM(clccli)), 8) AS padded_codigo_usuario,
-    secode AS canal_login,
-    dw_fecha_trx AS fecha_inicio
-FROM dw_bel_IBSTTRA_VIEW
-WHERE dw_fecha_trx >= :fecha_inicio
-  AND dw_fecha_trx < :fecha_fin_exclusiva
-  AND secode IN ('app-login', 'web-login', 'login')
-  AND clccli IS NOT NULL;
+    b.fecha,
+    COUNT(*) AS total_logins_dia,
+    COUNT(DISTINCT b.padded_codigo_usuario) AS clientes_unicos_login_dia,
+    t.total_logins_periodo,
+    t.clientes_con_login_periodo
+FROM base b
+CROSS JOIN (
+    SELECT
+        COUNT(*) AS total_logins_periodo,
+        COUNT(DISTINCT padded_codigo_usuario) AS clientes_con_login_periodo
+    FROM base
+) t
+GROUP BY
+    b.fecha,
+    t.total_logins_periodo,
+    t.clientes_con_login_periodo
+ORDER BY b.fecha;
 """
 
 
@@ -137,51 +166,68 @@ def cargar_campanas() -> pd.DataFrame:
     return out
 
 
-def cargar_logins(fecha_inicio: pd.Timestamp, fecha_fin_exclusiva: pd.Timestamp) -> pd.DataFrame:
+def cargar_logins_diario_resumen(
+    codigos_clientes: list[str],
+    fecha_inicio: pd.Timestamp,
+    fecha_fin_exclusiva: pd.Timestamp,
+) -> tuple[pd.DataFrame, int, int]:
+    codigos_validos = sorted(
+        {
+            codigo
+            for codigo in codigos_clientes
+            if isinstance(codigo, str) and len(codigo) == 8 and codigo.isdigit()
+        }
+    )
+    if not codigos_validos:
+        return pd.DataFrame(columns=["fecha", "total_logins_dia", "clientes_unicos_login_dia"]), 0, 0
+
     params = {
+        "codigos_json": json.dumps(codigos_validos),
         "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d"),
         "fecha_fin_exclusiva": fecha_fin_exclusiva.strftime("%Y-%m-%d"),
     }
     df = run_query(SQL_LOGINS, params=params)
     if df.empty:
-        return pd.DataFrame(columns=["padded_codigo_usuario", "fecha_inicio", "canal_login"])
+        return pd.DataFrame(columns=["fecha", "total_logins_dia", "clientes_unicos_login_dia"]), 0, 0
 
     out = df.copy()
-    out["padded_codigo_usuario"] = out["padded_codigo_usuario"].apply(normalizar_codigo)
-    out["fecha_inicio"] = pd.to_datetime(out["fecha_inicio"], errors="coerce")
-    out["canal_login"] = out["canal_login"].fillna("SIN DATO").astype(str).str.strip()
-    out = out[out["padded_codigo_usuario"].notna() & out["fecha_inicio"].notna()].copy()
-    return out
+    out["fecha"] = pd.to_datetime(out["fecha"], errors="coerce").dt.normalize()
+    out["total_logins_dia"] = pd.to_numeric(out["total_logins_dia"], errors="coerce").fillna(0).astype(int)
+    out["clientes_unicos_login_dia"] = (
+        pd.to_numeric(out["clientes_unicos_login_dia"], errors="coerce").fillna(0).astype(int)
+    )
+    out = out[out["fecha"].notna()].copy()
+
+    total_logins_periodo = int(pd.to_numeric(out["total_logins_periodo"], errors="coerce").fillna(0).max())
+    clientes_con_login_periodo = int(
+        pd.to_numeric(out["clientes_con_login_periodo"], errors="coerce").fillna(0).max()
+    )
+
+    return (
+        out[["fecha", "total_logins_dia", "clientes_unicos_login_dia"]],
+        total_logins_periodo,
+        clientes_con_login_periodo,
+    )
 
 
 def construir_base_diaria(
-    clientes_contactados: pd.DataFrame,
-    logins: pd.DataFrame,
+    total_clientes_base: int,
+    logins_diario: pd.DataFrame,
     campanas: pd.DataFrame,
     fecha_inicio: pd.Timestamp,
     fecha_fin_exclusiva: pd.Timestamp,
+    total_logins_periodo: int,
+    clientes_con_login_periodo: int,
 ) -> tuple[pd.DataFrame, int, int, int]:
-    universo = set(clientes_contactados["padded_codigo_cliente"].tolist())
-    logins_filtrado = logins[logins["padded_codigo_usuario"].isin(universo)].copy()
-
     fechas = pd.date_range(fecha_inicio, fecha_fin_exclusiva - pd.Timedelta(days=1), freq="D")
 
-    if logins_filtrado.empty:
+    if logins_diario.empty:
         total_logins_dia = pd.Series(0, index=fechas)
         clientes_unicos_dia = pd.Series(0, index=fechas)
     else:
-        total_logins_dia = (
-            logins_filtrado.assign(fecha_dia=logins_filtrado["fecha_inicio"].dt.normalize())
-            .groupby("fecha_dia")
-            .size()
-            .reindex(fechas, fill_value=0)
-        )
-        clientes_unicos_dia = (
-            logins_filtrado.assign(fecha_dia=logins_filtrado["fecha_inicio"].dt.normalize())
-            .groupby("fecha_dia")["padded_codigo_usuario"]
-            .nunique()
-            .reindex(fechas, fill_value=0)
-        )
+        diario_idx = logins_diario.set_index("fecha")
+        total_logins_dia = diario_idx["total_logins_dia"].reindex(fechas, fill_value=0)
+        clientes_unicos_dia = diario_idx["clientes_unicos_login_dia"].reindex(fechas, fill_value=0)
 
     mapa_campanas = {
         row["fecha_campana"]: row["campanas"]
@@ -195,11 +241,7 @@ def construir_base_diaria(
     diario["es_dia_campana"] = diario["fecha"].isin(set(mapa_campanas.keys()))
     diario["color"] = diario["es_dia_campana"].map({True: COLOR_CAMPANA, False: COLOR_NORMAL})
 
-    total_clientes_base = int(len(universo))
-    total_logins = int(diario["total_logins"].sum())
-    clientes_con_login = int(logins_filtrado["padded_codigo_usuario"].nunique()) if not logins_filtrado.empty else 0
-
-    return diario, total_clientes_base, total_logins, clientes_con_login
+    return diario, total_clientes_base, total_logins_periodo, clientes_con_login_periodo
 
 
 def construir_figura_logins_diarios(diario: pd.DataFrame) -> go.Figure:
@@ -284,14 +326,22 @@ def kpi_card(titulo: str, valor: str, color_borde: str) -> html.Div:
 def construir_dashboard() -> Dash:
     clientes = cargar_clientes_contactados()
     campanas = cargar_campanas()
-    logins = cargar_logins(FECHA_INICIO, FECHA_FIN_EXCLUSIVA)
+    codigos_clientes = clientes["padded_codigo_cliente"].dropna().astype(str).tolist()
+    logins_diario, total_logins_periodo, clientes_con_login_periodo = cargar_logins_diario_resumen(
+        codigos_clientes=codigos_clientes,
+        fecha_inicio=FECHA_INICIO,
+        fecha_fin_exclusiva=FECHA_FIN_EXCLUSIVA,
+    )
+    total_base = int(clientes["padded_codigo_cliente"].nunique())
 
     diario, total_base, total_logins, clientes_con_login = construir_base_diaria(
-        clientes_contactados=clientes,
-        logins=logins,
+        total_clientes_base=total_base,
+        logins_diario=logins_diario,
         campanas=campanas,
         fecha_inicio=FECHA_INICIO,
         fecha_fin_exclusiva=FECHA_FIN_EXCLUSIVA,
+        total_logins_periodo=total_logins_periodo,
+        clientes_con_login_periodo=clientes_con_login_periodo,
     )
 
     dias_campana = int(diario["es_dia_campana"].sum()) if not diario.empty else 0
@@ -360,7 +410,7 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     print(f"Dashboard 01 corriendo en http://127.0.0.1:{PORT}")
-    app.run(debug=True, host="127.0.0.1", port=PORT)
+    app.run(debug=False, use_reloader=False, host="127.0.0.1", port=PORT)
 
 
 if __name__ == "__main__":

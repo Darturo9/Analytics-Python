@@ -11,6 +11,7 @@ Ejecucion:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -44,13 +45,42 @@ COLOR_NORMAL = COLORES["aqua_digital"]
 COLOR_CAMPANA = "#D62828"
 
 SQL_CAMBIOS_PASSWORD = """
+WITH clientes AS (
+    SELECT DISTINCT
+        RIGHT('00000000' + LTRIM(RTRIM([value])), 8) AS padded_codigo_cliente
+    FROM OPENJSON(CAST(:codigos_json AS NVARCHAR(MAX)))
+    WHERE [value] IS NOT NULL
+      AND LTRIM(RTRIM([value])) <> ''
+),
+base AS (
+    SELECT
+        CAST(u.dw_fecha_cambio_pass AS DATE) AS fecha,
+        RIGHT('00000000' + RTRIM(LTRIM(u.CLCCLI)), 8) AS padded_codigo_cliente
+    FROM DW_BEL_IBUSER u
+    INNER JOIN clientes c
+        ON RIGHT('00000000' + RTRIM(LTRIM(u.CLCCLI)), 8) = c.padded_codigo_cliente
+    WHERE u.dw_fecha_cambio_pass IS NOT NULL
+      AND u.dw_fecha_cambio_pass >= :fecha_inicio
+      AND u.dw_fecha_cambio_pass < :fecha_fin_exclusiva
+)
 SELECT
-    DW_BEL_IBUSER.CLCCLI AS codigo_cliente,
-    DW_BEL_IBUSER.dw_fecha_cambio_pass AS fecha_cambio_pass
-FROM DW_BEL_IBUSER
-WHERE DW_BEL_IBUSER.dw_fecha_cambio_pass IS NOT NULL
-  AND DW_BEL_IBUSER.dw_fecha_cambio_pass >= :fecha_inicio
-  AND DW_BEL_IBUSER.dw_fecha_cambio_pass < :fecha_fin_exclusiva;
+    b.fecha,
+    COUNT(*) AS total_cambios_password_dia,
+    COUNT(DISTINCT b.padded_codigo_cliente) AS clientes_unicos_cambio_dia,
+    t.total_cambios_password_periodo,
+    t.clientes_con_cambio_periodo
+FROM base b
+CROSS JOIN (
+    SELECT
+        COUNT(*) AS total_cambios_password_periodo,
+        COUNT(DISTINCT padded_codigo_cliente) AS clientes_con_cambio_periodo
+    FROM base
+) t
+GROUP BY
+    b.fecha,
+    t.total_cambios_password_periodo,
+    t.clientes_con_cambio_periodo
+ORDER BY b.fecha;
 """
 
 
@@ -135,50 +165,72 @@ def cargar_campanas() -> pd.DataFrame:
     return out
 
 
-def cargar_cambios_password(fecha_inicio: pd.Timestamp, fecha_fin_exclusiva: pd.Timestamp) -> pd.DataFrame:
+def cargar_cambios_password_diario_resumen(
+    codigos_clientes: list[str],
+    fecha_inicio: pd.Timestamp,
+    fecha_fin_exclusiva: pd.Timestamp,
+) -> tuple[pd.DataFrame, int, int]:
+    codigos_validos = sorted(
+        {
+            codigo
+            for codigo in codigos_clientes
+            if isinstance(codigo, str) and len(codigo) == 8 and codigo.isdigit()
+        }
+    )
+    if not codigos_validos:
+        return pd.DataFrame(columns=["fecha", "total_cambios_password_dia", "clientes_unicos_cambio_dia"]), 0, 0
+
     params = {
+        "codigos_json": json.dumps(codigos_validos),
         "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d"),
         "fecha_fin_exclusiva": fecha_fin_exclusiva.strftime("%Y-%m-%d"),
     }
     df = run_query(SQL_CAMBIOS_PASSWORD, params=params)
     if df.empty:
-        return pd.DataFrame(columns=["padded_codigo_cliente", "fecha_cambio_pass"])
+        return pd.DataFrame(columns=["fecha", "total_cambios_password_dia", "clientes_unicos_cambio_dia"]), 0, 0
 
     out = df.copy()
-    out["padded_codigo_cliente"] = out["codigo_cliente"].apply(normalizar_codigo)
-    out["fecha_cambio_pass"] = pd.to_datetime(out["fecha_cambio_pass"], errors="coerce")
-    out = out[out["padded_codigo_cliente"].notna() & out["fecha_cambio_pass"].notna()].copy()
-    return out
+    out["fecha"] = pd.to_datetime(out["fecha"], errors="coerce").dt.normalize()
+    out["total_cambios_password_dia"] = (
+        pd.to_numeric(out["total_cambios_password_dia"], errors="coerce").fillna(0).astype(int)
+    )
+    out["clientes_unicos_cambio_dia"] = (
+        pd.to_numeric(out["clientes_unicos_cambio_dia"], errors="coerce").fillna(0).astype(int)
+    )
+    out = out[out["fecha"].notna()].copy()
+
+    total_cambios_password_periodo = int(
+        pd.to_numeric(out["total_cambios_password_periodo"], errors="coerce").fillna(0).max()
+    )
+    clientes_con_cambio_periodo = int(
+        pd.to_numeric(out["clientes_con_cambio_periodo"], errors="coerce").fillna(0).max()
+    )
+
+    return (
+        out[["fecha", "total_cambios_password_dia", "clientes_unicos_cambio_dia"]],
+        total_cambios_password_periodo,
+        clientes_con_cambio_periodo,
+    )
 
 
 def construir_base_diaria(
-    clientes_contactados: pd.DataFrame,
-    cambios_password: pd.DataFrame,
+    total_clientes_base: int,
+    cambios_password_diario: pd.DataFrame,
     campanas: pd.DataFrame,
     fecha_inicio: pd.Timestamp,
     fecha_fin_exclusiva: pd.Timestamp,
+    total_cambios_periodo: int,
+    clientes_con_cambio_periodo: int,
 ) -> tuple[pd.DataFrame, int, int, int]:
-    universo = set(clientes_contactados["padded_codigo_cliente"].tolist())
-    cambios_filtrado = cambios_password[cambios_password["padded_codigo_cliente"].isin(universo)].copy()
-
     fechas = pd.date_range(fecha_inicio, fecha_fin_exclusiva - pd.Timedelta(days=1), freq="D")
 
-    if cambios_filtrado.empty:
+    if cambios_password_diario.empty:
         total_cambios_dia = pd.Series(0, index=fechas)
         clientes_unicos_dia = pd.Series(0, index=fechas)
     else:
-        total_cambios_dia = (
-            cambios_filtrado.assign(fecha_dia=cambios_filtrado["fecha_cambio_pass"].dt.normalize())
-            .groupby("fecha_dia")
-            .size()
-            .reindex(fechas, fill_value=0)
-        )
-        clientes_unicos_dia = (
-            cambios_filtrado.assign(fecha_dia=cambios_filtrado["fecha_cambio_pass"].dt.normalize())
-            .groupby("fecha_dia")["padded_codigo_cliente"]
-            .nunique()
-            .reindex(fechas, fill_value=0)
-        )
+        diario_idx = cambios_password_diario.set_index("fecha")
+        total_cambios_dia = diario_idx["total_cambios_password_dia"].reindex(fechas, fill_value=0)
+        clientes_unicos_dia = diario_idx["clientes_unicos_cambio_dia"].reindex(fechas, fill_value=0)
 
     mapa_campanas = {
         row["fecha_campana"]: row["campanas"]
@@ -192,11 +244,7 @@ def construir_base_diaria(
     diario["es_dia_campana"] = diario["fecha"].isin(set(mapa_campanas.keys()))
     diario["color"] = diario["es_dia_campana"].map({True: COLOR_CAMPANA, False: COLOR_NORMAL})
 
-    total_clientes_base = int(len(universo))
-    total_cambios = int(diario["total_cambios_password"].sum())
-    clientes_con_cambio = int(cambios_filtrado["padded_codigo_cliente"].nunique()) if not cambios_filtrado.empty else 0
-
-    return diario, total_clientes_base, total_cambios, clientes_con_cambio
+    return diario, total_clientes_base, total_cambios_periodo, clientes_con_cambio_periodo
 
 
 def construir_figura_cambios_diarios(diario: pd.DataFrame) -> go.Figure:
@@ -281,14 +329,22 @@ def kpi_card(titulo: str, valor: str, color_borde: str) -> html.Div:
 def construir_dashboard() -> Dash:
     clientes = cargar_clientes_contactados()
     campanas = cargar_campanas()
-    cambios_password = cargar_cambios_password(FECHA_INICIO, FECHA_FIN_EXCLUSIVA)
+    codigos_clientes = clientes["padded_codigo_cliente"].dropna().astype(str).tolist()
+    cambios_diario, total_cambios_periodo, clientes_con_cambio_periodo = cargar_cambios_password_diario_resumen(
+        codigos_clientes=codigos_clientes,
+        fecha_inicio=FECHA_INICIO,
+        fecha_fin_exclusiva=FECHA_FIN_EXCLUSIVA,
+    )
+    total_base = int(clientes["padded_codigo_cliente"].nunique())
 
     diario, total_base, total_cambios, clientes_con_cambio = construir_base_diaria(
-        clientes_contactados=clientes,
-        cambios_password=cambios_password,
+        total_clientes_base=total_base,
+        cambios_password_diario=cambios_diario,
         campanas=campanas,
         fecha_inicio=FECHA_INICIO,
         fecha_fin_exclusiva=FECHA_FIN_EXCLUSIVA,
+        total_cambios_periodo=total_cambios_periodo,
+        clientes_con_cambio_periodo=clientes_con_cambio_periodo,
     )
 
     dias_campana = int(diario["es_dia_campana"].sum()) if not diario.empty else 0
@@ -357,7 +413,7 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     print(f"Dashboard 02 corriendo en http://127.0.0.1:{PORT}")
-    app.run(debug=True, host="127.0.0.1", port=PORT)
+    app.run(debug=False, use_reloader=False, host="127.0.0.1", port=PORT)
 
 
 if __name__ == "__main__":
