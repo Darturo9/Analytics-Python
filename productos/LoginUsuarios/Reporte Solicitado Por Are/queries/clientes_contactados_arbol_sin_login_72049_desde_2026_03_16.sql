@@ -1,9 +1,6 @@
 /*
-Listado de clientes contactados por campana RTM (login)
-Filtros actuales:
-- Name contiene 72049
-- Name contiene login
-- Start_date >= 2026-03-16
+Clientes contactados - Arbol sin login
+Campana 72049 + login desde primera comunicacion (2026-03-16)
 */
 
 SELECT DISTINCT
