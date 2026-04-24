@@ -1,0 +1,364 @@
+"""
+dashboard_02_cambios_password_diarios_desde_2026_03_16.py
+---------------------------------------------------------
+Segundo dashboard (Reporte Solicitado Por Are):
+- Grafico diario de cantidad de cambios de password desde 2026-03-16.
+- Dias con envio de campana se muestran con color distinto.
+
+Ejecucion:
+    python3 "productos/LoginUsuarios/Reporte Solicitado Por Are/dashboards/dashboard_02_cambios_password_diarios_desde_2026_03_16.py"
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pandas as pd
+import plotly.graph_objects as go
+from dash import Dash, dcc, html
+from sqlalchemy.exc import SQLAlchemyError
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from core.colors import COLORES
+from core.db import run_query, run_query_file
+
+
+BASE_REPORTE = PROJECT_ROOT / "productos" / "LoginUsuarios" / "Reporte Solicitado Por Are"
+RUTA_QUERY_CLIENTES = (
+    BASE_REPORTE / "queries" / "clientes_contactados_arbol_sin_login_72049_desde_2026_03_16.sql"
+)
+RUTA_QUERY_CAMPANAS = (
+    BASE_REPORTE / "queries" / "campanas_arbol_sin_login_72049_desde_2026_03_16.sql"
+)
+
+FECHA_INICIO = pd.Timestamp("2026-03-16")
+FECHA_FIN_EXCLUSIVA = pd.Timestamp.today().normalize() + pd.Timedelta(days=1)
+PORT = 8063
+
+COLOR_NORMAL = COLORES["aqua_digital"]
+COLOR_CAMPANA = "#D62828"
+
+SQL_CAMBIOS_PASSWORD = """
+SELECT
+    DW_BEL_IBUSER.CLCCLI AS codigo_cliente,
+    DW_BEL_IBUSER.dw_fecha_cambio_pass AS fecha_cambio_pass
+FROM DW_BEL_IBUSER
+WHERE DW_BEL_IBUSER.dw_fecha_cambio_pass IS NOT NULL
+  AND DW_BEL_IBUSER.dw_fecha_cambio_pass >= :fecha_inicio
+  AND DW_BEL_IBUSER.dw_fecha_cambio_pass < :fecha_fin_exclusiva;
+"""
+
+
+def normalizar_codigo(valor) -> str | None:
+    if pd.isna(valor):
+        return None
+    solo_digitos = "".join(c for c in str(valor).strip() if c.isdigit())
+    if not solo_digitos:
+        return None
+    return solo_digitos[-8:].zfill(8)
+
+
+def figura_vacia(mensaje: str) -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        annotations=[
+            dict(
+                text=mensaje,
+                x=0.5,
+                y=0.5,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                font=dict(color=COLORES["gris_texto"], size=14),
+            )
+        ],
+    )
+    return fig
+
+
+def cargar_clientes_contactados() -> pd.DataFrame:
+    if not RUTA_QUERY_CLIENTES.exists():
+        raise FileNotFoundError(f"No existe query de clientes: {RUTA_QUERY_CLIENTES}")
+
+    df = run_query_file(str(RUTA_QUERY_CLIENTES))
+    if df.empty:
+        return pd.DataFrame(columns=["padded_codigo_cliente"])
+
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    if "padded_codigo_cliente" not in cols:
+        raise ValueError(
+            "La query de clientes contactados debe devolver padded_codigo_cliente. "
+            f"Columnas encontradas: {list(df.columns)}"
+        )
+
+    out = df.copy()
+    out["padded_codigo_cliente"] = out[cols["padded_codigo_cliente"]].apply(normalizar_codigo)
+    out = out[out["padded_codigo_cliente"].notna()].drop_duplicates(subset=["padded_codigo_cliente"])
+    return out[["padded_codigo_cliente"]].copy()
+
+
+def cargar_campanas() -> pd.DataFrame:
+    if not RUTA_QUERY_CAMPANAS.exists():
+        raise FileNotFoundError(f"No existe query de campanas: {RUTA_QUERY_CAMPANAS}")
+
+    df = run_query_file(str(RUTA_QUERY_CAMPANAS))
+    if df.empty:
+        return pd.DataFrame(columns=["fecha_campana", "campanas"])
+
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    if "name" not in cols or "start_date" not in cols:
+        raise ValueError(
+            "La query de campanas debe devolver name y start_date. "
+            f"Columnas encontradas: {list(df.columns)}"
+        )
+
+    out = df.rename(columns={cols["name"]: "name", cols["start_date"]: "start_date"}).copy()
+    out["name"] = out["name"].fillna("SIN NOMBRE").astype(str).str.strip()
+    out["fecha_campana"] = pd.to_datetime(out["start_date"], errors="coerce").dt.normalize()
+    out = out[out["fecha_campana"].notna()].copy()
+
+    out = (
+        out.groupby("fecha_campana", as_index=False)["name"]
+        .agg(lambda s: " | ".join(sorted(set(v for v in s if v))))
+        .rename(columns={"name": "campanas"})
+    )
+    return out
+
+
+def cargar_cambios_password(fecha_inicio: pd.Timestamp, fecha_fin_exclusiva: pd.Timestamp) -> pd.DataFrame:
+    params = {
+        "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d"),
+        "fecha_fin_exclusiva": fecha_fin_exclusiva.strftime("%Y-%m-%d"),
+    }
+    df = run_query(SQL_CAMBIOS_PASSWORD, params=params)
+    if df.empty:
+        return pd.DataFrame(columns=["padded_codigo_cliente", "fecha_cambio_pass"])
+
+    out = df.copy()
+    out["padded_codigo_cliente"] = out["codigo_cliente"].apply(normalizar_codigo)
+    out["fecha_cambio_pass"] = pd.to_datetime(out["fecha_cambio_pass"], errors="coerce")
+    out = out[out["padded_codigo_cliente"].notna() & out["fecha_cambio_pass"].notna()].copy()
+    return out
+
+
+def construir_base_diaria(
+    clientes_contactados: pd.DataFrame,
+    cambios_password: pd.DataFrame,
+    campanas: pd.DataFrame,
+    fecha_inicio: pd.Timestamp,
+    fecha_fin_exclusiva: pd.Timestamp,
+) -> tuple[pd.DataFrame, int, int, int]:
+    universo = set(clientes_contactados["padded_codigo_cliente"].tolist())
+    cambios_filtrado = cambios_password[cambios_password["padded_codigo_cliente"].isin(universo)].copy()
+
+    fechas = pd.date_range(fecha_inicio, fecha_fin_exclusiva - pd.Timedelta(days=1), freq="D")
+
+    if cambios_filtrado.empty:
+        total_cambios_dia = pd.Series(0, index=fechas)
+        clientes_unicos_dia = pd.Series(0, index=fechas)
+    else:
+        total_cambios_dia = (
+            cambios_filtrado.assign(fecha_dia=cambios_filtrado["fecha_cambio_pass"].dt.normalize())
+            .groupby("fecha_dia")
+            .size()
+            .reindex(fechas, fill_value=0)
+        )
+        clientes_unicos_dia = (
+            cambios_filtrado.assign(fecha_dia=cambios_filtrado["fecha_cambio_pass"].dt.normalize())
+            .groupby("fecha_dia")["padded_codigo_cliente"]
+            .nunique()
+            .reindex(fechas, fill_value=0)
+        )
+
+    mapa_campanas = {
+        row["fecha_campana"]: row["campanas"]
+        for _, row in campanas.iterrows()
+    }
+
+    diario = pd.DataFrame({"fecha": fechas})
+    diario["total_cambios_password"] = total_cambios_dia.values
+    diario["clientes_unicos_cambio"] = clientes_unicos_dia.values
+    diario["campanas"] = diario["fecha"].map(mapa_campanas).fillna("Sin envio")
+    diario["es_dia_campana"] = diario["fecha"].isin(set(mapa_campanas.keys()))
+    diario["color"] = diario["es_dia_campana"].map({True: COLOR_CAMPANA, False: COLOR_NORMAL})
+
+    total_clientes_base = int(len(universo))
+    total_cambios = int(diario["total_cambios_password"].sum())
+    clientes_con_cambio = int(cambios_filtrado["padded_codigo_cliente"].nunique()) if not cambios_filtrado.empty else 0
+
+    return diario, total_clientes_base, total_cambios, clientes_con_cambio
+
+
+def construir_figura_cambios_diarios(diario: pd.DataFrame) -> go.Figure:
+    if diario.empty:
+        return figura_vacia("Sin datos para construir el grafico")
+
+    max_total = int(diario["total_cambios_password"].max()) if not diario.empty else 0
+    separacion = max(1, int(max_total * 0.04))
+
+    custom_data = list(
+        zip(
+            diario["es_dia_campana"].map({True: "Si", False: "No"}),
+            diario["campanas"],
+            diario["clientes_unicos_cambio"],
+        )
+    )
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=diario["fecha"],
+            y=diario["total_cambios_password"],
+            marker_color=diario["color"],
+            customdata=custom_data,
+            text=[f"{int(v):,}" if int(v) > 0 else "" for v in diario["total_cambios_password"]],
+            textposition="outside",
+            hovertemplate=(
+                "Fecha %{x|%Y-%m-%d}<br>"
+                "Cambios password: %{y:,}<br>"
+                "Clientes unicos con cambio: %{customdata[2]:,}<br>"
+                "Dia con campana: %{customdata[0]}<br>"
+                "Campana(s): %{customdata[1]}<extra></extra>"
+            ),
+            showlegend=False,
+        )
+    )
+
+    fig.update_layout(
+        height=650,
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=35, b=50, l=50, r=20),
+        xaxis=dict(title="Fecha", tickmode="linear", dtick=86400000.0, tickformat="%d-%b"),
+        yaxis=dict(title="Cantidad de cambios de password", range=[0, max_total + (separacion * 3)]),
+        bargap=0.15,
+    )
+
+    fig.add_annotation(
+        x=0.01,
+        y=1.12,
+        xref="paper",
+        yref="paper",
+        text=(
+            f"<b>Color campana:</b> {COLOR_CAMPANA} (dias con envio) | "
+            f"<b>Color normal:</b> {COLOR_NORMAL}"
+        ),
+        showarrow=False,
+        font=dict(size=12, color=COLORES["gris_texto"]),
+        align="left",
+    )
+    return fig
+
+
+def kpi_card(titulo: str, valor: str, color_borde: str) -> html.Div:
+    return html.Div(
+        style={
+            "backgroundColor": COLORES["blanco"],
+            "borderRadius": "10px",
+            "padding": "12px 14px",
+            "boxShadow": "0 1px 6px rgba(0, 56, 101, 0.12)",
+            "borderTop": f"4px solid {color_borde}",
+            "minWidth": "220px",
+        },
+        children=[
+            html.P(titulo, style={"margin": 0, "color": COLORES["gris_texto"], "fontSize": "13px"}),
+            html.H2(valor, style={"margin": "8px 0 0 0", "color": COLORES["azul_experto"]}),
+        ],
+    )
+
+
+def construir_dashboard() -> Dash:
+    clientes = cargar_clientes_contactados()
+    campanas = cargar_campanas()
+    cambios_password = cargar_cambios_password(FECHA_INICIO, FECHA_FIN_EXCLUSIVA)
+
+    diario, total_base, total_cambios, clientes_con_cambio = construir_base_diaria(
+        clientes_contactados=clientes,
+        cambios_password=cambios_password,
+        campanas=campanas,
+        fecha_inicio=FECHA_INICIO,
+        fecha_fin_exclusiva=FECHA_FIN_EXCLUSIVA,
+    )
+
+    dias_campana = int(diario["es_dia_campana"].sum()) if not diario.empty else 0
+
+    fig = construir_figura_cambios_diarios(diario)
+
+    app = Dash(__name__)
+    app.title = "Dashboard 02 - Cambios de password diarios"
+
+    app.layout = html.Div(
+        style={
+            "backgroundColor": COLORES["gris_fondo"],
+            "minHeight": "100vh",
+            "padding": "16px",
+            "fontFamily": "Arial, sans-serif",
+        },
+        children=[
+            html.H2(
+                "Dashboard 02: Cambios de Password Diarios (desde 2026-03-16)",
+                style={"color": COLORES["azul_experto"], "margin": "0 0 8px 0"},
+            ),
+            html.P(
+                (
+                    f"Periodo: {FECHA_INICIO.strftime('%Y-%m-%d')} a "
+                    f"{(FECHA_FIN_EXCLUSIVA - pd.Timedelta(days=1)).strftime('%Y-%m-%d')} "
+                    f"(dias con campana detectados: {dias_campana})"
+                ),
+                style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "14px"},
+            ),
+            html.Div(
+                style={
+                    "display": "flex",
+                    "gap": "12px",
+                    "flexWrap": "wrap",
+                    "marginBottom": "14px",
+                },
+                children=[
+                    kpi_card("Clientes contactados", f"{total_base:,}", COLORES["azul_experto"]),
+                    kpi_card("Total cambios password", f"{total_cambios:,}", COLORES["aqua_digital"]),
+                    kpi_card("Clientes con cambio", f"{clientes_con_cambio:,}", COLORES["amarillo_opt"]),
+                ],
+            ),
+            html.Div(
+                style={
+                    "backgroundColor": COLORES["blanco"],
+                    "borderRadius": "10px",
+                    "padding": "10px",
+                    "boxShadow": "0 1px 6px rgba(0, 56, 101, 0.12)",
+                },
+                children=[dcc.Graph(id="graf-cambios-password-diarios", figure=fig)],
+            ),
+        ],
+    )
+
+    return app
+
+
+def main() -> None:
+    try:
+        app = construir_dashboard()
+    except SQLAlchemyError as exc:
+        print(f"[ERROR] No se pudo ejecutar consulta SQL: {exc}")
+        raise SystemExit(1) from exc
+    except Exception as exc:
+        print(f"[ERROR] {exc}")
+        raise SystemExit(1) from exc
+
+    print(f"Dashboard 02 corriendo en http://127.0.0.1:{PORT}")
+    app.run(debug=True, host="127.0.0.1", port=PORT)
+
+
+if __name__ == "__main__":
+    main()
