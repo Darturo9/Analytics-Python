@@ -2,8 +2,8 @@
 dashboard_02_cambios_password_diarios_desde_2026_03_16.py
 ---------------------------------------------------------
 Segundo dashboard (Reporte Solicitado Por Are):
-- Grafico diario de cantidad de cambios de password desde 2026-03-16.
-- Dias con envio de campana se muestran con color distinto.
+- Grafico diario de clientes unicos con cambio de password desde 2026-03-16.
+- Incluye filtro por mes (Todos / YYYY-MM).
 
 Ejecucion:
     python3 "productos/LoginUsuarios/Reporte Solicitado Por Are/dashboards/dashboard_02_cambios_password_diarios_desde_2026_03_16.py"
@@ -11,13 +11,12 @@ Ejecucion:
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, dcc, html
+from dash import Dash, Input, Output, dcc, html
 from sqlalchemy.exc import SQLAlchemyError
 
 
@@ -33,24 +32,21 @@ BASE_REPORTE = PROJECT_ROOT / "productos" / "LoginUsuarios" / "Reporte Solicitad
 RUTA_QUERY_CLIENTES = (
     BASE_REPORTE / "queries" / "clientes_contactados_arbol_sin_login_72049_desde_2026_03_16.sql"
 )
-RUTA_QUERY_CAMPANAS = (
-    BASE_REPORTE / "queries" / "campanas_arbol_sin_login_72049_desde_2026_03_16.sql"
-)
 
 FECHA_INICIO = pd.Timestamp("2026-03-16")
 FECHA_FIN_EXCLUSIVA = pd.Timestamp.today().normalize() + pd.Timedelta(days=1)
 PORT = 8063
 
 COLOR_NORMAL = COLORES["aqua_digital"]
-COLOR_CAMPANA = "#D62828"
+PLACEHOLDER_CLIENTES_VALUES = "{{CLIENTES_VALUES}}"
 
 SQL_CAMBIOS_PASSWORD = """
 WITH clientes AS (
     SELECT DISTINCT
-        RIGHT('00000000' + LTRIM(RTRIM([value])), 8) AS padded_codigo_cliente
-    FROM OPENJSON(CAST(:codigos_json AS NVARCHAR(MAX)))
-    WHERE [value] IS NOT NULL
-      AND LTRIM(RTRIM([value])) <> ''
+        v.padded_codigo_cliente
+    FROM (VALUES
+        {{CLIENTES_VALUES}}
+    ) v(padded_codigo_cliente)
 ),
 base AS (
     SELECT
@@ -137,34 +133,6 @@ def cargar_clientes_contactados() -> pd.DataFrame:
     return out[["padded_codigo_cliente"]].copy()
 
 
-def cargar_campanas() -> pd.DataFrame:
-    if not RUTA_QUERY_CAMPANAS.exists():
-        raise FileNotFoundError(f"No existe query de campanas: {RUTA_QUERY_CAMPANAS}")
-
-    df = run_query_file(str(RUTA_QUERY_CAMPANAS))
-    if df.empty:
-        return pd.DataFrame(columns=["fecha_campana", "campanas"])
-
-    cols = {str(c).strip().lower(): c for c in df.columns}
-    if "name" not in cols or "start_date" not in cols:
-        raise ValueError(
-            "La query de campanas debe devolver name y start_date. "
-            f"Columnas encontradas: {list(df.columns)}"
-        )
-
-    out = df.rename(columns={cols["name"]: "name", cols["start_date"]: "start_date"}).copy()
-    out["name"] = out["name"].fillna("SIN NOMBRE").astype(str).str.strip()
-    out["fecha_campana"] = pd.to_datetime(out["start_date"], errors="coerce").dt.normalize()
-    out = out[out["fecha_campana"].notna()].copy()
-
-    out = (
-        out.groupby("fecha_campana", as_index=False)["name"]
-        .agg(lambda s: " | ".join(sorted(set(v for v in s if v))))
-        .rename(columns={"name": "campanas"})
-    )
-    return out
-
-
 def cargar_cambios_password_diario_resumen(
     codigos_clientes: list[str],
     fecha_inicio: pd.Timestamp,
@@ -180,12 +148,16 @@ def cargar_cambios_password_diario_resumen(
     if not codigos_validos:
         return pd.DataFrame(columns=["fecha", "total_cambios_password_dia", "clientes_unicos_cambio_dia"]), 0, 0
 
+    values_sql = ",\n        ".join(f"('{codigo}')" for codigo in codigos_validos)
+    if PLACEHOLDER_CLIENTES_VALUES not in SQL_CAMBIOS_PASSWORD:
+        raise ValueError(f"La query no contiene placeholder {PLACEHOLDER_CLIENTES_VALUES}.")
+    query_sql = SQL_CAMBIOS_PASSWORD.replace(PLACEHOLDER_CLIENTES_VALUES, values_sql)
+
     params = {
-        "codigos_json": json.dumps(codigos_validos),
         "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d"),
         "fecha_fin_exclusiva": fecha_fin_exclusiva.strftime("%Y-%m-%d"),
     }
-    df = run_query(SQL_CAMBIOS_PASSWORD, params=params)
+    df = run_query(query_sql, params=params)
     if df.empty:
         return pd.DataFrame(columns=["fecha", "total_cambios_password_dia", "clientes_unicos_cambio_dia"]), 0, 0
 
@@ -214,14 +186,10 @@ def cargar_cambios_password_diario_resumen(
 
 
 def construir_base_diaria(
-    total_clientes_base: int,
     cambios_password_diario: pd.DataFrame,
-    campanas: pd.DataFrame,
     fecha_inicio: pd.Timestamp,
     fecha_fin_exclusiva: pd.Timestamp,
-    total_cambios_periodo: int,
-    clientes_con_cambio_periodo: int,
-) -> tuple[pd.DataFrame, int, int, int]:
+ ) -> pd.DataFrame:
     fechas = pd.date_range(fecha_inicio, fecha_fin_exclusiva - pd.Timedelta(days=1), freq="D")
 
     if cambios_password_diario.empty:
@@ -232,51 +200,32 @@ def construir_base_diaria(
         total_cambios_dia = diario_idx["total_cambios_password_dia"].reindex(fechas, fill_value=0)
         clientes_unicos_dia = diario_idx["clientes_unicos_cambio_dia"].reindex(fechas, fill_value=0)
 
-    mapa_campanas = {
-        row["fecha_campana"]: row["campanas"]
-        for _, row in campanas.iterrows()
-    }
-
     diario = pd.DataFrame({"fecha": fechas})
     diario["total_cambios_password"] = total_cambios_dia.values
     diario["clientes_unicos_cambio"] = clientes_unicos_dia.values
-    diario["campanas"] = diario["fecha"].map(mapa_campanas).fillna("Sin envio")
-    diario["es_dia_campana"] = diario["fecha"].isin(set(mapa_campanas.keys()))
-    diario["color"] = diario["es_dia_campana"].map({True: COLOR_CAMPANA, False: COLOR_NORMAL})
-
-    return diario, total_clientes_base, total_cambios_periodo, clientes_con_cambio_periodo
+    return diario
 
 
 def construir_figura_cambios_diarios(diario: pd.DataFrame) -> go.Figure:
     if diario.empty:
         return figura_vacia("Sin datos para construir el grafico")
 
-    max_total = int(diario["total_cambios_password"].max()) if not diario.empty else 0
+    max_total = int(diario["clientes_unicos_cambio"].max()) if not diario.empty else 0
     separacion = max(1, int(max_total * 0.04))
-
-    custom_data = list(
-        zip(
-            diario["es_dia_campana"].map({True: "Si", False: "No"}),
-            diario["campanas"],
-            diario["clientes_unicos_cambio"],
-        )
-    )
 
     fig = go.Figure()
     fig.add_trace(
         go.Bar(
             x=diario["fecha"],
-            y=diario["total_cambios_password"],
-            marker_color=diario["color"],
-            customdata=custom_data,
-            text=[f"{int(v):,}" if int(v) > 0 else "" for v in diario["total_cambios_password"]],
+            y=diario["clientes_unicos_cambio"],
+            marker_color=COLOR_NORMAL,
+            customdata=diario["total_cambios_password"],
+            text=[f"{int(v):,}" if int(v) > 0 else "" for v in diario["clientes_unicos_cambio"]],
             textposition="outside",
             hovertemplate=(
                 "Fecha %{x|%Y-%m-%d}<br>"
-                "Cambios password: %{y:,}<br>"
-                "Clientes unicos con cambio: %{customdata[2]:,}<br>"
-                "Dia con campana: %{customdata[0]}<br>"
-                "Campana(s): %{customdata[1]}<extra></extra>"
+                "Clientes unicos con cambio: %{y:,}<br>"
+                "Total cambios password: %{customdata:,}<extra></extra>"
             ),
             showlegend=False,
         )
@@ -289,24 +238,26 @@ def construir_figura_cambios_diarios(diario: pd.DataFrame) -> go.Figure:
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=35, b=50, l=50, r=20),
         xaxis=dict(title="Fecha", tickmode="linear", dtick=86400000.0, tickformat="%d-%m"),
-        yaxis=dict(title="Cantidad de cambios de password", range=[0, max_total + (separacion * 3)]),
+        yaxis=dict(title="Clientes unicos con cambio de password", range=[0, max_total + (separacion * 3)]),
         bargap=0.15,
     )
-
-    fig.add_annotation(
-        x=0.01,
-        y=1.12,
-        xref="paper",
-        yref="paper",
-        text=(
-            f"<b>Color campana:</b> {COLOR_CAMPANA} (dias con envio) | "
-            f"<b>Color normal:</b> {COLOR_NORMAL}"
-        ),
-        showarrow=False,
-        font=dict(size=12, color=COLORES["gris_texto"]),
-        align="left",
-    )
     return fig
+
+
+def opciones_mes(diario: pd.DataFrame) -> list[dict[str, str]]:
+    if diario.empty:
+        return [{"label": "Todos", "value": "ALL"}]
+
+    meses = sorted(diario["fecha"].dt.strftime("%Y-%m").dropna().unique().tolist())
+    opciones = [{"label": "Todos", "value": "ALL"}]
+    opciones.extend({"label": mes, "value": mes} for mes in meses)
+    return opciones
+
+
+def filtrar_diario_por_mes(diario: pd.DataFrame, mes: str | None) -> pd.DataFrame:
+    if diario.empty or not mes or mes == "ALL":
+        return diario.copy()
+    return diario[diario["fecha"].dt.strftime("%Y-%m") == mes].copy()
 
 
 def kpi_card(titulo: str, valor: str, color_borde: str) -> html.Div:
@@ -328,7 +279,6 @@ def kpi_card(titulo: str, valor: str, color_borde: str) -> html.Div:
 
 def construir_dashboard() -> Dash:
     clientes = cargar_clientes_contactados()
-    campanas = cargar_campanas()
     codigos_clientes = clientes["padded_codigo_cliente"].dropna().astype(str).tolist()
     cambios_diario, total_cambios_periodo, clientes_con_cambio_periodo = cargar_cambios_password_diario_resumen(
         codigos_clientes=codigos_clientes,
@@ -337,19 +287,16 @@ def construir_dashboard() -> Dash:
     )
     total_base = int(clientes["padded_codigo_cliente"].nunique())
 
-    diario, total_base, total_cambios, clientes_con_cambio = construir_base_diaria(
-        total_clientes_base=total_base,
+    diario = construir_base_diaria(
         cambios_password_diario=cambios_diario,
-        campanas=campanas,
         fecha_inicio=FECHA_INICIO,
         fecha_fin_exclusiva=FECHA_FIN_EXCLUSIVA,
-        total_cambios_periodo=total_cambios_periodo,
-        clientes_con_cambio_periodo=clientes_con_cambio_periodo,
     )
 
-    dias_campana = int(diario["es_dia_campana"].sum()) if not diario.empty else 0
-
+    total_cambios = total_cambios_periodo
+    clientes_con_cambio = clientes_con_cambio_periodo
     fig = construir_figura_cambios_diarios(diario)
+    opciones_filtro_mes = opciones_mes(diario)
 
     app = Dash(__name__)
     app.title = "Dashboard 02 - Cambios de password diarios"
@@ -369,8 +316,7 @@ def construir_dashboard() -> Dash:
             html.P(
                 (
                     f"Periodo: {FECHA_INICIO.strftime('%Y-%m-%d')} a "
-                    f"{(FECHA_FIN_EXCLUSIVA - pd.Timedelta(days=1)).strftime('%Y-%m-%d')} "
-                    f"(dias con campana detectados: {dias_campana})"
+                    f"{(FECHA_FIN_EXCLUSIVA - pd.Timedelta(days=1)).strftime('%Y-%m-%d')}"
                 ),
                 style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "14px"},
             ),
@@ -388,6 +334,27 @@ def construir_dashboard() -> Dash:
                 ],
             ),
             html.Div(
+                style={"marginBottom": "12px"},
+                children=[
+                    html.Label(
+                        "Filtrar por mes",
+                        htmlFor="filtro-mes-cambio-password",
+                        style={"color": COLORES["azul_experto"], "fontWeight": "600", "display": "block"},
+                    ),
+                    dcc.Dropdown(
+                        id="filtro-mes-cambio-password",
+                        options=opciones_filtro_mes,
+                        value="ALL",
+                        clearable=False,
+                        style={"maxWidth": "240px"},
+                    ),
+                ],
+            ),
+            html.P(
+                id="subtitulo-filtro-mes-cambio-password",
+                style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "10px"},
+            ),
+            html.Div(
                 style={
                     "backgroundColor": COLORES["blanco"],
                     "borderRadius": "10px",
@@ -398,6 +365,20 @@ def construir_dashboard() -> Dash:
             ),
         ],
     )
+
+    @app.callback(
+        Output("graf-cambios-password-diarios", "figure"),
+        Output("subtitulo-filtro-mes-cambio-password", "children"),
+        Input("filtro-mes-cambio-password", "value"),
+    )
+    def actualizar_grafico_por_mes(mes: str | None) -> tuple[go.Figure, str]:
+        diario_filtrado = filtrar_diario_por_mes(diario, mes)
+        figura = construir_figura_cambios_diarios(diario_filtrado)
+        if mes and mes != "ALL":
+            subtitulo = f"Mes seleccionado: {mes}"
+        else:
+            subtitulo = "Mes seleccionado: TODOS"
+        return figura, subtitulo
 
     return app
 
