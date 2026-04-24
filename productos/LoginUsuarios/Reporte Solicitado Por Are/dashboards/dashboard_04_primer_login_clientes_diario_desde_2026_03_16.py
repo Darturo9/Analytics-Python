@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, dcc, html
+from dash import Dash, Input, Output, dcc, html
 from sqlalchemy.exc import SQLAlchemyError
 
 
@@ -235,6 +235,22 @@ def construir_figura(diario: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def opciones_mes(diario: pd.DataFrame) -> list[dict[str, str]]:
+    if diario.empty:
+        return [{"label": "Todos", "value": "ALL"}]
+
+    meses = sorted(diario["fecha"].dt.strftime("%Y-%m").dropna().unique().tolist())
+    opciones = [{"label": "Todos", "value": "ALL"}]
+    opciones.extend({"label": mes, "value": mes} for mes in meses)
+    return opciones
+
+
+def filtrar_diario_por_mes(diario: pd.DataFrame, mes: str | None) -> pd.DataFrame:
+    if diario.empty or not mes or mes == "ALL":
+        return diario.copy()
+    return diario[diario["fecha"].dt.strftime("%Y-%m") == mes].copy()
+
+
 def kpi_card(titulo: str, valor: str, color_borde: str) -> html.Div:
     return html.Div(
         style={
@@ -270,6 +286,7 @@ def construir_dashboard() -> Dash:
 
     total_base = int(clientes["padded_codigo_cliente"].nunique())
     fig = construir_figura(diario)
+    opciones_filtro_mes = opciones_mes(diario)
 
     app = Dash(__name__)
     app.title = "Dashboard 04 - Primer login cliente"
@@ -307,6 +324,27 @@ def construir_dashboard() -> Dash:
                 ],
             ),
             html.Div(
+                style={"marginBottom": "12px"},
+                children=[
+                    html.Label(
+                        "Filtrar por mes",
+                        htmlFor="filtro-mes-primer-login",
+                        style={"color": COLORES["azul_experto"], "fontWeight": "600", "display": "block"},
+                    ),
+                    dcc.Dropdown(
+                        id="filtro-mes-primer-login",
+                        options=opciones_filtro_mes,
+                        value="ALL",
+                        clearable=False,
+                        style={"maxWidth": "240px"},
+                    ),
+                ],
+            ),
+            html.P(
+                id="subtitulo-filtro-mes-primer-login",
+                style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "10px"},
+            ),
+            html.Div(
                 style={
                     "backgroundColor": COLORES["blanco"],
                     "borderRadius": "10px",
@@ -317,6 +355,20 @@ def construir_dashboard() -> Dash:
             ),
         ],
     )
+
+    @app.callback(
+        Output("graf-primer-login-diario", "figure"),
+        Output("subtitulo-filtro-mes-primer-login", "children"),
+        Input("filtro-mes-primer-login", "value"),
+    )
+    def actualizar_grafico_por_mes(mes: str | None) -> tuple[go.Figure, str]:
+        diario_filtrado = filtrar_diario_por_mes(diario, mes)
+        figura = construir_figura(diario_filtrado)
+        if mes and mes != "ALL":
+            subtitulo = f"Mes seleccionado: {mes}"
+        else:
+            subtitulo = "Mes seleccionado: TODOS"
+        return figura, subtitulo
 
     return app
 
