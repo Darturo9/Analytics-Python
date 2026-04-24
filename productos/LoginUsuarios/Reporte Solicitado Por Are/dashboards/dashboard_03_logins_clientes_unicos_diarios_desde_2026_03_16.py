@@ -221,7 +221,7 @@ def construir_figura(diario: pd.DataFrame) -> go.Figure:
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
         margin=dict(t=35, b=50, l=50, r=20),
-        xaxis=dict(title="Fecha", tickmode="linear", dtick=86400000.0, tickformat="%d-%b"),
+        xaxis=dict(title="Fecha", tickmode="linear", dtick=86400000.0, tickformat="%d-%m"),
         yaxis=dict(title="Clientes unicos con login", range=[0, max_total + (separacion * 3)]),
         bargap=0.15,
     )
