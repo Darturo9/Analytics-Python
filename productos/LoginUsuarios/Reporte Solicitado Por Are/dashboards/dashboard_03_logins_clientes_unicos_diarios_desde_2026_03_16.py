@@ -11,7 +11,6 @@ Ejecucion:
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -38,14 +37,15 @@ FECHA_INICIO = pd.Timestamp("2026-03-16")
 FECHA_FIN_EXCLUSIVA = pd.Timestamp.today().normalize() + pd.Timedelta(days=1)
 PORT = 8064
 COLOR_BARRA = COLORES["aqua_digital"]
+PLACEHOLDER_CLIENTES_VALUES = "{{CLIENTES_VALUES}}"
 
 SQL_LOGINS_UNICOS_DIARIOS = """
 WITH clientes AS (
     SELECT DISTINCT
-        RIGHT('00000000' + LTRIM(RTRIM([value])), 8) AS padded_codigo_cliente
-    FROM OPENJSON(CAST(:codigos_json AS NVARCHAR(MAX)))
-    WHERE [value] IS NOT NULL
-      AND LTRIM(RTRIM([value])) <> ''
+        v.padded_codigo_cliente
+    FROM (VALUES
+        {{CLIENTES_VALUES}}
+    ) v(padded_codigo_cliente)
 ),
 base AS (
     SELECT
@@ -147,12 +147,16 @@ def cargar_logins_unicos_diarios(
     if not codigos_validos:
         return pd.DataFrame(columns=["fecha", "clientes_unicos_login_dia"]), 0, 0
 
+    values_sql = ",\n        ".join(f"('{codigo}')" for codigo in codigos_validos)
+    if PLACEHOLDER_CLIENTES_VALUES not in SQL_LOGINS_UNICOS_DIARIOS:
+        raise ValueError(f"La query no contiene placeholder {PLACEHOLDER_CLIENTES_VALUES}.")
+    query_sql = SQL_LOGINS_UNICOS_DIARIOS.replace(PLACEHOLDER_CLIENTES_VALUES, values_sql)
+
     params = {
-        "codigos_json": json.dumps(codigos_validos),
         "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d"),
         "fecha_fin_exclusiva": fecha_fin_exclusiva.strftime("%Y-%m-%d"),
     }
-    df = run_query(SQL_LOGINS_UNICOS_DIARIOS, params=params)
+    df = run_query(query_sql, params=params)
     if df.empty:
         return pd.DataFrame(columns=["fecha", "clientes_unicos_login_dia"]), 0, 0
 
