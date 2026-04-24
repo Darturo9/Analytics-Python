@@ -11,8 +11,8 @@ Muestra:
 - total de eventos de cambio de password
 - clientes unicos con cambio de password
 - desglose de logins por canal
-- resumen diario (logins / cambios)
-- top clientes por logins y por cambios de password
+- top dias con mas logins
+- top dias con mas cambios de password
 
 Ejecucion:
     python3 productos/LoginUsuarios/QBR_1_2026/programas_py/reporte_rendimiento_campana_72049_desde_2026_04_18.py
@@ -288,43 +288,43 @@ def imprimir_reporte(
         print(por_canal.to_string(index=False))
 
     print("-" * 108)
-    diario = resumen_diario.copy()
-    diario["dia"] = diario["dia"].dt.strftime("%Y-%m-%d")
-    for col in ["eventos_logins", "clientes_unicos_login", "eventos_cambios_password", "clientes_unicos_cambio"]:
-        diario[col] = diario[col].astype(int).map(lambda x: f"{x:,}")
-    print("Resumen diario:")
-    print(diario.to_string(index=False))
-
-    print("-" * 108)
-    top_logins = (
-        df_resumen[df_resumen["total_logins"] > 0][["padded_codigo_cliente", "total_logins"]]
-        .sort_values(["total_logins", "padded_codigo_cliente"], ascending=[False, True])
+    top_logins_dia = (
+        resumen_diario[["dia", "eventos_logins", "clientes_unicos_login"]]
+        .sort_values(["eventos_logins", "dia"], ascending=[False, True])
         .head(max(1, top_n))
+        .copy()
     )
-    top_cambios = (
-        df_resumen[df_resumen["total_cambios_password"] > 0][["padded_codigo_cliente", "total_cambios_password"]]
-        .sort_values(["total_cambios_password", "padded_codigo_cliente"], ascending=[False, True])
+    top_cambios_dia = (
+        resumen_diario[["dia", "eventos_cambios_password", "clientes_unicos_cambio"]]
+        .sort_values(["eventos_cambios_password", "dia"], ascending=[False, True])
         .head(max(1, top_n))
+        .copy()
     )
 
-    if top_logins.empty:
-        print(f"Top {max(1, top_n)} clientes por logins: sin datos")
+    if top_logins_dia.empty:
+        print(f"Top {max(1, top_n)} dias con mas logins: sin datos")
     else:
-        top_logins = top_logins.copy()
-        top_logins["total_logins"] = top_logins["total_logins"].astype(int).map(lambda x: f"{x:,}")
-        print(f"Top {max(1, top_n)} clientes por logins:")
-        print(top_logins.to_string(index=False))
-
-    print("-" * 108)
-    if top_cambios.empty:
-        print(f"Top {max(1, top_n)} clientes por cambios de password: sin datos")
-    else:
-        top_cambios = top_cambios.copy()
-        top_cambios["total_cambios_password"] = (
-            top_cambios["total_cambios_password"].astype(int).map(lambda x: f"{x:,}")
+        top_logins_dia["dia"] = top_logins_dia["dia"].dt.strftime("%Y-%m-%d")
+        top_logins_dia["eventos_logins"] = top_logins_dia["eventos_logins"].astype(int).map(lambda x: f"{x:,}")
+        top_logins_dia["clientes_unicos_login"] = (
+            top_logins_dia["clientes_unicos_login"].astype(int).map(lambda x: f"{x:,}")
         )
-        print(f"Top {max(1, top_n)} clientes por cambios de password:")
-        print(top_cambios.to_string(index=False))
+        print(f"Top {max(1, top_n)} dias con mas logins:")
+        print(top_logins_dia.to_string(index=False))
+
+    print("-" * 108)
+    if top_cambios_dia.empty:
+        print(f"Top {max(1, top_n)} dias con mas cambios de password: sin datos")
+    else:
+        top_cambios_dia["dia"] = top_cambios_dia["dia"].dt.strftime("%Y-%m-%d")
+        top_cambios_dia["eventos_cambios_password"] = (
+            top_cambios_dia["eventos_cambios_password"].astype(int).map(lambda x: f"{x:,}")
+        )
+        top_cambios_dia["clientes_unicos_cambio"] = (
+            top_cambios_dia["clientes_unicos_cambio"].astype(int).map(lambda x: f"{x:,}")
+        )
+        print(f"Top {max(1, top_n)} dias con mas cambios de password:")
+        print(top_cambios_dia.to_string(index=False))
 
     print("=" * 108)
 
@@ -342,7 +342,7 @@ def main() -> None:
         default=fecha_fin_default(),
         help="Fecha fin exclusiva (YYYY-MM-DD). Por defecto: manana respecto a la fecha de ejecucion.",
     )
-    parser.add_argument("--top", type=int, default=15, help="Cantidad de clientes para top de logins/cambios.")
+    parser.add_argument("--top", type=int, default=10, help="Cantidad de dias para mostrar en top logins/cambios.")
     args = parser.parse_args()
 
     try:
