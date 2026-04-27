@@ -1,6 +1,8 @@
 import argparse
+import json
 import sys
-from datetime import date
+from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
@@ -8,6 +10,8 @@ from sqlalchemy.exc import SQLAlchemyError
 sys.path.insert(0, ".")
 
 from core.db import run_query
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 NOMBRE_MES = {
@@ -189,6 +193,36 @@ def imprimir_tabla(df: pd.DataFrame, anio: int, mes_inicio: int, mes_fin: int, c
     print("=====================================")
 
 
+def exportar_json(df: pd.DataFrame, anio: int, mes_inicio: int, mes_fin: int, codigo_superpack: int) -> Path:
+    meses = [
+        {
+            "periodo": row["periodo"],
+            "clientes_unicos": int(row["clientes_unicos"]),
+            "total_transacciones": int(row["total_transacciones"]),
+            "monto_total": round(float(row["monto_total_transacciones"]), 2),
+            "monto_promedio": round(float(row["monto_promedio"]), 2),
+            "monto_mas_comun": round(float(row["monto_mas_comun"]), 2),
+        }
+        for _, row in df.iterrows()
+    ]
+
+    payload = {
+        "generado_en": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "anio": anio,
+        "mes_inicio": NOMBRE_MES[mes_inicio],
+        "mes_fin": NOMBRE_MES[mes_fin],
+        "codigo_superpack": codigo_superpack,
+        "meses": meses,
+    }
+
+    nombre = f"resumen_superpack_{anio}_{mes_inicio:02d}_{mes_fin:02d}.json"
+    output_path = BASE_DIR / "exports" / nombre
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return output_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Resumen mensual de compras de Superpack (clientes unicos, tx y montos)."
@@ -210,6 +244,8 @@ def main() -> None:
         df_sql = run_query(SQL_RESUMEN_MENSUAL_SUPERPACK, params=params)
         df_salida = preparar_salida(df_sql, args.anio, args.mes_inicio, args.mes_fin)
         imprimir_tabla(df_salida, args.anio, args.mes_inicio, args.mes_fin, args.codigo_superpack)
+        output = exportar_json(df_salida, args.anio, args.mes_inicio, args.mes_fin, args.codigo_superpack)
+        print(f"JSON exportado: {output}")
     except SQLAlchemyError as exc:
         print(construir_error_amigable(exc))
         sys.exit(1)
