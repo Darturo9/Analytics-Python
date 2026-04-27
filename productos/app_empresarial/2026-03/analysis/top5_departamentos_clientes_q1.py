@@ -43,22 +43,33 @@ def main() -> None:
         print("[INFO] La query no devolvio filas.")
         raise SystemExit(0)
 
+    col_cliente = "padded_codigo_cliente"
     if "depto" not in df.columns:
         print(f"[ERROR] Columna 'depto' no encontrada. Columnas disponibles: {list(df.columns)}")
         raise SystemExit(1)
+    if col_cliente not in df.columns:
+        print(f"[ERROR] Columna '{col_cliente}' no encontrada. Columnas disponibles: {list(df.columns)}")
+        raise SystemExit(1)
+
+    # Un cliente puede tener muchas filas (una por operacion).
+    # Deduplicamos para contar cada cliente una sola vez.
+    clientes_unicos = (
+        df[[col_cliente, "depto"]]
+        .drop_duplicates(subset=[col_cliente])
+        .copy()
+    )
+    clientes_unicos["depto"] = clientes_unicos["depto"].fillna("SIN DATOS").str.strip()
+
+    total = len(clientes_unicos)
 
     top5 = (
-        df["depto"]
-        .fillna("SIN DATOS")
-        .str.strip()
+        clientes_unicos["depto"]
         .value_counts()
         .head(5)
         .reset_index()
     )
     top5.columns = ["departamento", "clientes"]
     top5.index = range(1, len(top5) + 1)
-
-    total = len(df)
 
     print("\n============================================================")
     print(" TOP 5 DEPARTAMENTOS - CLIENTES EMPRESARIALES Q1 2026")
@@ -69,7 +80,7 @@ def main() -> None:
         pct = row["clientes"] / total * 100
         print(f"{rank:<4} {row['departamento']:<30} {row['clientes']:>10,} {pct:>7.1f}%")
     print("------------------------------------------------------------")
-    print(f"{'Total clientes en listado Q1:':<35} {total:>10,}")
+    print(f"{'Total clientes unicos Q1:':<35} {total:>10,}")
     print("============================================================\n")
 
 
