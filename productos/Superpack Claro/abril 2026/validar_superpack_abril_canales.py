@@ -10,15 +10,13 @@ from sqlalchemy.exc import SQLAlchemyError
 sys.path.insert(0, ".")
 
 from core.db import run_query_file
-from core.utils import exportar_excel
 
 
 BASE_DIR = Path(__file__).resolve().parent
 SUPERPACK_DIR = BASE_DIR.parent
 QUERY_PATH = BASE_DIR / "queries" / "compras_superpack_abril_2026.sql"
 INPUT_CLIENTES = SUPERPACK_DIR / "exports" / "clientes_contactados_unificados_prioridad_rtm.xlsx"
-OUTPUT_DETALLE = BASE_DIR / "exports" / "validacion_superpack_abril_canales.xlsx"
-OUTPUT_JSON    = BASE_DIR / "exports" / "validacion_superpack_abril_canales.json"
+OUTPUT_JSON = BASE_DIR / "exports" / "validacion_superpack_abril_canales.json"
 
 PREFERRED_COLUMNS = (
     "codigo_cliente",
@@ -397,9 +395,6 @@ def main() -> None:
 
         detalle, _ = preparar_validacion(clientes, compras)
         imprimir_resumen(detalle, compras)
-
-        exportar_excel(detalle, str(OUTPUT_DETALLE), hoja="validacion")
-        print(f"Detalle exportado: {OUTPUT_DETALLE}")
 
         payload = construir_payload_json(detalle, compras)
         exportar_json(payload, OUTPUT_JSON)
