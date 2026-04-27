@@ -1,4 +1,5 @@
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -20,7 +21,6 @@ PREFERRED_COLUMNS = (
     "cliente",
     "codigo",
 )
-CHUNK_SIZE = 1000
 
 SQL_COMPRADORES_SUPERPACK = """
 WITH trx_superpack AS (
@@ -50,6 +50,24 @@ SELECT DISTINCT
 FROM trx_superpack
 WHERE codigo_cliente IS NOT NULL
 """
+
+# Plantilla compatible con SQL Server 2012+. Los {placeholders} se reemplazan
+# en Python con los codigos del lote antes de ejecutar.
+SQL_DEMOGRAFIA_BATCH = """
+SELECT
+    RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) AS codigo_cliente,
+    MAX(c.CLISEX)                                  AS genero_raw,
+    MAX(CAST(c.DW_FECHA_NACIMIENTO AS DATE))        AS fecha_nacimiento,
+    MAX(COALESCE(NULLIF(LTRIM(RTRIM(d.dw_nivel_geo2)), ''), 'SIN DATO')) AS departamento_raw
+FROM DW_CIF_CLIENTES c
+LEFT JOIN DW_CIF_DIRECCIONES_PRINCIPAL d
+    ON RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) =
+       RIGHT('00000000' + LTRIM(RTRIM(d.CLDOC)), 8)
+WHERE RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) IN ({placeholders})
+GROUP BY RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)
+"""
+
+DEMOGRAFIA_BATCH_SIZE = 500
 
 
 def construir_error_amigable(exc: Exception) -> str:
@@ -103,11 +121,6 @@ def seleccionar_columna_cliente(df: pd.DataFrame) -> str:
         "No se pudo detectar la columna de cliente automaticamente. "
         f"Columnas encontradas: {cols}"
     )
-
-
-def chunked(seq: list[str], size: int):
-    for i in range(0, len(seq), size):
-        yield seq[i : i + size]
 
 
 def normalizar_genero(value: object) -> str:
@@ -173,28 +186,33 @@ def obtener_demografia_por_codigos(codigos: list[str]) -> pd.DataFrame:
     if not codigos:
         return pd.DataFrame(columns=["codigo_cliente", "genero", "fecha_nacimiento", "departamento"])
 
-    frames: list[pd.DataFrame] = []
-    for bloque in chunked(codigos, CHUNK_SIZE):
-        in_values = ", ".join(f"'{codigo}'" for codigo in bloque)
-        sql = f"""
-            SELECT
-                RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) AS codigo_cliente,
-                MAX(c.CLISEX) AS genero_raw,
-                MAX(CAST(c.DW_FECHA_NACIMIENTO AS DATE)) AS fecha_nacimiento,
-                MAX(COALESCE(NULLIF(LTRIM(RTRIM(d.dw_nivel_geo2)), ''), 'SIN DATO')) AS departamento_raw
-            FROM DW_CIF_CLIENTES c
-            LEFT JOIN DW_CIF_DIRECCIONES_PRINCIPAL d
-                ON RTRIM(LTRIM(c.CLDOC)) = RTRIM(LTRIM(d.CLDOC))
-            WHERE RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) IN ({in_values})
-            GROUP BY
-                RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)
-        """
-        frames.append(run_query(sql))
-
-    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-    if df.empty:
+    codigos_unicos = sorted(
+        {
+            str(codigo).strip()
+            for codigo in codigos
+            if pd.notna(codigo) and str(codigo).strip() != ""
+        }
+    )
+    if not codigos_unicos:
         return pd.DataFrame(columns=["codigo_cliente", "genero", "fecha_nacimiento", "departamento"])
 
+    # Consulta en lotes para compatibilidad con SQL Server 2012+
+    lotes = [
+        codigos_unicos[i : i + DEMOGRAFIA_BATCH_SIZE]
+        for i in range(0, len(codigos_unicos), DEMOGRAFIA_BATCH_SIZE)
+    ]
+    partes = []
+    for lote in lotes:
+        placeholders = ", ".join(f"'{c}'" for c in lote)
+        sql = SQL_DEMOGRAFIA_BATCH.format(placeholders=placeholders)
+        df_lote = run_query(sql)
+        if not df_lote.empty:
+            partes.append(df_lote)
+
+    if not partes:
+        return pd.DataFrame(columns=["codigo_cliente", "genero", "fecha_nacimiento", "departamento"])
+
+    df = pd.concat(partes, ignore_index=True)
     df["codigo_cliente"] = df["codigo_cliente"].astype(str).apply(normalizar_codigo_cliente)
     df["fecha_nacimiento"] = pd.to_datetime(df["fecha_nacimiento"], errors="coerce")
     df["genero"] = df["genero_raw"].apply(normalizar_genero)
@@ -299,6 +317,10 @@ def main() -> None:
             print("============================================")
             return
 
+        print(
+            "Consultando demografia en SQL Server "
+            "(lectura en lote de clientes compradores, no cliente por cliente)..."
+        )
         demografia = obtener_demografia_por_codigos(compradores_lista["codigo_cliente"].tolist())
         base = compradores_lista.merge(demografia, on="codigo_cliente", how="left")
         base["genero"] = base["genero"].fillna("SIN DATO")
