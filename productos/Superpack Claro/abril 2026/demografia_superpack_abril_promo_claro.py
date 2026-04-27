@@ -17,6 +17,7 @@ Ejecucion:
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -27,10 +28,11 @@ sys.path.insert(0, ".")
 from core.db import run_query
 
 
-BASE_DIR     = Path(__file__).resolve().parent
+BASE_DIR      = Path(__file__).resolve().parent
 SUPERPACK_DIR = BASE_DIR.parent
 
 INPUT_PROMO_CLARO = SUPERPACK_DIR / "inputs" / "clientes Contactados promo Claro.xlsx"
+OUTPUT_JSON       = BASE_DIR / "exports" / "demografia_superpack_abril_promo_claro.json"
 
 FECHA_INICIO          = "2026-04-01"
 FECHA_FIN_EXCLUSIVA   = "2026-05-01"
@@ -224,6 +226,44 @@ def imprimir_tabla(titulo: str, df: pd.DataFrame, col_categoria: str, total: int
         print(f"  {str(row['categoria']):<35} {int(row['cantidad']):>10,} {pct:>7.1f}%")
 
 
+def construir_tabla_dict(df: pd.DataFrame, col: str, total: int, top_n: int | None = None) -> list[dict]:
+    tabla = (
+        df.groupby(col, as_index=False)["codigo_cliente"]
+        .nunique()
+        .rename(columns={"codigo_cliente": "cantidad", col: "categoria"})
+        .sort_values("cantidad", ascending=False)
+    )
+    if top_n is not None:
+        tabla = tabla.head(top_n)
+    return [
+        {
+            "categoria": row["categoria"],
+            "clientes": int(row["cantidad"]),
+            "porcentaje": round(row["cantidad"] / total * 100, 2) if total else 0.0,
+        }
+        for _, row in tabla.iterrows()
+    ]
+
+
+def exportar_json_demografia(base: pd.DataFrame, total_lista: int, total_compradores: int, path: Path) -> None:
+    payload = {
+        "periodo": "abril_2026",
+        "generado_en": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "fuente": "promo_claro",
+        "resumen_general": {
+            "clientes_en_lista_promo": total_lista,
+            "compradores": total_compradores,
+            "conversion_pct": round(total_compradores / total_lista * 100, 2) if total_lista else 0.0,
+        },
+        "genero": construir_tabla_dict(base, "genero", total_compradores),
+        "generacion": construir_tabla_dict(base, "generacion", total_compradores),
+        "top_departamentos": construir_tabla_dict(base, "departamento", total_compradores, top_n=TOP_DEPTOS),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
 def main() -> None:
     try:
         print(f"Leyendo lista promo Claro: {INPUT_PROMO_CLARO}")
@@ -265,6 +305,9 @@ def main() -> None:
         imprimir_tabla(f"Top {TOP_DEPTOS} Departamentos:", base, "departamento", total_compradores)
 
         print("\n============================================================\n")
+
+        exportar_json_demografia(base, total_lista, total_compradores, OUTPUT_JSON)
+        print(f"JSON exportado: {OUTPUT_JSON}")
 
     except FileNotFoundError as exc:
         print(f"[ERROR] {exc}")

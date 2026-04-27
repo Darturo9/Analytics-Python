@@ -1,5 +1,7 @@
+import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +18,7 @@ SUPERPACK_DIR = BASE_DIR.parent
 QUERY_PATH = BASE_DIR / "queries" / "compras_superpack_abril_2026.sql"
 INPUT_CLIENTES = SUPERPACK_DIR / "exports" / "clientes_contactados_unificados_prioridad_rtm.xlsx"
 OUTPUT_DETALLE = BASE_DIR / "exports" / "validacion_superpack_abril_canales.xlsx"
+OUTPUT_JSON    = BASE_DIR / "exports" / "validacion_superpack_abril_canales.json"
 
 PREFERRED_COLUMNS = (
     "codigo_cliente",
@@ -291,6 +294,97 @@ def imprimir_resumen(detalle: pd.DataFrame, compras: pd.DataFrame) -> None:
     print("====================================================\n")
 
 
+def construir_payload_json(detalle: pd.DataFrame, compras: pd.DataFrame) -> dict:
+    total_lista = int(detalle["codigo_cliente"].nunique())
+    total_compraron = int(detalle["compro_superpack"].sum())
+
+    resumen_canal = (
+        detalle.groupby("origen", as_index=False)
+        .agg(
+            clientes_en_lista=("codigo_cliente", "nunique"),
+            clientes_que_compraron=("compro_superpack", "sum"),
+            monto_total=("monto_total_tx", "sum"),
+        )
+    )
+    resumen_canal["clientes_que_no_compraron"] = (
+        resumen_canal["clientes_en_lista"] - resumen_canal["clientes_que_compraron"]
+    )
+
+    por_canal_contacto = [
+        {
+            "origen": row["origen"],
+            "clientes_en_lista": int(row["clientes_en_lista"]),
+            "clientes_que_compraron": int(row["clientes_que_compraron"]),
+            "clientes_que_no_compraron": int(row["clientes_que_no_compraron"]),
+            "monto_total": round(float(row["monto_total"]), 2),
+        }
+        for _, row in resumen_canal.iterrows()
+    ]
+
+    por_canal_compra = []
+    cruce_origen_canal = []
+    if not compras.empty:
+        por_canal_compra = [
+            {
+                "canal_compra": row["canal_compra"],
+                "clientes_unicos": int(row["clientes_unicos"]),
+                "total_tx": int(row["total_tx"]),
+                "monto_total": round(float(row["monto_total"]), 2),
+            }
+            for _, row in (
+                compras.groupby("canal_compra", as_index=False)
+                .agg(
+                    clientes_unicos=("codigo_cliente", "nunique"),
+                    total_tx=("codigo_cliente", "size"),
+                    monto_total=("monto_operacion", "sum"),
+                )
+                .iterrows()
+            )
+        ]
+        compradores_lista = detalle.loc[detalle["compro_superpack"] == 1]
+        if not compradores_lista.empty:
+            cruce = (
+                compradores_lista.groupby(["origen", "canal_compra_cliente"], as_index=False)
+                .agg(
+                    clientes_unicos=("codigo_cliente", "nunique"),
+                    total_tx=("total_tx", "sum"),
+                    monto_total=("monto_total_tx", "sum"),
+                )
+            )
+            cruce_origen_canal = [
+                {
+                    "origen": row["origen"],
+                    "canal_compra": row["canal_compra_cliente"],
+                    "clientes_unicos": int(row["clientes_unicos"]),
+                    "total_tx": int(row["total_tx"]),
+                    "monto_total": round(float(row["monto_total"]), 2),
+                }
+                for _, row in cruce.iterrows()
+            ]
+
+    return {
+        "periodo": "abril_2026",
+        "generado_en": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "resumen_general": {
+            "clientes_en_lista": total_lista,
+            "clientes_que_compraron": total_compraron,
+            "clientes_que_no_compraron": total_lista - total_compraron,
+            "universo_compradores_abril": int(compras["codigo_cliente"].nunique()) if not compras.empty else 0,
+            "universo_transacciones_abril": int(len(compras)),
+            "universo_monto_total_abril": round(float(compras["monto_operacion"].sum()) if not compras.empty else 0.0, 2),
+        },
+        "por_canal_contacto": por_canal_contacto,
+        "por_canal_compra": por_canal_compra,
+        "cruce_origen_canal_compra": cruce_origen_canal,
+    }
+
+
+def exportar_json(payload: dict, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
 def main() -> None:
     try:
         print(f"Leyendo clientes unificados: {INPUT_CLIENTES}")
@@ -306,6 +400,10 @@ def main() -> None:
 
         exportar_excel(detalle, str(OUTPUT_DETALLE), hoja="validacion")
         print(f"Detalle exportado: {OUTPUT_DETALLE}")
+
+        payload = construir_payload_json(detalle, compras)
+        exportar_json(payload, OUTPUT_JSON)
+        print(f"JSON exportado:    {OUTPUT_JSON}")
 
     except SQLAlchemyError as exc:
         print(construir_error_amigable(exc))
