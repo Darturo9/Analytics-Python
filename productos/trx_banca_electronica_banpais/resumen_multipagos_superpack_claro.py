@@ -27,10 +27,12 @@ def imprimir_resultados(df) -> None:
         "MontoTotalDolares":   float(df["MontoTotalDolares"].sum()),
     }
 
-    print("\nPOR CANAL:")
+    print("\nPOR CANAL / TIPO BANCA / TIPO CLIENTE:")
     print("-" * 60)
     for _, row in df.iterrows():
         print(f"  Canal               : {row['Canal']}")
+        print(f"  Tipo Banca          : {row['TipoBanca']}")
+        print(f"  Tipo Cliente        : {row['Tipo_Cliente']}")
         print(f"  Clientes unicos     : {int(row['TotalClientes']):,}")
         print(f"  Transacciones       : {int(row['TotalTransacciones']):,}")
         print(f"  Monto total         : {float(row['MontoTotal']):>18,.2f}")
