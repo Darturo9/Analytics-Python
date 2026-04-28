@@ -5,12 +5,32 @@ from sqlalchemy.exc import SQLAlchemyError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from core.db import run_query_file
+from core.db import run_query, run_query_file
 
 QUERY_PATH = Path(__file__).resolve().parent / "queries" / "Query_Multipagos_SuperpackClaro_Abril2026_Resumen.sql"
 
+SQL_TOTAL_CLIENTES = """
+SELECT COUNT(DISTINCT ClientesBel.CLCCLI) AS TotalClientesUnicos
+FROM DW_MUL_SPMACO
+  INNER JOIN DW_MUL_SPPADAT ON (DW_MUL_SPMACO.SPCODC = DW_MUL_SPPADAT.SPCODC)
+  LEFT JOIN (
+    SELECT LTRIM(RTRIM(DW_BEL_IBUSER.CLCCLI)) CLCCLI,
+           LTRIM(RTRIM(DW_BEL_IBUSER.USCODE)) USCODE
+    FROM DW_BEL_IBUSER
+  ) ClientesBel ON LTRIM(RTRIM(DW_MUL_SPPADAT.SPINUS)) = (ClientesBel.CLCCLI + ClientesBel.USCODE)
+  LEFT JOIN DW_CIF_CLIENTES ON LTRIM(RTRIM(DW_CIF_CLIENTES.CLDOC)) = ClientesBel.CLCCLI
+WHERE
+  DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP >= '2026-04-01'
+  AND DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP <  '2026-05-01'
+  AND DW_MUL_SPPADAT.SPCPCO IN (1, 7)
+  AND DW_MUL_SPMACO.SPNOMC = 'SUPERPACK-CLARO'
+  AND DW_MUL_SPPADAT.SPPAFR = 'N'
+  AND DW_CIF_CLIENTES.CLTIPE = 'N'
+  AND LTRIM(RTRIM(ClientesBel.CLCCLI)) NOT IN ('2169011','2285579','2496312','2285625','2058276')
+"""
 
-def imprimir_resultados(df) -> None:
+
+def imprimir_resultados(df, total_clientes_unicos: int) -> None:
     if df.empty:
         print("Sin resultados para SUPERPACK-CLARO en abril 2026.")
         return
@@ -20,11 +40,10 @@ def imprimir_resultados(df) -> None:
     print("=" * 60)
 
     totales = {
-        "TotalClientes":       int(df["TotalClientes"].sum()),
-        "TotalTransacciones":  int(df["TotalTransacciones"].sum()),
-        "MontoTotal":          float(df["MontoTotal"].sum()),
-        "MontoTotalLempiras":  float(df["MontoTotalLempiras"].sum()),
-        "MontoTotalDolares":   float(df["MontoTotalDolares"].sum()),
+        "TotalTransacciones": int(df["TotalTransacciones"].sum()),
+        "MontoTotal":         float(df["MontoTotal"].sum()),
+        "MontoTotalLempiras": float(df["MontoTotalLempiras"].sum()),
+        "MontoTotalDolares":  float(df["MontoTotalDolares"].sum()),
     }
 
     print("\nPOR CANAL / TIPO BANCA / TIPO CLIENTE:")
@@ -42,7 +61,7 @@ def imprimir_resultados(df) -> None:
 
     print("\nTOTAL GENERAL:")
     print("-" * 60)
-    print(f"  Clientes unicos     : {totales['TotalClientes']:,}")
+    print(f"  Clientes unicos     : {total_clientes_unicos:,}  (sin duplicar por canal)")
     print(f"  Transacciones       : {totales['TotalTransacciones']:,}")
     print(f"  Monto total         : {totales['MontoTotal']:>18,.2f}")
     print(f"  Monto en Lempiras   : L {totales['MontoTotalLempiras']:>15,.2f}")
@@ -54,7 +73,9 @@ def main() -> None:
     try:
         print("Consultando SUPERPACK-CLARO en SQL Server...")
         df = run_query_file(str(QUERY_PATH))
-        imprimir_resultados(df)
+        df_total = run_query(SQL_TOTAL_CLIENTES)
+        total_clientes_unicos = int(df_total["TotalClientesUnicos"].iloc[0])
+        imprimir_resultados(df, total_clientes_unicos)
     except SQLAlchemyError as exc:
         msg = " ".join(str(exc).split())
         lower = msg.lower()
