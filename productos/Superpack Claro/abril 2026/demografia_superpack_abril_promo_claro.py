@@ -32,8 +32,8 @@ from core.db import run_query
 BASE_DIR      = Path(__file__).resolve().parent
 SUPERPACK_DIR = BASE_DIR.parent
 
-INPUT_PROMO_CLARO = SUPERPACK_DIR / "inputs" / "clientes Contactados promo Claro.xlsx"
-OUTPUT_JSON       = BASE_DIR / "exports" / "demografia_superpack_abril_promo_claro.json"
+INPUT_LISTA_UNIFICADA = SUPERPACK_DIR / "exports" / "clientes_contactados_unificados_prioridad_rtm.xlsx"
+OUTPUT_JSON           = BASE_DIR / "exports" / "demografia_superpack_abril_promo_claro.json"
 
 FECHA_INICIO          = "2026-04-01"
 FECHA_FIN_EXCLUSIVA   = "2026-05-01"
@@ -150,15 +150,29 @@ def clasificar_generacion(fecha_nacimiento: object) -> str:
 
 
 def cargar_lista_promo_claro() -> pd.DataFrame:
-    if not INPUT_PROMO_CLARO.exists():
-        raise FileNotFoundError(f"No existe el archivo: {INPUT_PROMO_CLARO}")
-    df = pd.read_excel(INPUT_PROMO_CLARO, dtype=str)
+    if not INPUT_LISTA_UNIFICADA.exists():
+        raise FileNotFoundError(f"No existe el archivo unificado: {INPUT_LISTA_UNIFICADA}")
+    df = pd.read_excel(INPUT_LISTA_UNIFICADA, dtype=str)
     if df.empty:
-        raise ValueError("El archivo de promo Claro no contiene filas.")
-    col = seleccionar_columna_cliente(df)
-    out = df[[col]].copy()
-    out["codigo_cliente"] = out[col].apply(normalizar_codigo_cliente)
-    return out.loc[out["codigo_cliente"].notna(), ["codigo_cliente"]].drop_duplicates()
+        raise ValueError("El archivo unificado no contiene filas.")
+
+    # Detectar columna de origen para filtrar solo PAUTA
+    cols_map = {str(c).strip().lower(): c for c in df.columns}
+    col_origen = cols_map.get("origen") or cols_map.get("canal")
+    if col_origen is None:
+        raise ValueError(f"No se encontro columna 'origen'/'canal'. Columnas: {list(df.columns)}")
+
+    col_cliente = seleccionar_columna_cliente(df)
+    out = df[[col_cliente, col_origen]].copy()
+    out["codigo_cliente"] = out[col_cliente].apply(normalizar_codigo_cliente)
+    out["origen"] = out[col_origen].astype(str).str.strip().str.upper()
+
+    # Filtrar solo clientes de promo Claro (PAUTA)
+    pauta = out.loc[
+        out["codigo_cliente"].notna() & (out["origen"] == "PAUTA"),
+        ["codigo_cliente"]
+    ].drop_duplicates()
+    return pauta
 
 
 def obtener_compradores_abril() -> pd.DataFrame:
@@ -267,10 +281,10 @@ def exportar_json_demografia(base: pd.DataFrame, total_lista: int, total_comprad
 
 def main() -> None:
     try:
-        print(f"Leyendo lista promo Claro: {INPUT_PROMO_CLARO}")
+        print(f"Leyendo lista unificada (filtro PAUTA): {INPUT_LISTA_UNIFICADA}")
         lista = cargar_lista_promo_claro()
         total_lista = lista["codigo_cliente"].nunique()
-        print(f"Clientes unicos en lista promo Claro: {total_lista:,}")
+        print(f"Clientes unicos PAUTA (promo Claro) en lista unificada: {total_lista:,}")
 
         print("Consultando compradores de abril 2026 en SQL Server...")
         compradores = obtener_compradores_abril()
