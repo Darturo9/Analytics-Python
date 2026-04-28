@@ -27,8 +27,8 @@ WITH trx_superpack AS (
     FROM dw_mul_sppadat p
     INNER JOIN dw_mul_spmaco m
         ON p.spcodc = m.spcodc
-    WHERE p.dw_fecha_operacion_sp >= '2026-04-01'
-      AND p.dw_fecha_operacion_sp <  '2026-05-01'
+    WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
+      AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
       AND p.sppafr = 'N'
       AND TRY_CONVERT(INT, p.spcodc) = 498
 )

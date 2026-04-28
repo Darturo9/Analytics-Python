@@ -1,3 +1,4 @@
+import argparse
 import json
 import re
 import sys
@@ -9,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 sys.path.insert(0, ".")
 
-from core.db import run_query_file
+from core.db import run_query
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -150,11 +151,12 @@ def cargar_clientes_unificados(path: Path) -> pd.DataFrame:
     return base[["codigo_cliente", "origen"]]
 
 
-def cargar_compras_superpack(query_path: Path) -> pd.DataFrame:
+def cargar_compras_superpack(query_path: Path, fecha_inicio: str, fecha_fin_exclusiva: str) -> pd.DataFrame:
     if not query_path.exists():
         raise FileNotFoundError(f"No existe la query: {query_path}")
 
-    compras = run_query_file(str(query_path))
+    sql = query_path.read_text(encoding="utf-8")
+    compras = run_query(sql, params={"fecha_inicio": fecha_inicio, "fecha_fin_exclusiva": fecha_fin_exclusiva})
     if compras.empty:
         return pd.DataFrame(
             columns=[
@@ -384,13 +386,22 @@ def exportar_json(payload: dict, path: Path) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Validacion compras Superpack abril 2026 por canal de contacto."
+    )
+    parser.add_argument("--fecha-inicio",        default="2026-04-01", help="Fecha inicio inclusiva (YYYY-MM-DD).")
+    parser.add_argument("--fecha-fin",           default="2026-05-01", help="Fecha fin exclusiva (YYYY-MM-DD). Default: 2026-05-01")
+    args = parser.parse_args()
+
+    fecha_fin_exclusiva = args.fecha_fin
+
     try:
         print(f"Leyendo clientes unificados: {INPUT_CLIENTES}")
         clientes = cargar_clientes_unificados(INPUT_CLIENTES)
         print(f"Clientes unicos listos para validar: {len(clientes):,}")
 
-        print(f"Ejecutando query de compras abril: {QUERY_PATH}")
-        compras = cargar_compras_superpack(QUERY_PATH)
+        print(f"Ejecutando query de compras abril (hasta {fecha_fin_exclusiva} exclusiva): {QUERY_PATH}")
+        compras = cargar_compras_superpack(QUERY_PATH, args.fecha_inicio, fecha_fin_exclusiva)
         print(f"Transacciones de superpack abril: {len(compras):,}")
 
         detalle, _ = preparar_validacion(clientes, compras)

@@ -14,6 +14,7 @@ Ejecucion:
     python3 "productos/Superpack Claro/abril 2026/demografia_superpack_abril_promo_claro.py"
 """
 
+import argparse
 import json
 import re
 import sys
@@ -35,10 +36,10 @@ SUPERPACK_DIR = BASE_DIR.parent
 INPUT_LISTA_UNIFICADA = SUPERPACK_DIR / "exports" / "clientes_contactados_unificados_prioridad_rtm.xlsx"
 OUTPUT_JSON           = BASE_DIR / "exports" / "demografia_superpack_abril_promo_claro.json"
 
-FECHA_INICIO          = "2026-04-01"
-FECHA_FIN_EXCLUSIVA   = "2026-05-01"
-CODIGO_SUPERPACK      = 498
-TOP_DEPTOS            = 5
+FECHA_INICIO_DEFAULT        = "2026-04-01"
+FECHA_FIN_EXCLUSIVA_DEFAULT = "2026-05-01"
+CODIGO_SUPERPACK            = 498
+TOP_DEPTOS                  = 5
 
 PREFERRED_COLUMNS = (
     "codigo_cliente",
@@ -161,10 +162,10 @@ def cargar_lista_promo_claro() -> pd.DataFrame:
     return out.loc[out["codigo_cliente"].notna(), ["codigo_cliente"]].drop_duplicates()
 
 
-def obtener_compradores_abril() -> pd.DataFrame:
+def obtener_compradores_abril(fecha_inicio: str, fecha_fin_exclusiva: str) -> pd.DataFrame:
     params = {
-        "fecha_inicio": FECHA_INICIO,
-        "fecha_fin_exclusiva": FECHA_FIN_EXCLUSIVA,
+        "fecha_inicio": fecha_inicio,
+        "fecha_fin_exclusiva": fecha_fin_exclusiva,
         "codigo_superpack": CODIGO_SUPERPACK,
     }
     df = run_query(SQL_COMPRADORES_SUPERPACK, params=params)
@@ -266,14 +267,21 @@ def exportar_json_demografia(base: pd.DataFrame, total_lista: int, total_comprad
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Demografia compradores Superpack abril 2026 (lista RTM + PAUTA)."
+    )
+    parser.add_argument("--fecha-inicio", default=FECHA_INICIO_DEFAULT,        help="Fecha inicio inclusiva (YYYY-MM-DD).")
+    parser.add_argument("--fecha-fin",    default=FECHA_FIN_EXCLUSIVA_DEFAULT,  help="Fecha fin exclusiva (YYYY-MM-DD). Default: 2026-05-01")
+    args = parser.parse_args()
+
     try:
         print(f"Leyendo lista unificada (RTM + PAUTA): {INPUT_LISTA_UNIFICADA}")
         lista = cargar_lista_promo_claro()
         total_lista = lista["codigo_cliente"].nunique()
         print(f"Clientes unicos en lista unificada (RTM + PAUTA): {total_lista:,}")
 
-        print("Consultando compradores de abril 2026 en SQL Server...")
-        compradores = obtener_compradores_abril()
+        print(f"Consultando compradores (hasta {args.fecha_fin} exclusiva) en SQL Server...")
+        compradores = obtener_compradores_abril(args.fecha_inicio, args.fecha_fin)
         print(f"Compradores unicos superpack (universo abril): {compradores['codigo_cliente'].nunique():,}")
 
         compradores_en_lista = (
@@ -296,7 +304,7 @@ def main() -> None:
         print("\n============================================================")
         print(" DEMOGRAFIA COMPRADORES SUPERPACK - ABRIL 2026 (PROMO CLARO)")
         print("============================================================")
-        print(f"  Periodo:                  {FECHA_INICIO} al 30-04-2026")
+        print(f"  Periodo:                  {args.fecha_inicio} hasta {args.fecha_fin} (exclusiva)")
         print(f"  Clientes en lista promo:  {total_lista:,}")
         print(f"  Compradores del periodo:  {total_compradores:,}")
         print(f"  Conversion:               {total_compradores / total_lista * 100:.1f}%")
