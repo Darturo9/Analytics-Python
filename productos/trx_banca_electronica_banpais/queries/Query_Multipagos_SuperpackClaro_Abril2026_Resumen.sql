@@ -1,4 +1,5 @@
 -------- Resumen Multipagos - SUPERPACK-CLARO - Abril 2026
+-------- Filtro por SPCODC=498 (codigo directo, sin JOIN a SPMACO)
 SELECT
   Canal,
   TipoBanca,
