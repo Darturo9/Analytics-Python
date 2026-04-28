@@ -46,7 +46,6 @@ def imprimir_resultados(df, total_clientes_unicos: int) -> None:
 
     totales = {
         "TotalTransacciones": int(df["TotalTransacciones"].sum()),
-        "MontoTotal":         float(df["MontoTotal"].sum()),
         "MontoTotalLempiras": float(df["MontoTotalLempiras"].sum()),
         "MontoTotalDolares":  float(df["MontoTotalDolares"].sum()),
     }
@@ -58,8 +57,7 @@ def imprimir_resultados(df, total_clientes_unicos: int) -> None:
         print(f"  Tipo Banca          : {row['TipoBanca']}")
         print(f"  Tipo Cliente        : {row['Tipo_Cliente']}")
         print(f"  Clientes unicos     : {int(row['TotalClientes']):,}")
-        print(f"  Transacciones       : {int(row['TotalTransacciones']):,}")
-        print(f"  Monto total         : {float(row['MontoTotal']):>18,.2f}")
+        print(f"  Transacciones (LPS) : {int(row['TotalTransacciones']):,}")
         print(f"  Monto en Lempiras   : L {float(row['MontoTotalLempiras']):>15,.2f}")
         print(f"  Monto en Dolares    : $ {float(row['MontoTotalDolares']):>15,.2f}")
         print("-" * 60)
@@ -67,8 +65,7 @@ def imprimir_resultados(df, total_clientes_unicos: int) -> None:
     print("\nTOTAL GENERAL:")
     print("-" * 60)
     print(f"  Clientes unicos     : {total_clientes_unicos:,}  (sin duplicar por canal)")
-    print(f"  Transacciones       : {totales['TotalTransacciones']:,}")
-    print(f"  Monto total         : {totales['MontoTotal']:>18,.2f}")
+    print(f"  Transacciones (LPS) : {totales['TotalTransacciones']:,}")
     print(f"  Monto en Lempiras   : L {totales['MontoTotalLempiras']:>15,.2f}")
     print(f"  Monto en Dolares    : $ {totales['MontoTotalDolares']:>15,.2f}")
     print("=" * 60 + "\n")
