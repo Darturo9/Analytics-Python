@@ -155,24 +155,10 @@ def cargar_lista_promo_claro() -> pd.DataFrame:
     df = pd.read_excel(INPUT_LISTA_UNIFICADA, dtype=str)
     if df.empty:
         raise ValueError("El archivo unificado no contiene filas.")
-
-    # Detectar columna de origen para filtrar solo PAUTA
-    cols_map = {str(c).strip().lower(): c for c in df.columns}
-    col_origen = cols_map.get("origen") or cols_map.get("canal")
-    if col_origen is None:
-        raise ValueError(f"No se encontro columna 'origen'/'canal'. Columnas: {list(df.columns)}")
-
     col_cliente = seleccionar_columna_cliente(df)
-    out = df[[col_cliente, col_origen]].copy()
+    out = df[[col_cliente]].copy()
     out["codigo_cliente"] = out[col_cliente].apply(normalizar_codigo_cliente)
-    out["origen"] = out[col_origen].astype(str).str.strip().str.upper()
-
-    # Filtrar solo clientes de promo Claro (PAUTA)
-    pauta = out.loc[
-        out["codigo_cliente"].notna() & (out["origen"] == "PAUTA"),
-        ["codigo_cliente"]
-    ].drop_duplicates()
-    return pauta
+    return out.loc[out["codigo_cliente"].notna(), ["codigo_cliente"]].drop_duplicates()
 
 
 def obtener_compradores_abril() -> pd.DataFrame:
@@ -281,10 +267,10 @@ def exportar_json_demografia(base: pd.DataFrame, total_lista: int, total_comprad
 
 def main() -> None:
     try:
-        print(f"Leyendo lista unificada (filtro PAUTA): {INPUT_LISTA_UNIFICADA}")
+        print(f"Leyendo lista unificada (RTM + PAUTA): {INPUT_LISTA_UNIFICADA}")
         lista = cargar_lista_promo_claro()
         total_lista = lista["codigo_cliente"].nunique()
-        print(f"Clientes unicos PAUTA (promo Claro) en lista unificada: {total_lista:,}")
+        print(f"Clientes unicos en lista unificada (RTM + PAUTA): {total_lista:,}")
 
         print("Consultando compradores de abril 2026 en SQL Server...")
         compradores = obtener_compradores_abril()
