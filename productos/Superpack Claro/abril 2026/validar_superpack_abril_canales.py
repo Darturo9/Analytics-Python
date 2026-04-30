@@ -165,6 +165,9 @@ def cargar_compras_superpack(query_path: Path, fecha_inicio: str, fecha_fin_excl
                 "codigo_superpack",
                 "canal_compra",
                 "monto_operacion",
+                "es_reversa",
+                "trx_weight",
+                "weighted_monto",
             ]
         )
 
@@ -179,9 +182,15 @@ def cargar_compras_superpack(query_path: Path, fecha_inicio: str, fecha_fin_excl
         axis=1,
     )
     compras["monto_operacion"] = pd.to_numeric(compras["monto_operacion"], errors="coerce").fillna(0.0)
+    compras["es_reversa"] = compras["es_reversa"].fillna("N").astype(str).str.strip().str.upper()
+    compras["trx_weight"] = compras["es_reversa"].apply(lambda x: -1 if x == "S" else 1)
+    compras["weighted_monto"] = compras.apply(
+        lambda r: -r["monto_operacion"] if r["es_reversa"] == "S" else r["monto_operacion"], axis=1
+    )
     compras = compras.loc[
         compras["codigo_cliente"].notna(),
-        ["codigo_cliente", "fecha_operacion", "codigo_superpack", "canal_compra", "monto_operacion"],
+        ["codigo_cliente", "fecha_operacion", "codigo_superpack", "canal_compra",
+         "monto_operacion", "es_reversa", "trx_weight", "weighted_monto"],
     ].copy()
     return compras
 
@@ -195,8 +204,8 @@ def preparar_validacion(clientes: pd.DataFrame, compras: pd.DataFrame) -> tuple[
         resumen_tx = (
             compras.groupby("codigo_cliente", as_index=False)
             .agg(
-                total_tx=("codigo_cliente", "size"),
-                monto_total_tx=("monto_operacion", "sum"),
+                total_tx=("trx_weight", "sum"),
+                monto_total_tx=("weighted_monto", "sum"),
             )
             .sort_values(["total_tx", "monto_total_tx"], ascending=[False, False])
         )
@@ -207,7 +216,7 @@ def preparar_validacion(clientes: pd.DataFrame, compras: pd.DataFrame) -> tuple[
         resumen_compras = resumen_tx.merge(resumen_canal_cliente, on="codigo_cliente", how="left")
 
     detalle = clientes.merge(resumen_compras, on="codigo_cliente", how="left")
-    detalle["compro_superpack"] = detalle["total_tx"].notna().astype(int)
+    detalle["compro_superpack"] = (detalle["total_tx"].notna() & (detalle["total_tx"] > 0)).astype(int)
     detalle["total_tx"] = pd.to_numeric(detalle["total_tx"], errors="coerce").fillna(0).astype(int)
     detalle["monto_total_tx"] = pd.to_numeric(detalle["monto_total_tx"], errors="coerce").fillna(0.0)
     detalle["canal_compra_cliente"] = detalle["canal_compra_cliente"].fillna("NO_COMPRA")
@@ -233,8 +242,8 @@ def imprimir_resumen(detalle: pd.DataFrame, compras: pd.DataFrame) -> None:
     total_no_compraron_lista = total_lista - total_compraron_lista
 
     total_clientes_compradores_universo = int(compras["codigo_cliente"].nunique()) if not compras.empty else 0
-    total_tx_universo = int(len(compras))
-    monto_total_universo = float(compras["monto_operacion"].sum()) if not compras.empty else 0.0
+    total_tx_universo = int(compras["trx_weight"].sum()) if not compras.empty else 0
+    monto_total_universo = float(compras["weighted_monto"].sum()) if not compras.empty else 0.0
 
     print("\n===== RESUMEN VALIDACION SUPERPACK ABRIL 2026 =====")
     print(f"Clientes unicos en lista unificada: {total_lista:,}")
@@ -261,8 +270,8 @@ def imprimir_resumen(detalle: pd.DataFrame, compras: pd.DataFrame) -> None:
             compras.groupby("canal_compra", as_index=False)
             .agg(
                 clientes_unicos=("codigo_cliente", "nunique"),
-                total_tx=("codigo_cliente", "size"),
-                monto_total=("monto_operacion", "sum"),
+                total_tx=("trx_weight", "sum"),
+                monto_total=("weighted_monto", "sum"),
             )
             .sort_values("canal_compra")
         )
@@ -335,8 +344,8 @@ def construir_payload_json(detalle: pd.DataFrame, compras: pd.DataFrame) -> dict
                 compras.groupby("canal_compra", as_index=False)
                 .agg(
                     clientes_unicos=("codigo_cliente", "nunique"),
-                    total_tx=("codigo_cliente", "size"),
-                    monto_total=("monto_operacion", "sum"),
+                    total_tx=("trx_weight", "sum"),
+                    monto_total=("weighted_monto", "sum"),
                 )
                 .iterrows()
             )
@@ -370,8 +379,8 @@ def construir_payload_json(detalle: pd.DataFrame, compras: pd.DataFrame) -> dict
             "clientes_que_compraron": total_compraron,
             "clientes_que_no_compraron": total_lista - total_compraron,
             "universo_compradores_abril": int(compras["codigo_cliente"].nunique()) if not compras.empty else 0,
-            "universo_transacciones_abril": int(len(compras)),
-            "universo_monto_total_abril": round(float(compras["monto_operacion"].sum()) if not compras.empty else 0.0, 2),
+            "universo_transacciones_abril": int(compras["trx_weight"].sum()) if not compras.empty else 0,
+            "universo_monto_total_abril": round(float(compras["weighted_monto"].sum()) if not compras.empty else 0.0, 2),
         },
         "por_canal_contacto": por_canal_contacto,
         "por_canal_compra": por_canal_compra,
