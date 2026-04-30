@@ -18,8 +18,8 @@ WITH campana AS (
             WHEN '47516' THEN 'Oferta Inicial'
             WHEN '47619' THEN 'Recordatorio 1'
         END AS tipo_campana
-    FROM DW_RTM_APP_CAMPAIGN c
-    INNER JOIN DW_RTM_APP_HISCAMPAIGNUNIVERSO h ON c.CampaignID = h.CampaignID
+    FROM dwhbi.dbo.DW_RTM_APP_CAMPAIGN c
+    INNER JOIN dwhbi.dbo.DW_RTM_APP_HISCAMPAIGNUNIVERSO h ON c.CampaignID = h.CampaignID
     WHERE c.CampaignID IN ('47516', '47619')
 
 ),
