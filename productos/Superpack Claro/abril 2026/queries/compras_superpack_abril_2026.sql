@@ -31,6 +31,7 @@ WITH trx_superpack AS (
       AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
       AND p.sppafr = 'N'
       AND TRY_CONVERT(INT, p.spcodc) = 498
+      AND p.spcpco IN (1, 7)
 )
 SELECT
     t.padded_codigo_cliente,
