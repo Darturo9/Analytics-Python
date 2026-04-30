@@ -21,6 +21,7 @@ WITH trx_superpack AS (
         CAST(p.sppava AS DECIMAL(18, 2))                                             AS monto_operacion,
         p.sppafr                                                                     AS es_reversa
     FROM dw_mul_sppadat p
+    LEFT JOIN dw_mul_spmaco m ON m.spcodc = p.spcodc
     LEFT JOIN (
         SELECT
             LTRIM(RTRIM(DW_BEL_IBUSER.CLCCLI)) CLCCLI,
@@ -31,7 +32,7 @@ WITH trx_superpack AS (
       AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
       AND TRY_CONVERT(INT, p.spcodc) = 498
       AND p.spcpco IN (1, 7)
-      AND p.CLMOCO IN ('001', 'L')
+      AND m.CLMOCO IN ('001', 'L')
 )
 SELECT
     t.padded_codigo_cliente,
