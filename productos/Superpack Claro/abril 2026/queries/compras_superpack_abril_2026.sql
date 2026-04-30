@@ -33,12 +33,23 @@ WITH trx_superpack AS (
       AND TRY_CONVERT(INT, p.spcodc) = 498
 )
 SELECT
-    padded_codigo_cliente,
-    fecha_operacion,
-    codigo_superpack,
-    canal_operacion_raw,
-    canal_operacion_codigo,
-    monto_operacion
-FROM trx_superpack
-WHERE padded_codigo_cliente IS NOT NULL
-ORDER BY fecha_operacion, padded_codigo_cliente;
+    t.padded_codigo_cliente,
+    t.fecha_operacion,
+    t.codigo_superpack,
+    t.canal_operacion_raw,
+    t.canal_operacion_codigo,
+    t.monto_operacion
+FROM trx_superpack t
+LEFT JOIN (
+    SELECT
+        LTRIM(RTRIM(CLDOC)) AS CLDOC,
+        CLTIPE,
+        ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(CLDOC))
+            ORDER BY CASE WHEN CLTIPE = 'N' THEN 1 WHEN CLTIPE IS NULL THEN 2 ELSE 3 END
+        ) AS RN
+    FROM DW_CIF_CLIENTES
+) CIF ON CIF.CLDOC = t.padded_codigo_cliente AND CIF.RN = 1
+WHERE t.padded_codigo_cliente IS NOT NULL
+  AND (CIF.CLTIPE <> 'J' OR CIF.CLTIPE IS NULL)
+ORDER BY t.fecha_operacion, t.padded_codigo_cliente;
