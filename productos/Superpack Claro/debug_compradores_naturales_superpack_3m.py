@@ -27,27 +27,101 @@ from core.utils import exportar_excel
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = BASE_DIR / "exports" / "debug_compradores_naturales_superpack_3m_min120.xlsx"
 
-SQL_DEBUG_COMPRADORES_NATURALES = """
-WITH compras_superpack AS (
+SQL_DIAGNOSTICO_ETAPAS = """
+WITH base_tx AS (
     SELECT
-        TRY_CONVERT(BIGINT, x.codigo_extraido) AS codigo_cliente_num,
-        RIGHT('00000000' + x.codigo_extraido, 8) AS padded_codigo_cliente,
+        LTRIM(RTRIM(p.spinus)) AS spinus,
         CONVERT(date, p.dw_fecha_operacion_sp) AS fecha_operacion,
         CAST(p.sppava AS DECIMAL(18, 2)) AS monto_operacion,
         TRY_CONVERT(INT, p.spcpco) AS canal_compra
     FROM dw_mul_sppadat p
+    WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
+      AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
+      AND p.sppafr = 'N'
+      AND TRY_CONVERT(INT, p.spcodc) = :codigo_superpack
+      AND CAST(p.sppava AS DECIMAL(18, 2)) >= :monto_minimo
+),
+parse_map AS (
+    SELECT
+        b.spinus,
+        TRY_CONVERT(BIGINT, x.codigo_extraido) AS codigo_parse_num
+    FROM base_tx b
     CROSS APPLY (
         SELECT
             LTRIM(RTRIM(
                 CASE
-                    WHEN p.spinus IS NULL THEN NULL
-                    WHEN PATINDEX('%[A-Za-z]%', p.spinus) > 1
-                        THEN LEFT(p.spinus, PATINDEX('%[A-Za-z]%', p.spinus) - 1)
-                    WHEN PATINDEX('%[A-Za-z]%', p.spinus) = 1 THEN NULL
-                    ELSE p.spinus
+                    WHEN b.spinus IS NULL THEN NULL
+                    WHEN PATINDEX('%[A-Za-z]%', b.spinus) > 1
+                        THEN LEFT(b.spinus, PATINDEX('%[A-Za-z]%', b.spinus) - 1)
+                    WHEN PATINDEX('%[A-Za-z]%', b.spinus) = 1 THEN NULL
+                    ELSE b.spinus
                 END
             )) AS codigo_extraido
     ) x
+),
+bel_users AS (
+    SELECT
+        LTRIM(RTRIM(CLCCLI)) AS CLCCLI,
+        LTRIM(RTRIM(USCODE)) AS USCODE
+    FROM DW_BEL_IBUSER
+),
+bel_map AS (
+    SELECT
+        b.spinus,
+        TRY_CONVERT(BIGINT, u.CLCCLI) AS codigo_bel_num
+    FROM base_tx b
+    LEFT JOIN bel_users u
+      ON b.spinus = (u.CLCCLI + u.USCODE)
+),
+clientes_naturales AS (
+    SELECT DISTINCT
+        TRY_CONVERT(BIGINT, LTRIM(RTRIM(CLDOC))) AS codigo_nat_num
+    FROM DW_CIF_CLIENTES
+    WHERE CLTIPE = 'N'
+)
+SELECT
+    (SELECT COUNT(*) FROM base_tx) AS tx_base,
+    (SELECT COUNT(DISTINCT spinus) FROM base_tx) AS spinus_distintos,
+    (SELECT COUNT(*) FROM parse_map WHERE codigo_parse_num IS NOT NULL) AS tx_parse_mapeadas,
+    (SELECT COUNT(DISTINCT codigo_parse_num) FROM parse_map WHERE codigo_parse_num IS NOT NULL) AS clientes_parse_distintos,
+    (SELECT COUNT(*) FROM bel_map WHERE codigo_bel_num IS NOT NULL) AS tx_bel_mapeadas,
+    (SELECT COUNT(DISTINCT codigo_bel_num) FROM bel_map WHERE codigo_bel_num IS NOT NULL) AS clientes_bel_distintos,
+    (SELECT COUNT(*) FROM parse_map p INNER JOIN clientes_naturales n ON n.codigo_nat_num = p.codigo_parse_num) AS tx_parse_naturales,
+    (SELECT COUNT(DISTINCT p.codigo_parse_num) FROM parse_map p INNER JOIN clientes_naturales n ON n.codigo_nat_num = p.codigo_parse_num) AS clientes_parse_naturales,
+    (SELECT COUNT(*) FROM bel_map b INNER JOIN clientes_naturales n ON n.codigo_nat_num = b.codigo_bel_num) AS tx_bel_naturales,
+    (SELECT COUNT(DISTINCT b.codigo_bel_num) FROM bel_map b INNER JOIN clientes_naturales n ON n.codigo_nat_num = b.codigo_bel_num) AS clientes_bel_naturales
+"""
+
+SQL_DIAG_CANALES = """
+SELECT
+    TRY_CONVERT(INT, p.spcpco) AS canal_compra,
+    COUNT(*) AS total_tx
+FROM dw_mul_sppadat p
+WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
+  AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
+  AND p.sppafr = 'N'
+  AND TRY_CONVERT(INT, p.spcodc) = :codigo_superpack
+  AND CAST(p.sppava AS DECIMAL(18, 2)) >= :monto_minimo
+GROUP BY TRY_CONVERT(INT, p.spcpco)
+ORDER BY total_tx DESC
+"""
+
+SQL_DEBUG_COMPRADORES_NATURALES = """
+WITH compras_superpack AS (
+    SELECT
+        TRY_CONVERT(BIGINT, u.CLCCLI) AS codigo_cliente_num,
+        RIGHT('00000000' + LTRIM(RTRIM(u.CLCCLI)), 8) AS padded_codigo_cliente,
+        CONVERT(date, p.dw_fecha_operacion_sp) AS fecha_operacion,
+        CAST(p.sppava AS DECIMAL(18, 2)) AS monto_operacion,
+        TRY_CONVERT(INT, p.spcpco) AS canal_compra
+    FROM dw_mul_sppadat p
+    INNER JOIN (
+        SELECT
+            LTRIM(RTRIM(CLCCLI)) AS CLCCLI,
+            LTRIM(RTRIM(USCODE)) AS USCODE
+        FROM DW_BEL_IBUSER
+    ) u
+      ON LTRIM(RTRIM(p.spinus)) = (u.CLCCLI + u.USCODE)
     WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
       AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
       AND p.sppafr = 'N'
@@ -139,6 +213,30 @@ def imprimir_resumen(df: pd.DataFrame, args: argparse.Namespace) -> None:
         print()
 
 
+def imprimir_diagnostico(df_diag: pd.DataFrame, df_canales: pd.DataFrame) -> None:
+    if df_diag.empty:
+        print("[INFO] Diagnostico sin resultados.")
+        return
+    row = df_diag.iloc[0]
+    print("\n================ DIAGNOSTICO ETAPAS ================")
+    print(f"tx_base                  : {int(row['tx_base']):,}")
+    print(f"spinus_distintos         : {int(row['spinus_distintos']):,}")
+    print(f"tx_parse_mapeadas        : {int(row['tx_parse_mapeadas']):,}")
+    print(f"clientes_parse_distintos : {int(row['clientes_parse_distintos']):,}")
+    print(f"tx_bel_mapeadas          : {int(row['tx_bel_mapeadas']):,}")
+    print(f"clientes_bel_distintos   : {int(row['clientes_bel_distintos']):,}")
+    print(f"tx_parse_naturales       : {int(row['tx_parse_naturales']):,}")
+    print(f"clientes_parse_naturales : {int(row['clientes_parse_naturales']):,}")
+    print(f"tx_bel_naturales         : {int(row['tx_bel_naturales']):,}")
+    print(f"clientes_bel_naturales   : {int(row['clientes_bel_naturales']):,}")
+    print("=====================================================\n")
+
+    if not df_canales.empty:
+        print("Canales detectados (top):")
+        print(df_canales.to_string(index=False))
+        print()
+
+
 def main() -> None:
     args = parse_args()
     params = {
@@ -149,6 +247,10 @@ def main() -> None:
     }
 
     try:
+        df_diag = run_query(SQL_DIAGNOSTICO_ETAPAS, params=params)
+        df_canales = run_query(SQL_DIAG_CANALES, params=params)
+        imprimir_diagnostico(df_diag, df_canales)
+
         print("Consultando base de compradores naturales Superpack...")
         df = run_query(SQL_DEBUG_COMPRADORES_NATURALES, params=params)
         imprimir_resumen(df, args)
@@ -168,4 +270,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
