@@ -53,8 +53,8 @@ WITH compras_superpack AS (
     WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
       AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
       AND p.sppafr = 'N'
-      AND p.spcodc = :codigo_superpack
-      AND p.spcpco IN ('1', '7')
+      AND TRY_CONVERT(INT, p.spcodc) = :codigo_superpack
+      AND TRY_CONVERT(INT, p.spcpco) IN (1, 7)
       AND p.sppava >= :monto_minimo
 ),
 compras_agg AS (
@@ -151,6 +151,34 @@ ORDER BY c.total_tx_3m DESC, c.monto_total_3m DESC, c.padded_codigo_cliente
 """
 
 
+SQL_DIAGNOSTICO_ETAPAS = """
+WITH compras_filtradas AS (
+    SELECT
+        RIGHT('00000000' + LTRIM(RTRIM(
+            CASE
+                WHEN p.spinus IS NULL THEN NULL
+                WHEN PATINDEX('%[A-Za-z]%', p.spinus) > 1
+                    THEN LEFT(p.spinus, PATINDEX('%[A-Za-z]%', p.spinus) - 1)
+                WHEN PATINDEX('%[A-Za-z]%', p.spinus) = 1 THEN NULL
+                ELSE p.spinus
+            END
+        )), 8) AS padded_codigo_cliente
+    FROM dw_mul_sppadat p
+    WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
+      AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
+      AND p.sppafr = 'N'
+      AND TRY_CONVERT(INT, p.spcodc) = :codigo_superpack
+      AND TRY_CONVERT(INT, p.spcpco) IN (1, 7)
+      AND p.sppava >= :monto_minimo
+)
+SELECT
+    COUNT(*) AS total_tx_filtradas,
+    COUNT(DISTINCT padded_codigo_cliente) AS clientes_distintos_filtrados
+FROM compras_filtradas
+WHERE padded_codigo_cliente IS NOT NULL
+"""
+
+
 def construir_error_amigable(exc: Exception) -> str:
     raw = " ".join(str(exc).split())
     lower = raw.lower()
@@ -205,6 +233,19 @@ def imprimir_resumen(df: pd.DataFrame, args: argparse.Namespace) -> None:
         print()
 
 
+def imprimir_diagnostico(df_diag: pd.DataFrame) -> None:
+    if df_diag.empty:
+        print("[INFO] Diagnostico sin resultados.")
+        return
+    row = df_diag.iloc[0]
+    total_tx = int(pd.to_numeric(row["total_tx_filtradas"], errors="coerce"))
+    clientes = int(pd.to_numeric(row["clientes_distintos_filtrados"], errors="coerce"))
+    print("===== DIAGNOSTICO =====")
+    print(f"Tx filtradas base     : {total_tx:,}")
+    print(f"Clientes distintos    : {clientes:,}")
+    print("=======================\n")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Exporta clientes Superpack CLARO con condiciones de actividad."
@@ -237,6 +278,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Ejecuta consulta y resumen sin exportar Excel.",
     )
+    parser.add_argument(
+        "--debug-etapas",
+        action="store_true",
+        help="Muestra conteos base de la etapa de compras filtradas.",
+    )
     return parser.parse_args()
 
 
@@ -246,11 +292,15 @@ def main() -> None:
     params = {
         "fecha_inicio": args.fecha_inicio,
         "fecha_fin_exclusiva": args.fecha_fin_exclusiva,
-        "codigo_superpack": str(args.codigo_superpack),
+        "codigo_superpack": args.codigo_superpack,
         "monto_minimo": args.monto_minimo,
     }
 
     try:
+        if args.debug_etapas:
+            df_diag = run_query(SQL_DIAGNOSTICO_ETAPAS, params=params)
+            imprimir_diagnostico(df_diag)
+
         print("Consultando clientes con condiciones de Superpack CLARO...")
         df = run_query(SQL_CLIENTES_SUPERPACK_3M, params=params)
         validar_reglas(df)
