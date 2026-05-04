@@ -7,16 +7,44 @@ Uso:
 
 from pathlib import Path
 import sys
+import os
+import urllib
 
 import pandas as pd
+from sqlalchemy import create_engine, text
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from core.db import run_query_file
-
 BASE_DIR = Path(__file__).resolve().parents[1]
+DB_NAME_DASHBOARD = "DWHSV"
+
+
+def run_query_hsv(sql: str, params: dict = None) -> pd.DataFrame:
+    """Ejecuta SQL forzando DB DWHSV para alinear con Marzo/QBR1/Tableau."""
+    db_server = os.getenv("DB_SERVER")
+    db_user = os.getenv("DB_USER")
+    db_pass = os.getenv("DB_PASS")
+    db_driver = os.getenv("DB_DRIVER", "ODBC Driver 17 for SQL Server")
+
+    conn_params = urllib.parse.quote_plus(
+        f"DRIVER={{{db_driver}}};"
+        f"SERVER={db_server};"
+        f"DATABASE={DB_NAME_DASHBOARD};"
+        f"UID={db_user};"
+        f"PWD={db_pass};"
+        "TrustServerCertificate=yes;"
+    )
+    engine = create_engine(f"mssql+pyodbc:///?odbc_connect={conn_params}", fast_executemany=True)
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params)
+
+
+def run_query_file_hsv(path: str, params: dict = None) -> pd.DataFrame:
+    with open(path, "r", encoding="utf-8") as f:
+        sql = f.read()
+    return run_query_hsv(sql, params)
 
 
 def normalizar_codigo_cliente(valor) -> str:
@@ -40,8 +68,11 @@ def clasificar_generacion(fecha_nac) -> str:
 
 
 def cargar_bases() -> tuple[pd.DataFrame, pd.DataFrame]:
-    conv = run_query_file(str(BASE_DIR / "queries" / "conversion_abril_2026.sql"))
-    rtm = run_query_file(str(BASE_DIR / "queries" / "comunicacionesRTM_abril_2026.sql"))
+    print(f"Cargando bases en {DB_NAME_DASHBOARD}...")
+    conv = run_query_file_hsv(str(BASE_DIR / "queries" / "conversion_abril_2026.sql"))
+    rtm = run_query_file_hsv(str(BASE_DIR / "queries" / "comunicacionesRTM_abril_2026.sql"))
+    print(f"  {len(conv):,} registros conversión")
+    print(f"  {len(rtm):,} registros RTM")
     return conv, rtm
 
 
