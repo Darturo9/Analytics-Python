@@ -26,6 +26,19 @@ def normalizar_codigo_cliente(valor) -> str:
     return solo_digitos[-8:].zfill(8) if solo_digitos else ""
 
 
+def clasificar_generacion(fecha_nac) -> str:
+    if pd.isna(fecha_nac):
+        return "OTRA GENERACION"
+    anio = int(fecha_nac.year)
+    if 1965 <= anio <= 1980:
+        return "Generation X (1965-1980)"
+    if 1981 <= anio <= 1996:
+        return "Gen Y - Millennials (1981-1996)"
+    if 1997 <= anio <= 2012:
+        return "Generación Z (1997-2012)"
+    return "OTRA GENERACION"
+
+
 def cargar_bases() -> tuple[pd.DataFrame, pd.DataFrame]:
     conv = run_query_file(str(BASE_DIR / "queries" / "conversion_abril_2026.sql"))
     rtm = run_query_file(str(BASE_DIR / "queries" / "comunicacionesRTM_abril_2026.sql"))
@@ -37,7 +50,9 @@ def preparar_datos(conv: pd.DataFrame, rtm: pd.DataFrame) -> pd.DataFrame:
     rtm = rtm.copy()
 
     conv["fecha_creacion_usuario"] = pd.to_datetime(conv["fecha_creacion_usuario"], errors="coerce")
+    conv["fecha_nacimiento_usuario"] = pd.to_datetime(conv["fecha_nacimiento_usuario"], errors="coerce")
     conv = conv[conv["fecha_creacion_usuario"].notna()].copy()
+    conv["generacion"] = conv["fecha_nacimiento_usuario"].apply(clasificar_generacion)
 
     conv["id_usuario"] = conv["nombre_usuario"].astype("string").str.strip()
     conv.loc[conv["nombre_usuario"].isna(), "id_usuario"] = pd.NA
@@ -80,6 +95,8 @@ def preparar_datos(conv: pd.DataFrame, rtm: pd.DataFrame) -> pd.DataFrame:
         .agg(
             dia=("dia", "min"),
             fecha_creacion_usuario=("fecha_creacion_usuario", "min"),
+            fecha_nacimiento_usuario=("fecha_nacimiento_usuario", "first"),
+            generacion=("generacion", "first"),
             direccion_lvl_1=("direccion_lvl_1", "first"),
             estado_usuario=("estado_usuario", "first"),
             estado_cliente=("estado_cliente", "first"),
@@ -125,6 +142,26 @@ def imprimir_resumen(df: pd.DataFrame) -> None:
     top_geo1 = top_geo1.value_counts().head(10)
     for geo, val in top_geo1.items():
         print(f"{geo[:30]:30} {val:>8,}")
+
+    print("\n--- Generaciones ---")
+    orden_generaciones = [
+        "Generation X (1965-1980)",
+        "Gen Y - Millennials (1981-1996)",
+        "Generación Z (1997-2012)",
+        "OTRA GENERACION",
+    ]
+    gen_counts = (
+        df["generacion"]
+        .fillna("OTRA GENERACION")
+        .astype(str)
+        .str.strip()
+        .replace("", "OTRA GENERACION")
+        .value_counts()
+        .reindex(orden_generaciones, fill_value=0)
+    )
+    for generacion, val in gen_counts.items():
+        pct = (val / total_usuarios * 100) if total_usuarios else 0
+        print(f"{generacion:32} {val:>8,}  ({pct:5.2f}%)")
 
     print("\n--- Estado usuario (USSTAT) ---")
     estado_usuario = df["estado_usuario"].fillna("SIN_DATO").astype(str).str.strip().replace("", "SIN_DATO").value_counts()
