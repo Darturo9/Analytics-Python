@@ -33,8 +33,14 @@ DEFAULT_OUTPUT = BASE_DIR / "exports" / "clientes_superpack_claro_3m_condiciones
 SQL_CLIENTES_SUPERPACK_3M = """
 WITH compras_superpack AS (
     SELECT
-        RIGHT(
-            '00000000' + LTRIM(RTRIM(
+        RIGHT('00000000' + x.codigo_extraido, 8) AS padded_codigo_cliente,
+        CONVERT(VARCHAR(20), TRY_CONVERT(BIGINT, x.codigo_extraido)) AS codigo_cliente_sin_padding,
+        CONVERT(date, p.dw_fecha_operacion_sp) AS fecha_operacion,
+        CAST(p.sppava AS DECIMAL(18, 2)) AS monto_operacion
+    FROM dw_mul_sppadat p
+    CROSS APPLY (
+        SELECT
+            LTRIM(RTRIM(
                 CASE
                     WHEN p.spinus IS NULL THEN NULL
                     WHEN PATINDEX('%[A-Za-z]%', p.spinus) > 1
@@ -42,53 +48,52 @@ WITH compras_superpack AS (
                     WHEN PATINDEX('%[A-Za-z]%', p.spinus) = 1 THEN NULL
                     ELSE p.spinus
                 END
-            )),
-            8
-        ) AS padded_codigo_cliente,
-        CONVERT(date, p.dw_fecha_operacion_sp) AS fecha_operacion,
-        TRY_CONVERT(INT, p.spcpco) AS canal_compra,
-        CAST(p.sppava AS DECIMAL(18, 2)) AS monto_operacion
-    FROM dw_mul_sppadat p
-    INNER JOIN dw_mul_spmaco m
-        ON p.spcodc = m.spcodc
+            )) AS codigo_extraido
+    ) x
     WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
       AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
       AND p.sppafr = 'N'
-      AND TRY_CONVERT(INT, p.spcodc) = :codigo_superpack
-      AND TRY_CONVERT(INT, p.spcpco) IN (1, 7)
-      AND CAST(p.sppava AS DECIMAL(18, 2)) >= :monto_minimo
+      AND p.spcodc = :codigo_superpack
+      AND p.spcpco IN ('1', '7')
+      AND p.sppava >= :monto_minimo
 ),
 compras_agg AS (
     SELECT
         padded_codigo_cliente,
+        codigo_cliente_sin_padding,
         COUNT(*) AS total_tx_3m,
         CAST(SUM(monto_operacion) AS DECIMAL(18, 2)) AS monto_total_3m,
         MIN(fecha_operacion) AS primera_fecha_operacion,
         MAX(fecha_operacion) AS ultima_fecha_operacion
     FROM compras_superpack
     WHERE padded_codigo_cliente IS NOT NULL
-    GROUP BY padded_codigo_cliente
+      AND codigo_cliente_sin_padding IS NOT NULL
+    GROUP BY padded_codigo_cliente, codigo_cliente_sin_padding
 ),
 conteo_usuarios AS (
     SELECT
-        LTRIM(RTRIM(CLCCLI)) AS CLCCLI,
+        u.CLCCLI,
         SUM(CASE WHEN USSTAT = 'A' THEN 1 ELSE 0 END) AS usuario_activo_cnt,
         SUM(CASE WHEN USSTAT = 'I' THEN 1 ELSE 0 END) AS usuario_inactivo_cnt,
         COUNT(USCODE) AS cantidad_usuarios
-    FROM DW_BEL_IBUSER
-    GROUP BY LTRIM(RTRIM(CLCCLI))
+    FROM DW_BEL_IBUSER u
+    INNER JOIN compras_agg c
+        ON u.CLCCLI = c.codigo_cliente_sin_padding
+    GROUP BY u.CLCCLI
 ),
 datos_bel_base AS (
     SELECT
-        LTRIM(RTRIM(CLCCLI)) AS CLCCLI,
-        CLSTAT,
-        CLNOCL AS nombre_cliente,
-        PECODE AS perfil_convenio,
+        b.CLCCLI,
+        b.CLSTAT,
+        b.CLNOCL AS nombre_cliente,
+        b.PECODE AS perfil_convenio,
         ROW_NUMBER() OVER (
-            PARTITION BY LTRIM(RTRIM(CLCCLI))
-            ORDER BY CASE WHEN CLSTAT = 'A' THEN 1 ELSE 2 END, LTRIM(RTRIM(CLCCLI))
+            PARTITION BY b.CLCCLI
+            ORDER BY CASE WHEN b.CLSTAT = 'A' THEN 1 ELSE 2 END, b.CLCCLI
         ) AS rn
-    FROM DW_BEL_IBCLIE
+    FROM DW_BEL_IBCLIE b
+    INNER JOIN compras_agg c
+        ON b.CLCCLI = c.codigo_cliente_sin_padding
 ),
 datos_bel AS (
     SELECT
@@ -101,20 +106,23 @@ datos_bel AS (
 ),
 datos_cif_base AS (
     SELECT
-        LTRIM(RTRIM(CLDOC)) AS CLDOC,
-        CLTIPE AS tipo_cliente,
-        ISNULL(dw_usuarios_bel_cnt, 0) AS bancae,
+        cf.CLDOC AS CLDOC,
+        cf.CLTIPE AS tipo_cliente,
+        ISNULL(cf.dw_usuarios_bel_cnt, 0) AS bancae,
         ROW_NUMBER() OVER (
-            PARTITION BY LTRIM(RTRIM(CLDOC))
+            PARTITION BY cf.CLDOC
             ORDER BY
-                CASE WHEN CLTIPE = 'N' THEN 1 WHEN CLTIPE IS NULL THEN 2 ELSE 3 END,
-                CASE WHEN dw_usuarios_bel_cnt IS NULL THEN 1 ELSE 0 END,
-                LTRIM(RTRIM(CLDOC))
+                CASE WHEN cf.CLTIPE = 'N' THEN 1 WHEN cf.CLTIPE IS NULL THEN 2 ELSE 3 END,
+                CASE WHEN cf.dw_usuarios_bel_cnt IS NULL THEN 1 ELSE 0 END,
+                cf.CLDOC
         ) AS rn
-    FROM DW_CIF_CLIENTES
+    FROM DW_CIF_CLIENTES cf
+    INNER JOIN compras_agg c
+        ON cf.CLDOC = c.codigo_cliente_sin_padding
 )
 SELECT
     c.padded_codigo_cliente,
+    c.codigo_cliente_sin_padding,
     ISNULL(b.nombre_cliente, 'N/D') AS nombre_cliente,
     ISNULL(b.perfil_convenio, 'N/D') AS perfil_convenio,
     ISNULL(b.CLSTAT, 'N/D') AS clstat,
@@ -129,11 +137,11 @@ SELECT
     c.ultima_fecha_operacion
 FROM compras_agg c
 INNER JOIN datos_bel b
-    ON b.CLCCLI = c.padded_codigo_cliente
+    ON b.CLCCLI = c.codigo_cliente_sin_padding
 INNER JOIN conteo_usuarios u
-    ON u.CLCCLI = c.padded_codigo_cliente
+    ON u.CLCCLI = c.codigo_cliente_sin_padding
 INNER JOIN datos_cif_base cf
-    ON cf.CLDOC = c.padded_codigo_cliente
+    ON cf.CLDOC = c.codigo_cliente_sin_padding
    AND cf.rn = 1
 WHERE b.CLSTAT = 'A'
   AND u.usuario_activo_cnt >= 1
@@ -238,7 +246,7 @@ def main() -> None:
     params = {
         "fecha_inicio": args.fecha_inicio,
         "fecha_fin_exclusiva": args.fecha_fin_exclusiva,
-        "codigo_superpack": args.codigo_superpack,
+        "codigo_superpack": str(args.codigo_superpack),
         "monto_minimo": args.monto_minimo,
     }
 
@@ -263,4 +271,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
