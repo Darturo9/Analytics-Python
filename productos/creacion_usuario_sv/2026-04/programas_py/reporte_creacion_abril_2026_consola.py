@@ -7,15 +7,17 @@ Uso:
 
 from pathlib import Path
 import sys
-import os
 import urllib
 
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from core.config import DB_SERVER, DB_USER, DB_PASS, DB_DRIVER
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_NAME_DASHBOARD = "DWHSV"
@@ -23,17 +25,12 @@ DB_NAME_DASHBOARD = "DWHSV"
 
 def run_query_hsv(sql: str, params: dict = None) -> pd.DataFrame:
     """Ejecuta SQL forzando DB DWHSV para alinear con Marzo/QBR1/Tableau."""
-    db_server = os.getenv("DB_SERVER")
-    db_user = os.getenv("DB_USER")
-    db_pass = os.getenv("DB_PASS")
-    db_driver = os.getenv("DB_DRIVER", "ODBC Driver 17 for SQL Server")
-
     conn_params = urllib.parse.quote_plus(
-        f"DRIVER={{{db_driver}}};"
-        f"SERVER={db_server};"
+        f"DRIVER={{{DB_DRIVER}}};"
+        f"SERVER={DB_SERVER};"
         f"DATABASE={DB_NAME_DASHBOARD};"
-        f"UID={db_user};"
-        f"PWD={db_pass};"
+        f"UID={DB_USER};"
+        f"PWD={DB_PASS};"
         "TrustServerCertificate=yes;"
     )
     engine = create_engine(f"mssql+pyodbc:///?odbc_connect={conn_params}", fast_executemany=True)
@@ -206,6 +203,11 @@ def imprimir_resumen(df: pd.DataFrame) -> None:
 
 
 if __name__ == "__main__":
-    conversion_df, rtm_df = cargar_bases()
-    data = preparar_datos(conversion_df, rtm_df)
-    imprimir_resumen(data)
+    try:
+        conversion_df, rtm_df = cargar_bases()
+        data = preparar_datos(conversion_df, rtm_df)
+        imprimir_resumen(data)
+    except SQLAlchemyError as exc:
+        msg = " ".join(str(exc).split())
+        print(f"[ERROR] No se pudo conectar/consultar en {DB_NAME_DASHBOARD}: {msg}")
+        sys.exit(1)
