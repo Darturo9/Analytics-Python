@@ -253,6 +253,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--monto-minimo", type=float, default=120.0, help="Monto minimo por transaccion.")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Ruta del Excel de salida.")
     parser.add_argument("--no-export", action="store_true", help="No exporta Excel.")
+    parser.add_argument(
+        "--con-muestra",
+        action="store_true",
+        help="Incluye hoja de muestra final (mas lento).",
+    )
     return parser.parse_args()
 
 
@@ -280,15 +285,17 @@ def main() -> None:
     try:
         print("Consultando diagnostico por etapas...")
         df_resumen = run_query(SQL_RESUMEN_ETAPAS, params=params)
-        df_muestra = run_query(SQL_MUESTRA_FINAL, params=params)
         imprimir_resumen_etapas(df_resumen, args)
 
         if not args.no_export:
+            sheets = {"resumen_etapas": df_resumen}
+            if args.con_muestra:
+                print("Consultando muestra final (top 200)...")
+                df_muestra = run_query(SQL_MUESTRA_FINAL, params=params)
+                sheets["muestra_final_top200"] = df_muestra
+
             exportar_excel_multi(
-                {
-                    "resumen_etapas": df_resumen,
-                    "muestra_final_top200": df_muestra,
-                },
+                sheets,
                 args.output,
             )
         else:
@@ -304,4 +311,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
