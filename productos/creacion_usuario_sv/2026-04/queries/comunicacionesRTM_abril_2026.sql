@@ -10,8 +10,7 @@ FROM
 	dwhbi.dbo.dw_rtm_app_hiscampaignuniverso historial_envio
 	INNER JOIN dwhbi.dbo.dw_rtm_app_campaign info_campania ON (historial_envio.campaignid = info_campania.campaignid)
 WHERE
-	info_campania.start_date >= '2026-04-01 00:00:00'
-	AND info_campania.start_date <  '2026-05-01 00:00:00'
+	info_campania.start_date >= '2024-09-01 00:00:00'
 	AND info_campania.countryid = 2
 	AND (
 		info_campania.name LIKE '%creacion de usuario%'
@@ -19,7 +18,6 @@ WHERE
 		OR info_campania.name LIKE '% cu %'
 	)
 	AND info_campania.description LIKE '%reg sqvd%'
-	AND historial_envio.dw_creationdate >= '2026-04-01 00:00:00'
-	AND historial_envio.dw_creationdate <  '2026-05-01 00:00:00'
+	AND historial_envio.dw_creationdate >= '2024-09-01 00:00:00'
 ) tbl_tem
 WHERE ORD = 1;
