@@ -131,8 +131,7 @@ WITH compras_superpack AS (
 clientes_naturales AS (
     SELECT DISTINCT
         TRY_CONVERT(BIGINT, LTRIM(RTRIM(CLDOC))) AS codigo_cliente_num,
-        LTRIM(RTRIM(CLDOC)) AS codigo_cliente_cif,
-        CLNOCL AS nombre_cliente
+        LTRIM(RTRIM(CLDOC)) AS codigo_cliente_cif
     FROM DW_CIF_CLIENTES
     WHERE CLTIPE = 'N'
 ),
@@ -141,7 +140,6 @@ compras_naturales AS (
         c.padded_codigo_cliente,
         c.codigo_cliente_num,
         n.codigo_cliente_cif,
-        n.nombre_cliente,
         c.fecha_operacion,
         c.monto_operacion,
         c.canal_compra
@@ -153,7 +151,6 @@ compras_naturales AS (
 SELECT
     padded_codigo_cliente,
     codigo_cliente_cif,
-    ISNULL(nombre_cliente, 'N/D') AS nombre_cliente,
     COUNT(*) AS total_tx_3m,
     CAST(SUM(monto_operacion) AS DECIMAL(18, 2)) AS monto_total_3m,
     MIN(fecha_operacion) AS primera_fecha_operacion,
@@ -161,7 +158,7 @@ SELECT
     MIN(canal_compra) AS canal_min_detectado,
     MAX(canal_compra) AS canal_max_detectado
 FROM compras_naturales
-GROUP BY padded_codigo_cliente, codigo_cliente_cif, nombre_cliente
+GROUP BY padded_codigo_cliente, codigo_cliente_cif
 ORDER BY total_tx_3m DESC, monto_total_3m DESC, padded_codigo_cliente
 """
 

@@ -33,8 +33,8 @@ DEFAULT_OUTPUT = BASE_DIR / "exports" / "clientes_superpack_claro_3m_condiciones
 SQL_CLIENTES_SUPERPACK_3M = """
 WITH compras_superpack AS (
     SELECT
+        TRY_CONVERT(BIGINT, x.codigo_extraido) AS codigo_cliente_num,
         RIGHT('00000000' + x.codigo_extraido, 8) AS padded_codigo_cliente,
-        CONVERT(VARCHAR(20), TRY_CONVERT(BIGINT, x.codigo_extraido)) AS codigo_cliente_sin_padding,
         CONVERT(date, p.dw_fecha_operacion_sp) AS fecha_operacion,
         CAST(p.sppava AS DECIMAL(18, 2)) AS monto_operacion
     FROM dw_mul_sppadat p
@@ -59,45 +59,45 @@ WITH compras_superpack AS (
 ),
 compras_agg AS (
     SELECT
+        codigo_cliente_num,
         padded_codigo_cliente,
-        codigo_cliente_sin_padding,
         COUNT(*) AS total_tx_3m,
         CAST(SUM(monto_operacion) AS DECIMAL(18, 2)) AS monto_total_3m,
         MIN(fecha_operacion) AS primera_fecha_operacion,
         MAX(fecha_operacion) AS ultima_fecha_operacion
     FROM compras_superpack
     WHERE padded_codigo_cliente IS NOT NULL
-      AND codigo_cliente_sin_padding IS NOT NULL
-    GROUP BY padded_codigo_cliente, codigo_cliente_sin_padding
+      AND codigo_cliente_num IS NOT NULL
+    GROUP BY codigo_cliente_num, padded_codigo_cliente
 ),
 conteo_usuarios AS (
     SELECT
-        u.CLCCLI,
+        TRY_CONVERT(BIGINT, u.CLCCLI) AS codigo_cliente_num,
         SUM(CASE WHEN USSTAT = 'A' THEN 1 ELSE 0 END) AS usuario_activo_cnt,
         SUM(CASE WHEN USSTAT = 'I' THEN 1 ELSE 0 END) AS usuario_inactivo_cnt,
         COUNT(USCODE) AS cantidad_usuarios
     FROM DW_BEL_IBUSER u
     INNER JOIN compras_agg c
-        ON u.CLCCLI = c.codigo_cliente_sin_padding
-    GROUP BY u.CLCCLI
+        ON TRY_CONVERT(BIGINT, u.CLCCLI) = c.codigo_cliente_num
+    GROUP BY TRY_CONVERT(BIGINT, u.CLCCLI)
 ),
 datos_bel_base AS (
     SELECT
-        b.CLCCLI,
+        TRY_CONVERT(BIGINT, b.CLCCLI) AS codigo_cliente_num,
         b.CLSTAT,
         b.CLNOCL AS nombre_cliente,
         b.PECODE AS perfil_convenio,
         ROW_NUMBER() OVER (
-            PARTITION BY b.CLCCLI
+            PARTITION BY TRY_CONVERT(BIGINT, b.CLCCLI)
             ORDER BY CASE WHEN b.CLSTAT = 'A' THEN 1 ELSE 2 END, b.CLCCLI
         ) AS rn
     FROM DW_BEL_IBCLIE b
     INNER JOIN compras_agg c
-        ON b.CLCCLI = c.codigo_cliente_sin_padding
+        ON TRY_CONVERT(BIGINT, b.CLCCLI) = c.codigo_cliente_num
 ),
 datos_bel AS (
     SELECT
-        CLCCLI,
+        codigo_cliente_num,
         CLSTAT,
         nombre_cliente,
         perfil_convenio
@@ -106,11 +106,11 @@ datos_bel AS (
 ),
 datos_cif_base AS (
     SELECT
-        cf.CLDOC AS CLDOC,
+        TRY_CONVERT(BIGINT, cf.CLDOC) AS codigo_cliente_num,
         cf.CLTIPE AS tipo_cliente,
         ISNULL(cf.dw_usuarios_bel_cnt, 0) AS bancae,
         ROW_NUMBER() OVER (
-            PARTITION BY cf.CLDOC
+            PARTITION BY TRY_CONVERT(BIGINT, cf.CLDOC)
             ORDER BY
                 CASE WHEN cf.CLTIPE = 'N' THEN 1 WHEN cf.CLTIPE IS NULL THEN 2 ELSE 3 END,
                 CASE WHEN cf.dw_usuarios_bel_cnt IS NULL THEN 1 ELSE 0 END,
@@ -118,11 +118,11 @@ datos_cif_base AS (
         ) AS rn
     FROM DW_CIF_CLIENTES cf
     INNER JOIN compras_agg c
-        ON cf.CLDOC = c.codigo_cliente_sin_padding
+        ON TRY_CONVERT(BIGINT, cf.CLDOC) = c.codigo_cliente_num
 )
 SELECT
     c.padded_codigo_cliente,
-    c.codigo_cliente_sin_padding,
+    CONVERT(VARCHAR(20), c.codigo_cliente_num) AS codigo_cliente_sin_padding,
     ISNULL(b.nombre_cliente, 'N/D') AS nombre_cliente,
     ISNULL(b.perfil_convenio, 'N/D') AS perfil_convenio,
     ISNULL(b.CLSTAT, 'N/D') AS clstat,
@@ -137,11 +137,11 @@ SELECT
     c.ultima_fecha_operacion
 FROM compras_agg c
 INNER JOIN datos_bel b
-    ON b.CLCCLI = c.codigo_cliente_sin_padding
+    ON b.codigo_cliente_num = c.codigo_cliente_num
 INNER JOIN conteo_usuarios u
-    ON u.CLCCLI = c.codigo_cliente_sin_padding
+    ON u.codigo_cliente_num = c.codigo_cliente_num
 INNER JOIN datos_cif_base cf
-    ON cf.CLDOC = c.codigo_cliente_sin_padding
+    ON cf.codigo_cliente_num = c.codigo_cliente_num
    AND cf.rn = 1
 WHERE b.CLSTAT = 'A'
   AND u.usuario_activo_cnt >= 1
