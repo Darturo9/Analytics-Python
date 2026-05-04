@@ -39,35 +39,56 @@ def preparar_datos(conv: pd.DataFrame, rtm: pd.DataFrame) -> pd.DataFrame:
     conv["fecha_creacion_usuario"] = pd.to_datetime(conv["fecha_creacion_usuario"], errors="coerce")
     conv = conv[conv["fecha_creacion_usuario"].notna()].copy()
 
-    conv["nombre_usuario"] = conv["nombre_usuario"].astype("string").str.strip()
-    conv = conv[conv["nombre_usuario"].notna() & (conv["nombre_usuario"] != "")].copy()
+    conv["id_usuario"] = conv["nombre_usuario"].astype("string").str.strip()
+    conv.loc[conv["nombre_usuario"].isna(), "id_usuario"] = pd.NA
+    conv.loc[conv["id_usuario"] == "", "id_usuario"] = pd.NA
+
+    conv["anio"] = conv["fecha_creacion_usuario"].dt.year
+    conv["mes"] = conv["fecha_creacion_usuario"].dt.month
+    conv["dia"] = conv["fecha_creacion_usuario"].dt.day
 
     conv["codigo_cliente_usuario_creado"] = conv["codigo_cliente_usuario_creado"].apply(normalizar_codigo_cliente)
     rtm["codigo_cliente_usuario_campania"] = rtm["codigo_cliente_usuario_campania"].apply(normalizar_codigo_cliente)
     rtm["fecha_campania"] = pd.to_datetime(rtm["fecha_campania"], errors="coerce")
 
-    rtm = rtm[rtm["codigo_cliente_usuario_campania"] != ""].copy()
-    rtm = (
-        rtm.sort_values("fecha_campania")
-        .drop_duplicates(subset=["codigo_cliente_usuario_campania"], keep="first")
+    rtm_match = (
+        rtm[["codigo_cliente_usuario_campania", "fecha_campania"]]
+        .dropna(subset=["codigo_cliente_usuario_campania", "fecha_campania"])
+        .drop_duplicates(subset=["codigo_cliente_usuario_campania", "fecha_campania"])
         .copy()
     )
 
-    df = conv.merge(
-        rtm[["codigo_cliente_usuario_campania", "fecha_campania"]],
+    df_merge = conv.merge(
+        rtm_match,
         how="left",
         left_on="codigo_cliente_usuario_creado",
         right_on="codigo_cliente_usuario_campania",
     )
 
-    df["medio"] = df["fecha_campania"].apply(lambda x: "Medios propios" if pd.notna(x) else "Producto")
+    fecha_creacion = df_merge["fecha_creacion_usuario"].dt.normalize()
+    fecha_campania = df_merge["fecha_campania"].dt.normalize()
+    fecha_campania_mas_3m = fecha_campania + pd.DateOffset(months=3)
+
+    df_merge["match_campania"] = (
+        fecha_campania.notna()
+        & (fecha_creacion >= fecha_campania)
+        & (fecha_creacion <= fecha_campania_mas_3m)
+    )
 
     df = (
-        df.sort_values(["nombre_usuario", "fecha_creacion_usuario"])
-        .drop_duplicates(subset=["nombre_usuario"], keep="first")
+        df_merge.groupby(["anio", "mes", "id_usuario"], as_index=False)
+        .agg(
+            dia=("dia", "min"),
+            fecha_creacion_usuario=("fecha_creacion_usuario", "min"),
+            direccion_lvl_1=("direccion_lvl_1", "first"),
+            estado_usuario=("estado_usuario", "first"),
+            estado_cliente=("estado_cliente", "first"),
+            medio=("match_campania", lambda s: "Medios propios" if s.fillna(False).any() else "Producto"),
+        )
         .copy()
     )
 
+    df = df[df["id_usuario"].notna()].copy()
     df["fecha"] = df["fecha_creacion_usuario"].dt.date
     return df
 
@@ -78,18 +99,18 @@ def imprimir_resumen(df: pd.DataFrame) -> None:
     print("Rango: 2026-04-01 a 2026-04-30")
     print("=" * 72)
 
-    total_usuarios = int(df["nombre_usuario"].nunique())
+    total_usuarios = int(df["id_usuario"].nunique())
     print(f"Total usuarios unicos creados (RECDIST nombre_usuario): {total_usuarios:,}")
 
     print("\n--- Distribucion por medio ---")
-    medio_counts = df.groupby("medio")["nombre_usuario"].nunique().sort_values(ascending=False)
+    medio_counts = df.groupby("medio")["id_usuario"].nunique().sort_values(ascending=False)
     for medio, val in medio_counts.items():
         pct = (val / total_usuarios * 100) if total_usuarios else 0
         print(f"{medio:15} {val:>8,}  ({pct:5.2f}%)")
 
     print("\n--- Creaciones por dia (top 10) ---")
     diario = (
-        df.groupby("fecha")["nombre_usuario"]
+        df.groupby("fecha")["id_usuario"]
         .nunique()
         .sort_values(ascending=False)
         .head(10)
