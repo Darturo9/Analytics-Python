@@ -171,7 +171,10 @@ def imprimir_resumen(df: pd.DataFrame) -> None:
     for geo, val in top_geo1.items():
         print(f"{geo[:30]:30} {val:>8,}")
 
-    print("\n--- Generaciones ---")
+    print("\n--- Generaciones (solo Medios propios) ---")
+    df_medios_propios = df[df["medio"] == "Medios propios"].copy()
+    total_medios_propios = int(df_medios_propios["id_usuario"].nunique())
+
     orden_generaciones = [
         "Generation X (1965-1980)",
         "Gen Y - Millennials (1981-1996)",
@@ -179,7 +182,7 @@ def imprimir_resumen(df: pd.DataFrame) -> None:
         "OTRA GENERACION",
     ]
     gen_counts = (
-        df["generacion"]
+        df_medios_propios["generacion"]
         .fillna("OTRA GENERACION")
         .astype(str)
         .str.strip()
@@ -188,7 +191,7 @@ def imprimir_resumen(df: pd.DataFrame) -> None:
         .reindex(orden_generaciones, fill_value=0)
     )
     for generacion, val in gen_counts.items():
-        pct = (val / total_usuarios * 100) if total_usuarios else 0
+        pct = (val / total_medios_propios * 100) if total_medios_propios else 0
         print(f"{generacion:32} {val:>8,}  ({pct:5.2f}%)")
 
     print("\n--- Estado usuario (USSTAT) ---")
