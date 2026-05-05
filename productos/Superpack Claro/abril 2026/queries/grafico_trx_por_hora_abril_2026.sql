@@ -1,6 +1,7 @@
 -------- Transacciones por hora del dia - SUPERPACK-CLARO - Abril 2026 (para grafico)
+-------- Campo hora: SPPAHR (campo nativo de DW_MUL_SPPADAT)
 SELECT
-    DATEPART(HOUR, p.DW_FECHA_OPERACION_SP) AS hora,
+    p.SPPAHR                                AS hora,
     COUNT(*)                                AS total_transacciones,
     COUNT(DISTINCT ClientesBel.CLCCLI)      AS clientes_unicos
 FROM dw_mul_sppadat p
@@ -27,5 +28,5 @@ WHERE p.DW_FECHA_OPERACION_SP >= '2026-04-01'
   AND p.spcpco IN (1, 7)
   AND m.CLMOCO IN ('001', 'L')
   AND (CIF.CLTIPE <> 'J' OR CIF.CLTIPE IS NULL)
-GROUP BY DATEPART(HOUR, p.DW_FECHA_OPERACION_SP)
+GROUP BY p.SPPAHR
 ORDER BY hora;
