@@ -1,10 +1,10 @@
 -- Analisis demografico y de fondeo para cuentas de Cuenta Digital
--- creadas del 1 al 15 de abril 2026.
+-- creadas en abril 2026 completo.
 -- Incluye:
 -- - genero
 -- - departamento
 -- - edad / rango_edad / generacion
--- - bandera de fondeo (saldo > 0 al menos 1 vez del 1 al 15)
+-- - bandera de fondeo (saldo > 0 al menos 1 vez en abril)
 -- - bandera de movimiento (cant_transacciones > 0 en dw_dep_depositos)
 
 WITH universo AS (
@@ -15,7 +15,7 @@ WITH universo AS (
         COALESCE(d.ctctrx, 0) AS cant_transacciones
     FROM dw_dep_depositos d
     WHERE d.dw_feha_apertura >= '2026-04-01'
-      AND d.dw_feha_apertura <  '2026-04-16'
+      AND d.dw_feha_apertura <  '2026-05-01'
       AND d.dw_producto = 'CUENTA DIGITAL'
       AND d.PRCODP = 1
       AND d.PRSUBP = 51
@@ -28,7 +28,7 @@ fondeo_1a15 AS (
     INNER JOIN universo u
         ON u.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
     WHERE h.dw_fecha_informacion >= '2026-04-01'
-      AND h.dw_fecha_informacion <  '2026-04-16'
+      AND h.dw_fecha_informacion <  '2026-05-01'
     GROUP BY h.DW_CUENTA_CORPORATIVA
 ),
 clientes_raw AS (
@@ -70,46 +70,46 @@ SELECT
     c.fecha_nacimiento,
     CASE
         WHEN c.fecha_nacimiento IS NULL THEN NULL
-        ELSE DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15')
+        ELSE DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30')
              - CASE
-                 WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15'), c.fecha_nacimiento) > '2026-04-15'
+                 WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30'), c.fecha_nacimiento) > '2026-04-30'
                  THEN 1 ELSE 0
                END
     END AS edad,
     CASE
         WHEN c.fecha_nacimiento IS NULL THEN 'SIN DATO'
         WHEN (
-            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15')
+            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30')
             - CASE
-                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15'), c.fecha_nacimiento) > '2026-04-15'
+                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30'), c.fecha_nacimiento) > '2026-04-30'
                 THEN 1 ELSE 0
               END
         ) BETWEEN 18 AND 25 THEN '18-25'
         WHEN (
-            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15')
+            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30')
             - CASE
-                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15'), c.fecha_nacimiento) > '2026-04-15'
+                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30'), c.fecha_nacimiento) > '2026-04-30'
                 THEN 1 ELSE 0
               END
         ) BETWEEN 26 AND 35 THEN '26-35'
         WHEN (
-            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15')
+            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30')
             - CASE
-                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15'), c.fecha_nacimiento) > '2026-04-15'
+                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30'), c.fecha_nacimiento) > '2026-04-30'
                 THEN 1 ELSE 0
               END
         ) BETWEEN 36 AND 45 THEN '36-45'
         WHEN (
-            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15')
+            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30')
             - CASE
-                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15'), c.fecha_nacimiento) > '2026-04-15'
+                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30'), c.fecha_nacimiento) > '2026-04-30'
                 THEN 1 ELSE 0
               END
         ) BETWEEN 46 AND 55 THEN '46-55'
         WHEN (
-            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15')
+            DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30')
             - CASE
-                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-15'), c.fecha_nacimiento) > '2026-04-15'
+                WHEN DATEADD(YEAR, DATEDIFF(YEAR, c.fecha_nacimiento, '2026-04-30'), c.fecha_nacimiento) > '2026-04-30'
                 THEN 1 ELSE 0
               END
         ) >= 56 THEN '56+'

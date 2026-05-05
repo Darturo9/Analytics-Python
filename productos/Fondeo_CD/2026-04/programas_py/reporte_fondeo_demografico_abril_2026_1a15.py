@@ -1,11 +1,11 @@
 """
 reporte_fondeo_demografico_abril_2026_1a15.py
 ----------------------------------------------
-Reporte en consola para cuentas de Cuenta Digital creadas del 1 al 15 de abril 2026.
+Reporte en consola para cuentas de Cuenta Digital creadas en abril 2026 completo.
 
 Imprime:
 - porcentaje de cuentas MUJER / HOMBRE
-- top departamentos con mas cuentas fondeadas (1 al 15)
+- top departamentos con mas cuentas fondeadas (abril completo)
 - top 3 generaciones que mas fondean
 - cantidad y porcentaje de cuentas con movimiento
 
@@ -87,7 +87,7 @@ def imprimir_resumen_genero(df: pd.DataFrame) -> None:
     hombres = int((df["genero"] == "HOMBRE").sum())
     sin_dato = total - mujeres - hombres
 
-    print("Genero (sobre cuentas creadas del 1 al 15):")
+    print("Genero (sobre cuentas creadas en abril completo):")
     print(f"- Mujer:     {mujeres:>10,} ({pct(mujeres, total):6.2f}%)")
     print(f"- Hombre:    {hombres:>10,} ({pct(hombres, total):6.2f}%)")
     print(f"- Sin dato:  {sin_dato:>10,} ({pct(sin_dato, total):6.2f}%)")
@@ -108,7 +108,7 @@ def imprimir_top_deptos_fondeadas(df: pd.DataFrame) -> None:
         .reset_index(drop=True)
     )
 
-    print(f"Top {TOP_DEPTOS} deptos con mas cuentas fondeadas (1 al 15):")
+    print(f"Top {TOP_DEPTOS} deptos con mas cuentas fondeadas (abril completo):")
     for i, row in top.iterrows():
         print(f"{i + 1:>2}. {str(row['depto']):<25} {int(row['cuentas_fondeadas']):>10,}")
 
@@ -130,7 +130,7 @@ def imprimir_top_3_generaciones_fondeo(df: pd.DataFrame) -> None:
     )
     gen["porcentaje"] = (gen["cuentas_fondeadas"] / total_fondeadas * 100.0).round(2)
 
-    print(f"Top {TOP_GENERACIONES} generaciones que mas fondean (sobre cuentas fondeadas 1-15):")
+    print(f"Top {TOP_GENERACIONES} generaciones que mas fondean (sobre cuentas fondeadas abril completo):")
     for i, row in gen.iterrows():
         print(
             f"{i + 1:>2}. {row['generacion']}: "
@@ -150,18 +150,18 @@ def imprimir_movimiento(df: pd.DataFrame) -> None:
 
 def imprimir_reporte(df: pd.DataFrame) -> None:
     if df.empty:
-        print("No se devolvieron registros para abril 2026 (1-15).")
+        print("No se devolvieron registros para abril 2026 (mes completo).")
         return
 
     total = len(df)
     fondeadas = int((df["fondeada_1_15"] == 1).sum())
 
     print("=" * 88)
-    print("REPORTE DEMOGRAFICO Y FONDEO - ABRIL 2026 (CUENTAS CREADAS DEL 1 AL 15)")
+    print("REPORTE DEMOGRAFICO Y FONDEO - ABRIL 2026 (CUENTAS CREADAS MES COMPLETO)")
     print("=" * 88)
-    print(f"Total cuentas creadas (1-15 abril 2026):            {total:>10,}")
-    print(f"Cuentas fondeadas al menos 1 vez (1-15 abril 2026):  {fondeadas:>10,}")
-    print(f"Tasa de fondeo (1-15 abril 2026):                    {pct(fondeadas, total):>9.2f}%")
+    print(f"Total cuentas creadas (abril 2026 completo):         {total:>10,}")
+    print(f"Cuentas fondeadas al menos 1 vez (abril 2026):       {fondeadas:>10,}")
+    print(f"Tasa de fondeo (abril 2026 completo):                {pct(fondeadas, total):>9.2f}%")
     print("-" * 88)
 
     imprimir_resumen_genero(df)

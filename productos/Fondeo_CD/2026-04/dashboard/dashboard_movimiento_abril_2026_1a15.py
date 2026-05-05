@@ -2,7 +2,7 @@
 dashboard_movimiento_abril_2026_1a15.py
 ---------------------------------------
 Dashboard (grafico de pastel) de cuentas con movimiento vs sin movimiento
-para cuentas de Cuenta Digital creadas del 1 al 15 de abril 2026.
+para cuentas de Cuenta Digital creadas en abril 2026 completo.
 
 Incluye un segundo pastel con el top 3 de generaciones con mas cuentas
 fondeadas (considerando cuentas con movimiento).
@@ -108,7 +108,7 @@ def grafico_pastel(resumen: pd.DataFrame) -> go.Figure:
         ]
     )
     fig.update_layout(
-        title="Cuentas con movimiento vs sin movimiento (1 al 15 de abril 2026)",
+        title="Cuentas con movimiento vs sin movimiento (abril 2026 completo)",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
@@ -176,7 +176,7 @@ def grafico_pastel_generaciones(top3: pd.DataFrame) -> go.Figure:
         ]
     )
     fig.update_layout(
-        title="Top 3 generaciones con mas cuentas fondeadas (con movimiento, 1 al 15)",
+        title="Top 3 generaciones con mas cuentas fondeadas (con movimiento, abril completo)",
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
@@ -202,11 +202,11 @@ def construir_layout(resumen: pd.DataFrame, top3_generaciones: pd.DataFrame) -> 
         style={"padding": "32px", "backgroundColor": COLORES["gris_fondo"], "fontFamily": "Arial, sans-serif"},
         children=[
             html.H2(
-                "Movimiento de Cuentas - Abril 2026 (1 al 15)",
+                "Movimiento de Cuentas - Abril 2026 (mes completo)",
                 style={"color": COLORES["azul_experto"], "marginBottom": "6px"},
             ),
             html.P(
-                "Universo: cuentas de Cuenta Digital creadas del 1 al 15 de abril 2026.",
+                "Universo: cuentas de Cuenta Digital creadas del 1 al 30 de abril 2026.",
                 style={"color": COLORES["gris_texto"], "marginTop": 0, "marginBottom": "18px"},
             ),
             html.Div(

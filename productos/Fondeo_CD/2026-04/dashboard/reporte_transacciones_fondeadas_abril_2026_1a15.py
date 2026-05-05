@@ -2,7 +2,7 @@
 reporte_transacciones_fondeadas_abril_2026_1a15.py
 ---------------------------------------------------
 Reporte de consola para transacciones/uso de dinero de clientes
-con cuentas fondeadas en abril 2026 (1 al 15).
+con cuentas fondeadas en abril 2026 (mes completo).
 
 Ejecucion:
     python3 productos/Fondeo_CD/2026-04/dashboard/reporte_transacciones_fondeadas_abril_2026_1a15.py
@@ -85,7 +85,7 @@ def cargar_datos() -> pd.DataFrame:
 
 def imprimir_reporte(df: pd.DataFrame) -> None:
     if df.empty:
-        print("No se encontraron transacciones para cuentas fondeadas (abril 2026, 1-15).")
+        print("No se encontraron transacciones para cuentas fondeadas (abril 2026 completo).")
         return
 
     total_tx = int(df["total_transacciones"].sum())
@@ -96,7 +96,7 @@ def imprimir_reporte(df: pd.DataFrame) -> None:
     top["pct_tx"] = (top["total_transacciones"] / total_tx * 100.0).round(2) if total_tx > 0 else 0.0
 
     print("=" * 110)
-    print("TRANSACCIONES / USO DE DINERO - CUENTAS FONDEADAS ABRIL 2026 (1-15)")
+    print("TRANSACCIONES / USO DE DINERO - CUENTAS FONDEADAS ABRIL 2026 (MES COMPLETO)")
     print("=" * 110)
     print(f"Total transacciones (todas las categorias):      {total_tx:>12,}")
     print(f"Max clientes unicos en una categoria:            {total_clientes:>12,}")

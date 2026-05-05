@@ -1,5 +1,5 @@
 /*
-Uso de dinero para cuentas fondeadas en abril 2026 (1 al 15) - version TEMP
+Uso de dinero para cuentas fondeadas en abril 2026 (mes completo) - version TEMP
 
 Objetivo:
 - Materializar universo y joins criticos en tablas temporales indexadas
@@ -29,7 +29,7 @@ WHERE d.dw_producto = 'CUENTA DIGITAL'
   AND d.PRCODP = 1
   AND d.PRSUBP = 51
   AND d.dw_feha_apertura >= '2026-04-01'
-  AND d.dw_feha_apertura <  '2026-04-16'
+  AND d.dw_feha_apertura <  '2026-05-01'
 GROUP BY
     d.DW_CUENTA_CORPORATIVA,
     RIGHT('00000000' + LTRIM(RTRIM(d.CLDOC)), 8);
@@ -46,7 +46,7 @@ WHERE EXISTS (
     FROM HIS_DEP_DEPOSITOS_VIEW h
     WHERE h.DW_CUENTA_CORPORATIVA = a.DW_CUENTA_CORPORATIVA
       AND h.dw_fecha_informacion >= '2026-04-01'
-      AND h.dw_fecha_informacion <  '2026-04-16'
+      AND h.dw_fecha_informacion <  '2026-05-01'
       AND h.ctt001 > 0
 )
 GROUP BY a.padded_codigo_cliente;
@@ -77,7 +77,7 @@ CROSS APPLY (
 INNER JOIN #universo_fondeado u
     ON u.padded_codigo_cliente = n.padded_codigo_cliente
 WHERE j.dw_fecha_journal >= '2026-04-01'
-  AND j.dw_fecha_journal <  '2026-04-16'
+  AND j.dw_fecha_journal <  '2026-05-01'
   AND j.jostat = 1
   AND j.josecu = 1
   AND j.jovalo > 0;
@@ -130,7 +130,7 @@ CROSS APPLY (
 INNER JOIN #universo_fondeado u
     ON u.padded_codigo_cliente = n.padded_codigo_cliente
 WHERE p.dw_fecha_operacion_sp >= '2026-04-01'
-  AND p.dw_fecha_operacion_sp <  '2026-04-16'
+  AND p.dw_fecha_operacion_sp <  '2026-05-01'
   AND p.sppafr = 'N'
   AND (
       cv.codigo_int IN (481, 907, 693, 524, 572, 573, 732, 498, 866, 882, 513, 868, 869)
