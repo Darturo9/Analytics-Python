@@ -1,11 +1,11 @@
 """
 graficos_superpack_abril.py
 -----------------------------
-Genera dos graficos web interactivos para Superpack Claro - Abril 2026:
+Genera grafico web interactivo para Superpack Claro - Abril 2026:
   1. Transacciones por dia
-  2. Transacciones por hora del dia
 
-Abre ambos graficos directamente en el navegador.
+Nota: el grafico por hora no esta disponible porque DW_FECHA_OPERACION_SP
+es tipo DATE en la base de datos (no almacena la hora).
 
 Requisito: pip install plotly
 
@@ -119,14 +119,10 @@ def main() -> None:
         df_dia = run_query_file(str(QUERY_DIA))
         df_dia.columns = [c.lower() for c in df_dia.columns]
 
-        print("Cargando datos por hora...")
-        df_hora = run_query_file(str(QUERY_HORA))
-        df_hora.columns = [c.lower() for c in df_hora.columns]
-
-        print("Generando graficos...")
+        print("Generando grafico por dia...")
         grafico_por_dia(df_dia)
-        grafico_por_hora(df_hora)
         print("Listo.")
+        print("\nNota: grafico por hora no disponible — DW_FECHA_OPERACION_SP es tipo DATE (sin hora).")
 
     except SQLAlchemyError as exc:
         msg = " ".join(str(exc).split())
