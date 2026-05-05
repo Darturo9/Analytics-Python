@@ -147,11 +147,12 @@ uso_dinero AS (
     FROM pagos_multi
 )
 SELECT
+    origen,
     tipo_uso,
     COUNT(*) AS total_transacciones,
     COUNT(DISTINCT padded_codigo_cliente) AS clientes_unicos,
     CAST(SUM(valor) AS DECIMAL(18, 2)) AS monto_total,
     CAST(AVG(valor) AS DECIMAL(18, 2)) AS monto_promedio
 FROM uso_dinero
-GROUP BY tipo_uso
-ORDER BY total_transacciones DESC, tipo_uso ASC;
+GROUP BY origen, tipo_uso
+ORDER BY origen, total_transacciones DESC, tipo_uso ASC;

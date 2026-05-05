@@ -34,7 +34,7 @@ QUERY_PATH = (
     / "UsoDineroCuentasFondeadasAbril2026_TEMP.sql"
 )
 
-TOP_N = 15
+TOP_N = 10
 
 
 def cargar_datos() -> pd.DataFrame:
@@ -68,42 +68,34 @@ def cargar_datos() -> pd.DataFrame:
 
     df.columns = [str(c).strip().lower() for c in df.columns]
 
-    columnas = ["tipo_uso", "total_transacciones", "clientes_unicos", "monto_total", "monto_promedio"]
+    columnas = ["origen", "tipo_uso", "total_transacciones", "clientes_unicos", "monto_total", "monto_promedio"]
     faltantes = [c for c in columnas if c not in df.columns]
     if faltantes:
         raise ValueError(f"La query no devolvio columnas requeridas: {faltantes}")
 
-    df["tipo_uso"] = df["tipo_uso"].astype(str).str.strip().replace("", "SIN_TIPO")
+    df["origen"] = df["origen"].astype(str).str.strip().str.upper()
+    df["tipo_uso"] = df["tipo_uso"].astype(str).str.strip()
     df["total_transacciones"] = pd.to_numeric(df["total_transacciones"], errors="coerce").fillna(0).astype(int)
     df["clientes_unicos"] = pd.to_numeric(df["clientes_unicos"], errors="coerce").fillna(0).astype(int)
     df["monto_total"] = pd.to_numeric(df["monto_total"], errors="coerce").fillna(0.0)
     df["monto_promedio"] = pd.to_numeric(df["monto_promedio"], errors="coerce").fillna(0.0)
 
-    df = df.sort_values(["total_transacciones", "tipo_uso"], ascending=[False, True]).reset_index(drop=True)
+    df = df.sort_values(["origen", "total_transacciones", "tipo_uso"], ascending=[True, False, True]).reset_index(drop=True)
     return df
 
 
-def imprimir_reporte(df: pd.DataFrame) -> None:
-    if df.empty:
-        print("No se encontraron transacciones para cuentas fondeadas (abril 2026 completo).")
-        return
-
-    total_tx = int(df["total_transacciones"].sum())
-    total_clientes = int(df["clientes_unicos"].max())  # no acumulable por categoria
-    monto_total = float(df["monto_total"].sum())
-
-    top = df.head(TOP_N).copy()
+def _imprimir_bloque(df_origen: pd.DataFrame, origen: str, total_tx_global: int) -> None:
+    top = df_origen.head(TOP_N).copy()
+    total_tx = int(df_origen["total_transacciones"].sum())
+    monto_total = float(df_origen["monto_total"].sum())
     top["pct_tx"] = (top["total_transacciones"] / total_tx * 100.0).round(2) if total_tx > 0 else 0.0
 
-    print("=" * 110)
-    print("TRANSACCIONES / USO DE DINERO - CUENTAS FONDEADAS ABRIL 2026 (MES COMPLETO)")
-    print("=" * 110)
-    print(f"Total transacciones (todas las categorias):      {total_tx:>12,}")
-    print(f"Max clientes unicos en una categoria:            {total_clientes:>12,}")
-    print(f"Monto total agregado (L):                        {monto_total:>12,.2f}")
-    print("-" * 110)
-    print(f"Top {TOP_N} categorias por cantidad de transacciones")
-    print("-" * 110)
+    print(f"\n{'=' * 110}")
+    print(f"  {origen}  —  Top {TOP_N} categorias por transacciones")
+    print(f"{'=' * 110}")
+    print(f"  Transacciones en este canal:   {total_tx:>12,}   ({total_tx / total_tx_global * 100:.1f}% del total)")
+    print(f"  Monto total (L):               {monto_total:>12,.2f}")
+    print(f"{'-' * 110}")
     print(
         top[
             ["tipo_uso", "total_transacciones", "pct_tx", "clientes_unicos", "monto_total", "monto_promedio"]
@@ -118,6 +110,29 @@ def imprimir_reporte(df: pd.DataFrame) -> None:
             },
         )
     )
+
+
+def imprimir_reporte(df: pd.DataFrame) -> None:
+    if df.empty:
+        print("No se encontraron transacciones para cuentas fondeadas (abril 2026 completo).")
+        return
+
+    total_tx = int(df["total_transacciones"].sum())
+    monto_total = float(df["monto_total"].sum())
+
+    print("=" * 110)
+    print("TRANSACCIONES / USO DE DINERO - CUENTAS FONDEADAS ABRIL 2026 (MES COMPLETO)")
+    print("=" * 110)
+    print(f"  Total transacciones (todos los canales):  {total_tx:>12,}")
+    print(f"  Monto total agregado (L):                 {monto_total:>12,.2f}")
+
+    for origen in ["BXI", "MULTIPAGO"]:
+        bloque = df[df["origen"] == origen].copy()
+        if bloque.empty:
+            print(f"\n  [Sin datos para {origen}]")
+            continue
+        _imprimir_bloque(bloque, origen, total_tx)
+
     print("=" * 110)
 
 

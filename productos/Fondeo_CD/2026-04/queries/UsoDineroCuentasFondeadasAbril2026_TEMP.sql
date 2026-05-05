@@ -147,15 +147,16 @@ CREATE NONCLUSTERED INDEX IX_PM_1 ON #pagos_multi (padded_codigo_cliente);
 CREATE NONCLUSTERED INDEX IX_PM_2 ON #pagos_multi (tipo_uso);
 
 SELECT
+    t.origen,
     t.tipo_uso,
     COUNT(*) AS total_transacciones,
     COUNT(DISTINCT t.padded_codigo_cliente) AS clientes_unicos,
     CAST(SUM(t.valor) AS DECIMAL(18, 2)) AS monto_total,
     CAST(AVG(t.valor) AS DECIMAL(18, 2)) AS monto_promedio
 FROM (
-    SELECT padded_codigo_cliente, tipo_uso, valor FROM #pagos_bxi
+    SELECT padded_codigo_cliente, tipo_uso, valor, 'BXI'       AS origen FROM #pagos_bxi
     UNION ALL
-    SELECT padded_codigo_cliente, tipo_uso, valor FROM #pagos_multi
+    SELECT padded_codigo_cliente, tipo_uso, valor, 'MULTIPAGO' AS origen FROM #pagos_multi
 ) t
-GROUP BY t.tipo_uso
-ORDER BY total_transacciones DESC, tipo_uso ASC;
+GROUP BY t.origen, t.tipo_uso
+ORDER BY t.origen, total_transacciones DESC, tipo_uso ASC;
