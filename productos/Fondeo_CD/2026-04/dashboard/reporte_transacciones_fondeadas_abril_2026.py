@@ -88,7 +88,7 @@ def _imprimir_bloque(df_origen: pd.DataFrame, origen: str, total_tx_global: int)
     top = df_origen.head(TOP_N).copy()
     total_tx = int(df_origen["total_transacciones"].sum())
     monto_total = float(df_origen["monto_total"].sum())
-    top["pct_tx"] = (top["total_transacciones"] / total_tx * 100.0).round(2) if total_tx > 0 else 0.0
+    top["pct_tx"] = (top["total_transacciones"] / total_tx_global * 100.0).round(2) if total_tx_global > 0 else 0.0
 
     print(f"\n{'=' * 110}")
     print(f"  {origen}  —  Top {TOP_N} categorias por transacciones")
