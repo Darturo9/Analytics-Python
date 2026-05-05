@@ -66,7 +66,6 @@ SELECT
         WHEN j.secode = 'app-transt' THEN 'Transferencias a terceros'
         WHEN j.secode = 'app-tcpago' THEN 'Pago TC'
         WHEN j.secode = 'app-pagotc' THEN 'Pago TC terceros'
-        ELSE 'OTRAS_TRANSACCIONES_BXI'
     END AS tipo_uso,
     CAST(j.jovalo AS DECIMAL(18, 2)) AS valor
 INTO #pagos_bxi
@@ -80,7 +79,15 @@ WHERE j.dw_fecha_journal >= '2026-04-01'
   AND j.dw_fecha_journal <  '2026-05-01'
   AND j.jostat = 1
   AND j.josecu = 1
-  AND j.jovalo > 0;
+  AND j.jovalo > 0
+  AND j.secode IN (
+      'ap-pagclar', 'app-pagcla', 'ope-rccl', 'app-reccla',
+      'app-ptigo', 'pag-tigo', 'app-rectig', 'ope-rctg',
+      'app-paenee', 'pag-enee',
+      'app-asps', 'pag-asps',
+      'app-achtrf', 'app-trach', 'app-transh',
+      'app-transf', 'app-transt', 'app-tcpago', 'app-pagotc'
+  );
 
 CREATE NONCLUSTERED INDEX IX_PB_1 ON #pagos_bxi (padded_codigo_cliente);
 CREATE NONCLUSTERED INDEX IX_PB_2 ON #pagos_bxi (tipo_uso);
@@ -98,7 +105,6 @@ SELECT
         WHEN cv.codigo_int IN (866, 882) THEN 'Pago Impuestos'
         WHEN cv.categoria_int = 11 THEN 'Pago Agua'
         WHEN cv.codigo_int IN (513, 868, 869) THEN 'Pago Matricula vehiculos'
-        ELSE 'OTRAS_TRANSACCIONES_MULTIPAGO'
     END AS tipo_uso,
     CAST(p.sppava AS DECIMAL(18, 2)) AS valor
 INTO #pagos_multi

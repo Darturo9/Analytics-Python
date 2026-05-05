@@ -55,7 +55,6 @@ pagos_bxi AS (
             WHEN j.secode = 'app-transt' THEN 'Transferencias a terceros'
             WHEN j.secode = 'app-tcpago' THEN 'Pago TC'
             WHEN j.secode = 'app-pagotc' THEN 'Pago TC terceros'
-            ELSE 'OTRAS_TRANSACCIONES_BXI'
         END AS tipo_uso,
         CAST(j.jovalo AS DECIMAL(18, 2)) AS valor,
         'BXI' AS origen
@@ -70,6 +69,14 @@ pagos_bxi AS (
       AND j.jostat = 1
       AND j.josecu = 1
       AND j.jovalo > 0
+      AND j.secode IN (
+          'ap-pagclar', 'app-pagcla', 'ope-rccl', 'app-reccla',
+          'app-ptigo', 'pag-tigo', 'app-rectig', 'ope-rctg',
+          'app-paenee', 'pag-enee',
+          'app-asps', 'pag-asps',
+          'app-achtrf', 'app-trach', 'app-transh',
+          'app-transf', 'app-transt', 'app-tcpago', 'app-pagotc'
+      )
 ),
 pagos_multi_raw AS (
     SELECT
@@ -127,7 +134,6 @@ pagos_multi AS (
             WHEN codigo_int IN (866, 882) THEN 'Pago Impuestos'
             WHEN categoria_int = 11 THEN 'Pago Agua'
             WHEN codigo_int IN (513, 868, 869) THEN 'Pago Matricula vehiculos'
-            ELSE 'OTRAS_TRANSACCIONES_MULTIPAGO'
         END AS tipo_uso,
         valor,
         'MULTIPAGO' AS origen
