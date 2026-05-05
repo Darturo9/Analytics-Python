@@ -67,7 +67,7 @@ WITH trx_superpack AS (
       AND ClientesBel.CLCCLI IS NOT NULL
       AND (CIF.CLTIPE <> 'J' OR CIF.CLTIPE IS NULL)
 )
-SELECT DISTINCT codigo_cliente
+SELECT DISTINCT RIGHT('00000000' + codigo_cliente, 8) AS codigo_cliente
 FROM trx_superpack
 WHERE codigo_cliente IS NOT NULL
 """
