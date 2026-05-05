@@ -1,5 +1,5 @@
 """
-dashboard_movimiento_abril_2026_1a15.py
+dashboard_movimiento_abril_2026.py
 ---------------------------------------
 Dashboard (grafico de pastel) de cuentas con movimiento vs sin movimiento
 para cuentas de Cuenta Digital creadas en abril 2026 completo.
@@ -8,7 +8,7 @@ Incluye un segundo pastel con el top 3 de generaciones con mas cuentas
 fondeadas (considerando cuentas con movimiento).
 
 Ejecucion:
-    python3 productos/Fondeo_CD/2026-04/dashboard/dashboard_movimiento_abril_2026_1a15.py
+    python3 productos/Fondeo_CD/2026-04/dashboard/dashboard_movimiento_abril_2026.py
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ QUERY_PATH = (
     / "Fondeo_CD"
     / "2026-04"
     / "queries"
-    / "AnalisisFondeoDemograficoAbril2026_1a15.sql"
+    / "AnalisisFondeoDemograficoAbril2026.sql"
 )
 
 

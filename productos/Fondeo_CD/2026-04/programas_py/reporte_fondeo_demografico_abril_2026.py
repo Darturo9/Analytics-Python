@@ -1,5 +1,5 @@
 """
-reporte_fondeo_demografico_abril_2026_1a15.py
+reporte_fondeo_demografico_abril_2026.py
 ----------------------------------------------
 Reporte en consola para cuentas de Cuenta Digital creadas en abril 2026 completo.
 
@@ -13,7 +13,7 @@ Nota: "con movimiento" se calcula con cant_transacciones > 0
 segun dw_dep_depositos (alineado a scripts existentes del repo).
 
 Ejecucion:
-    python3 productos/Fondeo_CD/2026-04/programas_py/reporte_fondeo_demografico_abril_2026_1a15.py
+    python3 productos/Fondeo_CD/2026-04/programas_py/reporte_fondeo_demografico_abril_2026.py
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ RUTA_QUERY = (
     / "Fondeo_CD"
     / "2026-04"
     / "queries"
-    / "AnalisisFondeoDemograficoAbril2026_1a15.sql"
+    / "AnalisisFondeoDemograficoAbril2026.sql"
 )
 
 TOP_DEPTOS = 10

@@ -1,11 +1,11 @@
 """
-reporte_transacciones_fondeadas_abril_2026_1a15.py
+reporte_transacciones_fondeadas_abril_2026.py
 ---------------------------------------------------
 Reporte de consola para transacciones/uso de dinero de clientes
 con cuentas fondeadas en abril 2026 (mes completo).
 
 Ejecucion:
-    python3 productos/Fondeo_CD/2026-04/dashboard/reporte_transacciones_fondeadas_abril_2026_1a15.py
+    python3 productos/Fondeo_CD/2026-04/dashboard/reporte_transacciones_fondeadas_abril_2026.py
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ QUERY_PATH = (
     / "Fondeo_CD"
     / "2026-04"
     / "queries"
-    / "UsoDineroCuentasFondeadasAbril2026_1a15_TEMP.sql"
+    / "UsoDineroCuentasFondeadasAbril2026_TEMP.sql"
 )
 
 TOP_N = 15
