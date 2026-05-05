@@ -1,7 +1,12 @@
 -------- Transacciones por hora del dia - SUPERPACK-CLARO - Abril 2026 (para grafico)
 -------- Campo hora: SPPAHR (campo nativo de DW_MUL_SPPADAT)
 SELECT
-    p.SPPAHR                                AS hora,
+    CASE
+        WHEN TRY_CONVERT(INT, p.SPPAHR) IS NULL     THEN NULL
+        WHEN TRY_CONVERT(INT, p.SPPAHR) < 24        THEN TRY_CONVERT(INT, p.SPPAHR)
+        WHEN TRY_CONVERT(INT, p.SPPAHR) < 2400      THEN TRY_CONVERT(INT, p.SPPAHR) / 100
+        ELSE                                              TRY_CONVERT(INT, p.SPPAHR) / 10000
+    END                                     AS hora,
     COUNT(*)                                AS total_transacciones,
     COUNT(DISTINCT ClientesBel.CLCCLI)      AS clientes_unicos
 FROM dw_mul_sppadat p
@@ -28,5 +33,11 @@ WHERE p.DW_FECHA_OPERACION_SP >= '2026-04-01'
   AND p.spcpco IN (1, 7)
   AND m.CLMOCO IN ('001', 'L')
   AND (CIF.CLTIPE <> 'J' OR CIF.CLTIPE IS NULL)
-GROUP BY p.SPPAHR
+GROUP BY
+    CASE
+        WHEN TRY_CONVERT(INT, p.SPPAHR) IS NULL     THEN NULL
+        WHEN TRY_CONVERT(INT, p.SPPAHR) < 24        THEN TRY_CONVERT(INT, p.SPPAHR)
+        WHEN TRY_CONVERT(INT, p.SPPAHR) < 2400      THEN TRY_CONVERT(INT, p.SPPAHR) / 100
+        ELSE                                              TRY_CONVERT(INT, p.SPPAHR) / 10000
+    END
 ORDER BY hora;
