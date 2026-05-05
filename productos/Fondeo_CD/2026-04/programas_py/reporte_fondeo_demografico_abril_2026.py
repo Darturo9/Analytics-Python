@@ -87,7 +87,7 @@ def imprimir_resumen_genero(df: pd.DataFrame) -> None:
     hombres = int((df["genero"] == "HOMBRE").sum())
     sin_dato = total - mujeres - hombres
 
-    print("Genero (sobre cuentas creadas en abril completo):")
+    print("Genero (sobre cuentas fondeadas en abril completo):")
     print(f"- Mujer:     {mujeres:>10,} ({pct(mujeres, total):6.2f}%)")
     print(f"- Hombre:    {hombres:>10,} ({pct(hombres, total):6.2f}%)")
     print(f"- Sin dato:  {sin_dato:>10,} ({pct(sin_dato, total):6.2f}%)")
@@ -153,24 +153,25 @@ def imprimir_reporte(df: pd.DataFrame) -> None:
         print("No se devolvieron registros para abril 2026 (mes completo).")
         return
 
-    total = len(df)
-    fondeadas = int((df["fondeada_1_15"] == 1).sum())
+    total_creadas = len(df)
+    df_fondeadas = df[df["fondeada_1_15"] == 1].copy().reset_index(drop=True)
+    fondeadas = len(df_fondeadas)
 
     print("=" * 88)
-    print("REPORTE DEMOGRAFICO Y FONDEO - ABRIL 2026 (CUENTAS CREADAS MES COMPLETO)")
+    print("REPORTE DEMOGRAFICO Y FONDEO - ABRIL 2026 (CUENTAS FONDEADAS MES COMPLETO)")
     print("=" * 88)
-    print(f"Total cuentas creadas (abril 2026 completo):         {total:>10,}")
+    print(f"Total cuentas creadas (abril 2026 completo):         {total_creadas:>10,}")
     print(f"Cuentas fondeadas al menos 1 vez (abril 2026):       {fondeadas:>10,}")
-    print(f"Tasa de fondeo (abril 2026 completo):                {pct(fondeadas, total):>9.2f}%")
+    print(f"Tasa de fondeo (abril 2026 completo):                {pct(fondeadas, total_creadas):>9.2f}%")
     print("-" * 88)
 
-    imprimir_resumen_genero(df)
+    imprimir_resumen_genero(df_fondeadas)
     print("-" * 88)
-    imprimir_top_deptos_fondeadas(df)
+    imprimir_top_deptos_fondeadas(df_fondeadas)
     print("-" * 88)
-    imprimir_top_3_generaciones_fondeo(df)
+    imprimir_top_3_generaciones_fondeo(df_fondeadas)
     print("-" * 88)
-    imprimir_movimiento(df)
+    imprimir_movimiento(df_fondeadas)
     print("=" * 88)
 
 
