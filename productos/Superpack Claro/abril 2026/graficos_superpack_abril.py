@@ -22,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from core.db import run_query_file
+from core.colors import PALETA
 
 BASE_DIR   = Path(__file__).resolve().parent
 QUERY_DIA  = BASE_DIR / "queries" / "grafico_trx_por_dia_abril_2026.sql"
@@ -43,6 +44,7 @@ def grafico_por_dia(df) -> None:
     fig = go.Figure(go.Bar(
         x=fechas,
         y=trx,
+        marker_color=PALETA[0],
         text=[f"{v:,}" for v in trx],
         textposition="outside",
         customdata=clientes,
@@ -92,6 +94,7 @@ def grafico_por_hora(df) -> None:
     fig = go.Figure(go.Bar(
         x=horas,
         y=trx,
+        marker_color=PALETA[0],
         text=[f"{v:,}" if v > 0 else "" for v in trx],
         textposition="outside",
         customdata=clientes,
