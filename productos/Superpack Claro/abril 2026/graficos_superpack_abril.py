@@ -47,6 +47,7 @@ def grafico_por_dia(df) -> None:
         marker_color=PALETA[0],
         text=[f"{v:,}" for v in trx],
         textposition="outside",
+        textfont=dict(size=14),
         customdata=clientes,
         hovertemplate=(
             "<b>%{x}</b><br>"
@@ -97,6 +98,7 @@ def grafico_por_hora(df) -> None:
         marker_color=PALETA[0],
         text=[f"{v:,}" if v > 0 else "" for v in trx],
         textposition="outside",
+        textfont=dict(size=14),
         customdata=clientes,
         hovertemplate=(
             "<b>%{x}</b><br>"
