@@ -23,11 +23,12 @@ from pathlib import Path
 
 
 import pandas as pd
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 sys.path.insert(0, ".")
 
-from core.db import run_query
+from core.db import run_query, get_engine
 
 
 BASE_DIR      = Path(__file__).resolve().parent
@@ -77,23 +78,20 @@ FROM trx_superpack
 WHERE codigo_cliente IS NOT NULL
 """
 
-# Plantilla compatible con SQL Server 2012+. Los {placeholders} se reemplazan
-# en Python con los codigos del lote antes de ejecutar.
-SQL_DEMOGRAFIA_BATCH = """
+SQL_DEMOGRAFIA = """
 SELECT
-    RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) AS codigo_cliente,
-    MAX(c.CLISEX)                                  AS genero_raw,
-    MAX(CAST(c.DW_FECHA_NACIMIENTO AS DATE))        AS fecha_nacimiento,
-    MAX(COALESCE(NULLIF(LTRIM(RTRIM(d.dw_nivel_geo2)), ''), 'SIN DATO')) AS departamento_raw
-FROM DW_CIF_CLIENTES c
+    RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)                         AS codigo_cliente,
+    MAX(c.CLISEX)                                                          AS genero_raw,
+    MAX(CAST(c.DW_FECHA_NACIMIENTO AS DATE))                               AS fecha_nacimiento,
+    MAX(COALESCE(NULLIF(LTRIM(RTRIM(d.dw_nivel_geo2)), ''), 'SIN DATO'))  AS departamento_raw
+FROM #tmp_dem_codigos t
+INNER JOIN DW_CIF_CLIENTES c
+    ON RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) = t.codigo
 LEFT JOIN DW_CIF_DIRECCIONES_PRINCIPAL d
     ON RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) =
        RIGHT('00000000' + LTRIM(RTRIM(d.CLDOC)), 8)
-WHERE RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8) IN ({placeholders})
 GROUP BY RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)
 """
-
-DEMOGRAFIA_BATCH_SIZE = 500
 
 
 def normalizar_codigo_cliente(value: object) -> object:
@@ -181,23 +179,18 @@ def obtener_demografia(codigos: list[str]) -> pd.DataFrame:
     if not codigos_unicos:
         return pd.DataFrame(columns=["codigo_cliente", "genero", "generacion", "departamento"])
 
-    # Consulta en lotes para compatibilidad con SQL Server 2012+
-    lotes = [
-        codigos_unicos[i : i + DEMOGRAFIA_BATCH_SIZE]
-        for i in range(0, len(codigos_unicos), DEMOGRAFIA_BATCH_SIZE)
-    ]
-    partes = []
-    for lote in lotes:
-        placeholders = ", ".join(f"'{c}'" for c in lote)
-        sql = SQL_DEMOGRAFIA_BATCH.format(placeholders=placeholders)
-        df_lote = run_query(sql)
-        if not df_lote.empty:
-            partes.append(df_lote)
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE #tmp_dem_codigos (codigo VARCHAR(8))"))
+        conn.execute(
+            text("INSERT INTO #tmp_dem_codigos (codigo) VALUES (:codigo)"),
+            [{"codigo": c} for c in codigos_unicos],
+        )
+        df = pd.read_sql(text(SQL_DEMOGRAFIA), conn)
 
-    if not partes:
+    if df.empty:
         return pd.DataFrame(columns=["codigo_cliente", "genero", "generacion", "departamento"])
 
-    df = pd.concat(partes, ignore_index=True)
     df["codigo_cliente"]   = df["codigo_cliente"].astype(str).apply(normalizar_codigo_cliente)
     df["fecha_nacimiento"] = pd.to_datetime(df["fecha_nacimiento"], errors="coerce")
     df["genero"]           = df["genero_raw"].apply(normalizar_genero)

@@ -82,8 +82,6 @@ def grafico_por_hora(df) -> None:
         print("Sin datos para grafico por hora.")
         return
 
-    print(f"  Datos por hora recibidos: {len(df)} filas — valores: {sorted(df['hora'].dropna().astype(int).tolist())}")
-
     horas_completas = list(range(24))
     df_hora = df.set_index("hora").reindex(horas_completas, fill_value=0).reset_index()
     df_hora.columns = ["hora", "total_transacciones", "clientes_unicos"]
@@ -128,6 +126,30 @@ def grafico_por_hora(df) -> None:
     fig.show()
 
 
+def imprimir_top5_dias(df) -> None:
+    if df.empty:
+        return
+    top = df.nlargest(5, "total_transacciones")[["fecha", "total_transacciones", "clientes_unicos"]]
+    print("\n  Top 5 dias con mas transacciones:")
+    print(f"  {'Fecha':<12} {'Trx':>10} {'Clientes unicos':>16}")
+    print(f"  {'-'*12} {'-'*10} {'-'*16}")
+    for _, row in top.iterrows():
+        print(f"  {str(row['fecha']):<12} {int(row['total_transacciones']):>10,} {int(row['clientes_unicos']):>16,}")
+
+
+def imprimir_top5_horas(df) -> None:
+    if df.empty:
+        return
+    df_valido = df[df["total_transacciones"] > 0]
+    top = df_valido.nlargest(5, "total_transacciones")[["hora", "total_transacciones", "clientes_unicos"]]
+    print("\n  Top 5 horas con mas transacciones:")
+    print(f"  {'Hora':<8} {'Trx':>10} {'Clientes unicos':>16}")
+    print(f"  {'-'*8} {'-'*10} {'-'*16}")
+    for _, row in top.iterrows():
+        print(f"  {int(row['hora']):02d}:00   {int(row['total_transacciones']):>10,} {int(row['clientes_unicos']):>16,}")
+    print()
+
+
 def main() -> None:
     try:
         print("Cargando datos por dia...")
@@ -137,6 +159,9 @@ def main() -> None:
         print("Cargando datos por hora...")
         df_hora = run_query_file(str(QUERY_HORA))
         df_hora.columns = [c.lower() for c in df_hora.columns]
+
+        imprimir_top5_dias(df_dia)
+        imprimir_top5_horas(df_hora)
 
         print("Generando graficos...")
         grafico_por_dia(df_dia)
