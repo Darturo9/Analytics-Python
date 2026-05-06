@@ -12,6 +12,7 @@ Genera un Excel con clientes que cumplen estas condiciones:
 7) Banca en linea (BancaE >= 1)
 8) Convenio activo (CLSTAT = 'A')
 9) Usuario activo (UsuarioActivo >= 1)
+10) Solo usuarios activos en mapeo de compras (USSTAT = 'A')
 """
 
 import argparse
@@ -36,6 +37,7 @@ WITH user_map AS (
         LTRIM(RTRIM(CLCCLI)) AS clccli,
         LTRIM(RTRIM(USCODE)) AS uscode
     FROM DW_BEL_IBUSER
+    WHERE USSTAT = 'A'
 ),
 compras_mapeadas AS (
     SELECT
