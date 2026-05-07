@@ -20,11 +20,16 @@ Tambien incluye reporte de transacciones para esa misma cohorte:
 german/
 ├── programas_py/
 │   ├── reporte_genero_generacion_2025_2026.py
-│   └── reporte_trx_usuarios_2025_2026.py
+│   ├── reporte_trx_usuarios_2025_2026.py
+│   ├── reporte_consola_cohorte_2025_2026.py
+│   └── reporte_consola_cohorte_2026_hasta_abril.py
 ├── queries/
 │   ├── base_usuarios_2025_2026.sql
 │   ├── trx_usuarios_2025_2026.sql
-│   └── logins_usuarios_2025_2026.sql
+│   ├── logins_usuarios_2025_2026.sql
+│   ├── base_usuarios_2026_hasta_abril.sql
+│   ├── trx_usuarios_2026_hasta_abril.sql
+│   └── logins_usuarios_2026_hasta_abril.sql
 └── exports/
 ```
 
@@ -43,6 +48,9 @@ python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2
 
 # Modo mensual por evento (trx + logins, sin detalle cliente a cliente)
 python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo mensual
+
+# Consola pura (sin export) cohorte 2026 hasta final de abril
+python3 productos/creacion_usuario_sv/german/programas_py/reporte_consola_cohorte_2026_hasta_abril.py
 ```
 
 ### Export Excel
