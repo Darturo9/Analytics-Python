@@ -51,6 +51,7 @@ python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2
   - `exports/resumen_anual_trx_logins_2025_2026.xlsx`
 - Modo mensual:
   - `exports/resumen_mensual_trx_logins_2025_2026.xlsx`
+  - `exports/resumen_mensual_transacciones_2025_2026.xlsx`
 
 ## Fuente
 

@@ -498,6 +498,14 @@ def imprimir_y_exportar_resumen_mensual(df_trx: pd.DataFrame, df_login: pd.DataF
 
     print(f"\nExcel generado: {out_file}")
 
+    # Export adicional pedido: archivo mensual solo de transacciones 2025-2026.
+    out_file_trx = EXPORTS_DIR / "resumen_mensual_transacciones_2025_2026.xlsx"
+    with pd.ExcelWriter(out_file_trx, engine="xlsxwriter") as writer:
+        resumen_trx.to_excel(writer, sheet_name="mensual_trx", index=False)
+        totales_trx.to_excel(writer, sheet_name="totales_trx_mes", index=False)
+
+    print(f"Excel generado: {out_file_trx}")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Reporte de trx y logins para usuarios creados en 2025-2026.")
