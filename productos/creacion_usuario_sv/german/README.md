@@ -57,3 +57,4 @@ python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2
 - BD: `DWHSV`
 - Periodo: desde `2025-01-01` hasta `< 2027-01-01`
 - Sin filtro por campañas RTM
+- Regla logins: solo cuenta logins donde `anio_creacion_usuario == anio_login`

@@ -1,6 +1,10 @@
 """
 Reporte en consola de transacciones y logins para usuarios creados en 2025-2026.
 
+Regla logins:
+    Solo se cuentan logins donde el anio de login coincide con el anio de
+    creacion del usuario (anio_creacion == anio_login).
+
 Modos:
     - anual: metricas generales y por anio (DEFAULT)
     - mensual: resumen por mes y tipo de evento
@@ -142,6 +146,8 @@ def construir_datasets(
 
     df_login_cohorte = cohort.merge(logins, how="left", on="codigo_cliente", suffixes=("_usr", "_login"))
     df_login_cohorte = df_login_cohorte[df_login_cohorte["periodo"].notna()].copy()
+    # Regla pedida: contar logins solo del mismo anio en que se creo el usuario.
+    df_login_cohorte = df_login_cohorte[df_login_cohorte["anio_creacion"] == df_login_cohorte["anio_login"]].copy()
 
     return cohort, df_trx_cohorte, df_login_cohorte
 
@@ -149,6 +155,7 @@ def construir_datasets(
 def imprimir_resumen_anual_y_exportar(df_trx: pd.DataFrame, df_login: pd.DataFrame, cohort_size: int) -> None:
     print("=" * 90)
     print("REPORTE ANUAL - TRX Y LOGINS (COHORTE CREADA 2025-2026)")
+    print("Criterio logins: anio_creacion == anio_login")
     print("=" * 90)
 
     # --- TRX ---
@@ -408,6 +415,7 @@ def construir_resumen_mensual_logins(df_login: pd.DataFrame) -> tuple[pd.DataFra
 def imprimir_y_exportar_resumen_mensual(df_trx: pd.DataFrame, df_login: pd.DataFrame) -> None:
     print("=" * 96)
     print("RESUMEN MENSUAL - TRX Y LOGINS (COHORTE CREADA 2025-2026)")
+    print("Criterio logins: anio_creacion == anio_login")
     print("=" * 96)
 
     resumen_trx, totales_trx, monto_trx_disponible = construir_resumen_mensual_trx(df_trx)
