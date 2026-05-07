@@ -150,7 +150,7 @@ def imprimir_resumen_anual_y_exportar(df: pd.DataFrame, cohort_size: int) -> Non
                 monto_total=("valor", "sum"),
                 monto_promedio=("valor", "mean"),
             )
-            .sort_values("anio_trx")
+            .sort_values(["total_trx", "clientes_unicos"], ascending=[False, False])
         )
     else:
         anio = (
@@ -159,7 +159,7 @@ def imprimir_resumen_anual_y_exportar(df: pd.DataFrame, cohort_size: int) -> Non
                 clientes_unicos=("id_usuario", "nunique"),
                 total_trx=("id_usuario", "size"),
             )
-            .sort_values("anio_trx")
+            .sort_values(["total_trx", "clientes_unicos"], ascending=[False, False])
         )
 
     print("\n--- Resumen por anio de transaccion ---")
@@ -267,7 +267,7 @@ def imprimir_y_exportar_resumen_mensual_por_transaccion(df: pd.DataFrame) -> Non
                 monto_promedio=("valor", "mean"),
             )
             .sort_values(
-                ["anio_trx", "mes_trx", "clientes_unicos", "total_trx", "transaccion"],
+                ["anio_trx", "mes_trx", "total_trx", "clientes_unicos", "transaccion"],
                 ascending=[True, True, False, False, True],
             )
         )
@@ -291,7 +291,7 @@ def imprimir_y_exportar_resumen_mensual_por_transaccion(df: pd.DataFrame) -> Non
                 total_trx=("id_usuario", "size"),
             )
             .sort_values(
-                ["anio_trx", "mes_trx", "clientes_unicos", "total_trx", "transaccion"],
+                ["anio_trx", "mes_trx", "total_trx", "clientes_unicos", "transaccion"],
                 ascending=[True, True, False, False, True],
             )
         )
@@ -309,6 +309,7 @@ def imprimir_y_exportar_resumen_mensual_por_transaccion(df: pd.DataFrame) -> Non
         sub_anio = resumen[resumen["anio_trx"] == anio].copy()
         for mes in sorted(sub_anio["mes_trx"].unique().tolist()):
             sub_mes = sub_anio[sub_anio["mes_trx"] == mes].copy()
+            sub_mes = sub_mes.sort_values(["total_trx", "clientes_unicos", "transaccion"], ascending=[False, False, True])
             periodo = sub_mes["periodo"].iloc[0]
             tot_mes = totales_mes[(totales_mes["anio_trx"] == anio) & (totales_mes["mes_trx"] == mes)].iloc[0]
             if monto_disponible:
