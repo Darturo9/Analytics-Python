@@ -14,8 +14,10 @@ Uso:
 """
 
 from pathlib import Path
+import re
 import sys
 import urllib
+import unicodedata
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -60,9 +62,27 @@ def normalizar_codigo_cliente(valor) -> str:
 def sanitizar_texto_consola(valor) -> str:
     if pd.isna(valor):
         return "SIN_TEXTO"
-    texto = str(valor).replace("\r", " ").replace("\n", " ").replace("\t", " ")
-    texto = "".join(ch for ch in texto if ch.isprintable())
-    return " ".join(texto.split()) or "SIN_TEXTO"
+    texto = str(valor)
+
+    # Normaliza saltos/tabulaciones.
+    texto = texto.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+
+    # Elimina cualquier caracter de control/formato/separadores de linea.
+    limpio = []
+    for ch in texto:
+        categoria = unicodedata.category(ch)
+        if categoria.startswith("C") or categoria in {"Zl", "Zp"}:
+            limpio.append(" ")
+        else:
+            limpio.append(ch)
+    texto = "".join(limpio)
+
+    # Limpia bytes tipo \xNN que a veces vienen serializados como texto.
+    texto = re.sub(r"\\x[0-9A-Fa-f]{2}", " ", texto)
+
+    # Colapsa espacios duplicados.
+    texto = " ".join(texto.split())
+    return texto if texto else "SIN_TEXTO"
 
 
 def cargar_bases() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -186,12 +206,13 @@ def imprimir_top10_trx_2026(df_trx: pd.DataFrame) -> None:
 
     for idx, row in enumerate(top.itertuples(index=False), start=1):
         etiqueta = sanitizar_texto_consola(row.transaccion)
-        print(
+        linea = (
             f"  {idx:>2}. {etiqueta} | "
             f"trx={int(row.total_trx):,} | "
             f"clientes={int(row.clientes_unicos):,} | "
             f"monto_total={float(row.monto_total):,.2f}"
         )
+        print(sanitizar_texto_consola(linea))
 
 
 def main() -> None:
