@@ -2,11 +2,11 @@
 Reporte en consola de transacciones para usuarios creados en 2025-2026.
 
 Modos:
-    - resumen: metricas generales y por anio
+    - anual: metricas generales y por anio
     - mensual: resumen por mes y tipo de transaccion
 
 Uso:
-    python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo resumen
+    python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo anual
     python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo mensual
 """
 
@@ -121,7 +121,7 @@ def construir_dataset(df_usuarios: pd.DataFrame, df_trx: pd.DataFrame) -> pd.Dat
     return df
 
 
-def imprimir_resumen(df: pd.DataFrame, cohort_size: int) -> None:
+def imprimir_resumen_anual_y_exportar(df: pd.DataFrame, cohort_size: int) -> None:
     print("=" * 84)
     print("TRX DE CLIENTES CREADOS EN 2025-2026 (PRODUCTO GENERAL, SIN CAMPANIAS)")
     print("Periodo trx: 2025-01-01 a 2026-12-31")
@@ -181,6 +181,39 @@ def imprimir_resumen(df: pd.DataFrame, cohort_size: int) -> None:
                 f"clientes={int(row['clientes_unicos']):,} | "
                 f"trx={int(row['total_trx']):,}"
             )
+
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_anual = EXPORTS_DIR / "resumen_anual_transacciones_2025_2026.csv"
+    anio.to_csv(out_anual, index=False, encoding="utf-8-sig")
+    print(f"\nCSV generado: {out_anual}")
+
+    out_global = EXPORTS_DIR / "resumen_global_transacciones_2025_2026.csv"
+    if monto_disponible:
+        global_df = pd.DataFrame(
+            [
+                {
+                    "cohorte_usuarios_2025_2026": cohort_size,
+                    "clientes_con_trx": clientes_con_trx,
+                    "cobertura_clientes_pct": cobertura,
+                    "total_trx": total_trx,
+                    "monto_total": monto_total,
+                    "monto_promedio_trx": monto_prom,
+                }
+            ]
+        )
+    else:
+        global_df = pd.DataFrame(
+            [
+                {
+                    "cohorte_usuarios_2025_2026": cohort_size,
+                    "clientes_con_trx": clientes_con_trx,
+                    "cobertura_clientes_pct": cobertura,
+                    "total_trx": total_trx,
+                }
+            ]
+        )
+    global_df.to_csv(out_global, index=False, encoding="utf-8-sig")
+    print(f"CSV generado: {out_global}")
 
 
 def imprimir_y_exportar_resumen_mensual_por_transaccion(df: pd.DataFrame) -> None:
@@ -317,9 +350,9 @@ def main() -> None:
     parser.add_argument(
         "--modo",
         type=str,
-        default="mensual",
-        choices=["resumen", "mensual"],
-        help="Modo de salida: resumen general o mensual por transaccion.",
+        default="anual",
+        choices=["anual", "mensual", "resumen"],
+        help="Modo de salida: anual o mensual por transaccion.",
     )
     args = parser.parse_args()
 
@@ -328,8 +361,8 @@ def main() -> None:
     cohort_size = int(cohort["id_usuario"].nunique())
     dataset = construir_dataset(usuarios_df, trx_df)
 
-    if args.modo == "resumen":
-        imprimir_resumen(dataset, cohort_size)
+    if args.modo in {"anual", "resumen"}:
+        imprimir_resumen_anual_y_exportar(dataset, cohort_size)
         return
 
     imprimir_y_exportar_resumen_mensual_por_transaccion(dataset)

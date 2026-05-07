@@ -36,12 +36,21 @@ python3 productos/creacion_usuario_sv/german/programas_py/reporte_genero_generac
 ### Transacciones cohorte 2025-2026
 
 ```bash
-# Modo resumen (general y por anio)
-python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo resumen
+# Modo anual (DEFAULT, general y por anio)
+python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py
+python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo anual
 
 # Modo mensual por transaccion (sin detalle cliente a cliente)
 python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo mensual
 ```
+
+### Export CSV
+
+- Modo anual:
+  - `exports/resumen_anual_transacciones_2025_2026.csv`
+  - `exports/resumen_global_transacciones_2025_2026.csv`
+- Modo mensual:
+  - `exports/resumen_mensual_transacciones_2025_2026.csv`
 
 ## Fuente
 
