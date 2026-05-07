@@ -3,11 +3,11 @@ Reporte en consola de transacciones para usuarios creados en 2025-2026.
 
 Modos:
     - resumen: metricas generales y por anio
-    - detalle: detalle por mes (y export CSV mensual)
+    - mensual: resumen por mes y tipo de transaccion
 
 Uso:
     python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo resumen
-    python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo detalle
+    python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo mensual
 """
 
 from pathlib import Path
@@ -101,7 +101,7 @@ def preparar_trx(df_trx: pd.DataFrame) -> pd.DataFrame:
     trx["anio_trx"] = trx["fecha_transaccion"].dt.year
     trx["mes_trx"] = trx["fecha_transaccion"].dt.month
     trx["periodo"] = trx["fecha_transaccion"].dt.strftime("%Y-%m")
-    trx["valor"] = pd.to_numeric(trx["valor"], errors="coerce").fillna(0.0)
+    trx["valor"] = pd.to_numeric(trx["valor"], errors="coerce")
     return trx
 
 
@@ -129,94 +129,187 @@ def imprimir_resumen(df: pd.DataFrame, cohort_size: int) -> None:
 
     clientes_con_trx = int(df["id_usuario"].nunique())
     total_trx = int(len(df))
-    monto_total = float(df["valor"].sum())
-    monto_prom = float(df["valor"].mean()) if total_trx else 0.0
+    monto_disponible = df["valor"].notna().any()
+    monto_total = float(df["valor"].sum()) if monto_disponible else 0.0
+    monto_prom = float(df["valor"].mean()) if (monto_disponible and total_trx) else 0.0
     cobertura = (clientes_con_trx / cohort_size * 100) if cohort_size else 0.0
 
     print(f"Cohorte usuarios creados (2025-2026): {cohort_size:,}")
     print(f"Clientes de cohorte con >=1 trx:      {clientes_con_trx:,} ({cobertura:5.2f}%)")
     print(f"Total transacciones:                  {total_trx:,}")
-    print(f"Monto total:                          {monto_total:,.2f}")
-    print(f"Monto promedio por trx:               {monto_prom:,.2f}")
+    if monto_disponible:
+        print(f"Monto total:                          {monto_total:,.2f}")
+        print(f"Monto promedio por trx:               {monto_prom:,.2f}")
 
-    anio = (
-        df.groupby("anio_trx", as_index=False)
-        .agg(
-            clientes_unicos=("id_usuario", "nunique"),
-            total_trx=("id_usuario", "size"),
-            monto_total=("valor", "sum"),
-            monto_promedio=("valor", "mean"),
+    if monto_disponible:
+        anio = (
+            df.groupby("anio_trx", as_index=False)
+            .agg(
+                clientes_unicos=("id_usuario", "nunique"),
+                total_trx=("id_usuario", "size"),
+                monto_total=("valor", "sum"),
+                monto_promedio=("valor", "mean"),
+            )
+            .sort_values("anio_trx")
         )
-        .sort_values("anio_trx")
-    )
+    else:
+        anio = (
+            df.groupby("anio_trx", as_index=False)
+            .agg(
+                clientes_unicos=("id_usuario", "nunique"),
+                total_trx=("id_usuario", "size"),
+            )
+            .sort_values("anio_trx")
+        )
 
     print("\n--- Resumen por anio de transaccion ---")
     if anio.empty:
         print("Sin datos")
         return
     for _, row in anio.iterrows():
-        print(
-            f"{int(row['anio_trx'])}: "
-            f"clientes={int(row['clientes_unicos']):,} | "
-            f"trx={int(row['total_trx']):,} | "
-            f"monto_total={float(row['monto_total']):,.2f} | "
-            f"monto_prom={float(row['monto_promedio']):,.2f}"
-        )
+        if monto_disponible:
+            print(
+                f"{int(row['anio_trx'])}: "
+                f"clientes={int(row['clientes_unicos']):,} | "
+                f"trx={int(row['total_trx']):,} | "
+                f"monto_total={float(row['monto_total']):,.2f} | "
+                f"monto_prom={float(row['monto_promedio']):,.2f}"
+            )
+        else:
+            print(
+                f"{int(row['anio_trx'])}: "
+                f"clientes={int(row['clientes_unicos']):,} | "
+                f"trx={int(row['total_trx']):,}"
+            )
 
 
-def imprimir_y_exportar_detalle_mensual(df: pd.DataFrame) -> None:
-    print("=" * 84)
-    print("DETALLE MENSUAL DE TRX (CLIENTES CREADOS EN 2025-2026)")
-    print("=" * 84)
+def imprimir_y_exportar_resumen_mensual_por_transaccion(df: pd.DataFrame) -> None:
+    print("=" * 96)
+    print("RESUMEN MENSUAL POR TRANSACCION (CLIENTES CREADOS EN 2025-2026)")
+    print("=" * 96)
 
     if df.empty:
         print("Sin transacciones para mostrar.")
         return
 
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    monto_disponible = df["valor"].notna().any()
 
-    mensual = (
-        df.groupby("periodo", as_index=False)
-        .agg(
-            clientes_unicos=("id_usuario", "nunique"),
-            total_trx=("id_usuario", "size"),
-            monto_total=("valor", "sum"),
-            monto_promedio=("valor", "mean"),
-        )
-        .sort_values("periodo")
+    trabajo = df.copy()
+    trabajo["descripcion_transaccion"] = (
+        trabajo["descripcion_transaccion"]
+        .fillna("SIN_DESCRIPCION")
+        .astype(str)
+        .str.strip()
+        .replace("", "SIN_DESCRIPCION")
+    )
+    trabajo["secode"] = (
+        trabajo["secode"]
+        .fillna("SIN_SECODE")
+        .astype(str)
+        .str.strip()
+        .replace("", "SIN_SECODE")
+    )
+    trabajo["codigo_transaccion"] = (
+        trabajo["codigo_transaccion"]
+        .fillna("SIN_CODIGO")
+        .astype(str)
+        .str.strip()
+        .replace("", "SIN_CODIGO")
+    )
+    trabajo["transaccion"] = (
+        trabajo["descripcion_transaccion"] + " | SECODE=" + trabajo["secode"] + " | COD=" + trabajo["codigo_transaccion"]
     )
 
-    print("\n--- Resumen mensual ---")
-    for _, row in mensual.iterrows():
-        print(
-            f"{row['periodo']}: "
-            f"clientes={int(row['clientes_unicos']):,} | "
-            f"trx={int(row['total_trx']):,} | "
-            f"monto_total={float(row['monto_total']):,.2f} | "
-            f"monto_prom={float(row['monto_promedio']):,.2f}"
+    if monto_disponible:
+        resumen = (
+            trabajo.groupby(
+                ["anio_trx", "mes_trx", "periodo", "transaccion", "canal"],
+                as_index=False,
+            )
+            .agg(
+                clientes_unicos=("id_usuario", "nunique"),
+                total_trx=("id_usuario", "size"),
+                monto_total=("valor", "sum"),
+                monto_promedio=("valor", "mean"),
+            )
+            .sort_values(
+                ["anio_trx", "mes_trx", "clientes_unicos", "total_trx", "transaccion"],
+                ascending=[True, True, False, False, True],
+            )
         )
 
-    columnas_export = [
-        "periodo",
-        "fecha_transaccion",
-        "id_usuario",
-        "codigo_cliente",
-        "canal",
-        "secode",
-        "codigo_transaccion",
-        "descripcion_transaccion",
-        "moneda",
-        "valor",
-    ]
+        totales_mes = (
+            trabajo.groupby(["anio_trx", "mes_trx"], as_index=False)
+            .agg(
+                clientes_unicos_mes=("id_usuario", "nunique"),
+                total_trx_mes=("id_usuario", "size"),
+                monto_total_mes=("valor", "sum"),
+            )
+        )
+    else:
+        resumen = (
+            trabajo.groupby(
+                ["anio_trx", "mes_trx", "periodo", "transaccion", "canal"],
+                as_index=False,
+            )
+            .agg(
+                clientes_unicos=("id_usuario", "nunique"),
+                total_trx=("id_usuario", "size"),
+            )
+            .sort_values(
+                ["anio_trx", "mes_trx", "clientes_unicos", "total_trx", "transaccion"],
+                ascending=[True, True, False, False, True],
+            )
+        )
 
-    print("\n--- Export mensual (detalle) ---")
-    for periodo in sorted(df["periodo"].dropna().unique().tolist()):
-        sub = df[df["periodo"] == periodo].copy()
-        sub = sub[columnas_export].sort_values(["fecha_transaccion", "id_usuario", "codigo_transaccion"])
+        totales_mes = (
+            trabajo.groupby(["anio_trx", "mes_trx"], as_index=False)
+            .agg(
+                clientes_unicos_mes=("id_usuario", "nunique"),
+                total_trx_mes=("id_usuario", "size"),
+            )
+        )
 
-        out_file = EXPORTS_DIR / f"detalle_trx_{periodo.replace('-', '_')}.csv"
-        sub.to_csv(out_file, index=False, encoding="utf-8-sig")
-        print(f"{periodo}: {len(sub):,} filas -> {out_file}")
+    for anio in sorted(resumen["anio_trx"].unique().tolist()):
+        print(f"\n{'=' * 96}\nANIO {int(anio)}\n{'=' * 96}")
+        sub_anio = resumen[resumen["anio_trx"] == anio].copy()
+        for mes in sorted(sub_anio["mes_trx"].unique().tolist()):
+            sub_mes = sub_anio[sub_anio["mes_trx"] == mes].copy()
+            periodo = sub_mes["periodo"].iloc[0]
+            tot_mes = totales_mes[(totales_mes["anio_trx"] == anio) & (totales_mes["mes_trx"] == mes)].iloc[0]
+            if monto_disponible:
+                print(
+                    f"\n[{periodo}] transacciones distintas: {len(sub_mes):,} | "
+                    f"clientes_unicos_mes={int(tot_mes['clientes_unicos_mes']):,} | "
+                    f"trx_mes={int(tot_mes['total_trx_mes']):,} | monto_total_mes={float(tot_mes['monto_total_mes']):,.2f}"
+                )
+            else:
+                print(
+                    f"\n[{periodo}] transacciones distintas: {len(sub_mes):,} | "
+                    f"clientes_unicos_mes={int(tot_mes['clientes_unicos_mes']):,} | "
+                    f"trx_mes={int(tot_mes['total_trx_mes']):,}"
+                )
+
+            for _, row in sub_mes.iterrows():
+                if monto_disponible:
+                    print(
+                        f"- {row['transaccion']} | canal={row['canal']} | "
+                        f"clientes={int(row['clientes_unicos']):,} | "
+                        f"trx={int(row['total_trx']):,} | "
+                        f"monto_total={float(row['monto_total']):,.2f} | "
+                        f"monto_prom={float(row['monto_promedio']):,.2f}"
+                    )
+                else:
+                    print(
+                        f"- {row['transaccion']} | canal={row['canal']} | "
+                        f"clientes={int(row['clientes_unicos']):,} | "
+                        f"trx={int(row['total_trx']):,}"
+                    )
+
+    out_file = EXPORTS_DIR / "resumen_mensual_transacciones_2025_2026.csv"
+    resumen.to_csv(out_file, index=False, encoding="utf-8-sig")
+    print(f"\nCSV generado: {out_file}")
 
 
 def main() -> None:
@@ -224,9 +317,9 @@ def main() -> None:
     parser.add_argument(
         "--modo",
         type=str,
-        default="resumen",
-        choices=["resumen", "detalle"],
-        help="Modo de salida: resumen o detalle (mensual).",
+        default="mensual",
+        choices=["resumen", "mensual"],
+        help="Modo de salida: resumen general o mensual por transaccion.",
     )
     args = parser.parse_args()
 
@@ -237,8 +330,9 @@ def main() -> None:
 
     if args.modo == "resumen":
         imprimir_resumen(dataset, cohort_size)
-    else:
-        imprimir_y_exportar_detalle_mensual(dataset)
+        return
+
+    imprimir_y_exportar_resumen_mensual_por_transaccion(dataset)
 
 
 if __name__ == "__main__":

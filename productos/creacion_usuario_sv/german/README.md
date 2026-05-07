@@ -39,8 +39,8 @@ python3 productos/creacion_usuario_sv/german/programas_py/reporte_genero_generac
 # Modo resumen (general y por anio)
 python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo resumen
 
-# Modo detalle mensual (imprime resumen mensual y exporta un CSV por mes en exports/)
-python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo detalle
+# Modo mensual por transaccion (sin detalle cliente a cliente)
+python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo mensual
 ```
 
 ## Fuente
