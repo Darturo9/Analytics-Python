@@ -23,7 +23,8 @@ german/
 │   └── reporte_trx_usuarios_2025_2026.py
 ├── queries/
 │   ├── base_usuarios_2025_2026.sql
-│   └── trx_usuarios_2025_2026.sql
+│   ├── trx_usuarios_2025_2026.sql
+│   └── logins_usuarios_2025_2026.sql
 └── exports/
 ```
 
@@ -40,17 +41,16 @@ python3 productos/creacion_usuario_sv/german/programas_py/reporte_genero_generac
 python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py
 python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo anual
 
-# Modo mensual por transaccion (sin detalle cliente a cliente)
+# Modo mensual por evento (trx + logins, sin detalle cliente a cliente)
 python3 productos/creacion_usuario_sv/german/programas_py/reporte_trx_usuarios_2025_2026.py --modo mensual
 ```
 
-### Export CSV
+### Export Excel
 
 - Modo anual:
-  - `exports/resumen_anual_transacciones_2025_2026.csv`
-  - `exports/resumen_global_transacciones_2025_2026.csv`
+  - `exports/resumen_anual_trx_logins_2025_2026.xlsx`
 - Modo mensual:
-  - `exports/resumen_mensual_transacciones_2025_2026.csv`
+  - `exports/resumen_mensual_trx_logins_2025_2026.xlsx`
 
 ## Fuente
 
