@@ -4,9 +4,7 @@ Top 5 transacciones con monto y top 5 sin monto por cohorte de creacion de usuar
 Cohorte 2025: usuarios creados en 2025. Trx del ano 2025.
 Cohorte 2026: usuarios creados en 2026. Trx 2026-01-01 a 2026-04-30 (excluye mayo).
 
-Fuentes de trx:
-    - Journal (dw_BEL_IBJOUR): con y sin monto.
-    - Multipagos (dw_mul_sppadat + dw_mul_spmaco): siempre con monto, SPNOMC como nombre.
+Fuente de trx: Journal (dw_BEL_IBJOUR).
 
 Columnas exportadas: nombre_transaccion, total_trx, clientes_unicos, monto_total (si aplica).
 
@@ -31,32 +29,6 @@ from core.config import DB_SERVER, DB_USER, DB_PASS, DB_DRIVER
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_NAME = "DWHSV"
 EXPORTS_DIR = BASE_DIR / "exports"
-
-SQL_MULTIPAGOS = """
-SELECT
-    CAST(p.dw_fecha_operacion_sp AS DATE) AS fecha_transaccion,
-    RIGHT(
-        '00000000' + LTRIM(RTRIM(
-            CASE
-                WHEN p.spinus IS NULL THEN NULL
-                WHEN PATINDEX('%[A-Za-z]%', p.spinus) > 1
-                    THEN LEFT(p.spinus, PATINDEX('%[A-Za-z]%', p.spinus) - 1)
-                WHEN PATINDEX('%[A-Za-z]%', p.spinus) = 1 THEN NULL
-                ELSE p.spinus
-            END
-        )),
-        8
-    ) AS codigo_cliente_transaccion,
-    m.SPNOMC AS descripcion_transaccion,
-    CAST(p.sppava AS DECIMAL(18, 2)) AS valor
-FROM dw_mul_sppadat p
-INNER JOIN dw_mul_spmaco m ON p.spcodc = m.spcodc
-WHERE
-    p.dw_fecha_operacion_sp >= '2025-01-01'
-    AND p.dw_fecha_operacion_sp < '2026-05-01'
-    AND p.sppafr = 'N'
-    AND p.sppava > 0
-"""
 
 
 def get_engine():
@@ -87,15 +59,13 @@ def normalizar_codigo_cliente(valor) -> str:
     return solo_digitos[-8:].zfill(8) if solo_digitos else ""
 
 
-def cargar_bases() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def cargar_bases() -> tuple[pd.DataFrame, pd.DataFrame]:
     print(f"Cargando datos desde {DB_NAME}...")
     usuarios = run_query_file(BASE_DIR / "queries" / "base_usuarios_2025_2026.sql")
     trx_journal = run_query_file(BASE_DIR / "queries" / "trx_usuarios_2025_2026.sql")
-    multipagos = run_query(SQL_MULTIPAGOS)
     print(f"  Usuarios:    {len(usuarios):,}")
     print(f"  Journal trx: {len(trx_journal):,}")
-    print(f"  Multipagos:  {len(multipagos):,}")
-    return usuarios, trx_journal, multipagos
+    return usuarios, trx_journal
 
 
 def preparar_cohorte(df: pd.DataFrame) -> pd.DataFrame:
@@ -121,24 +91,21 @@ def preparar_cohorte(df: pd.DataFrame) -> pd.DataFrame:
     return data[["id_usuario", "codigo_cliente", "anio_creacion"]].copy()
 
 
-def preparar_trx(df_journal: pd.DataFrame, df_multi: pd.DataFrame) -> pd.DataFrame:
-    def _limpiar(df: pd.DataFrame) -> pd.DataFrame:
-        out = df.copy()
-        out["fecha_transaccion"] = pd.to_datetime(out["fecha_transaccion"], errors="coerce")
-        out = out[out["fecha_transaccion"].notna()].copy()
-        out["codigo_cliente"] = out["codigo_cliente_transaccion"].apply(normalizar_codigo_cliente)
-        out = out[out["codigo_cliente"] != ""].copy()
-        out["valor"] = pd.to_numeric(out["valor"], errors="coerce")
-        out["nombre_transaccion"] = (
-            out["descripcion_transaccion"]
-            .fillna("SIN_DESCRIPCION")
-            .astype(str)
-            .str.strip()
-            .replace("", "SIN_DESCRIPCION")
-        )
-        return out[["fecha_transaccion", "codigo_cliente", "nombre_transaccion", "valor"]].copy()
-
-    return pd.concat([_limpiar(df_journal), _limpiar(df_multi)], ignore_index=True)
+def preparar_trx(df_journal: pd.DataFrame) -> pd.DataFrame:
+    out = df_journal.copy()
+    out["fecha_transaccion"] = pd.to_datetime(out["fecha_transaccion"], errors="coerce")
+    out = out[out["fecha_transaccion"].notna()].copy()
+    out["codigo_cliente"] = out["codigo_cliente_transaccion"].apply(normalizar_codigo_cliente)
+    out = out[out["codigo_cliente"] != ""].copy()
+    out["valor"] = pd.to_numeric(out["valor"], errors="coerce")
+    out["nombre_transaccion"] = (
+        out["descripcion_transaccion"]
+        .fillna("SIN_DESCRIPCION")
+        .astype(str)
+        .str.strip()
+        .replace("", "SIN_DESCRIPCION")
+    )
+    return out[["fecha_transaccion", "codigo_cliente", "nombre_transaccion", "valor"]].copy()
 
 
 def calcular_top5(merged: pd.DataFrame, con_monto: bool) -> pd.DataFrame:
@@ -203,9 +170,9 @@ def imprimir_top(label: str, df: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    usuarios_df, journal_df, multi_df = cargar_bases()
+    usuarios_df, journal_df = cargar_bases()
     cohort = preparar_cohorte(usuarios_df)
-    trx = preparar_trx(journal_df, multi_df)
+    trx = preparar_trx(journal_df)
 
     top5_2025_con, top5_2025_sin = reporte_cohorte(cohort, trx, 2025)
     top5_2026_con, top5_2026_sin = reporte_cohorte(cohort, trx, 2026)
