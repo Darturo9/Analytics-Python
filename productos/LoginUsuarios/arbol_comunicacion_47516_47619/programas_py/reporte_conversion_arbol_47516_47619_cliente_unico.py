@@ -172,6 +172,13 @@ def construir_cliente_unico(detalle: pd.DataFrame) -> pd.DataFrame:
 
     clientes = pd.DataFrame({"codigo_cliente": base["codigo_cliente"].drop_duplicates().sort_values()})
 
+    # Total de comunicaciones recibidas por cliente
+    total_comms = (
+        base.groupby("codigo_cliente", as_index=False)
+        .size()
+        .rename(columns={"size": "total_comunicaciones"})
+    )
+
     fechas = (
         base.pivot_table(
             index="codigo_cliente",
@@ -179,7 +186,7 @@ def construir_cliente_unico(detalle: pd.DataFrame) -> pd.DataFrame:
             values="fecha_aplica",
             aggfunc="max",
         )
-        .rename(columns={"47516": "fecha_47516", "47619": "fecha_47619"})
+        .rename(columns={"47516": "fecha_oferta_inicial", "47619": "fecha_recordatorio_1"})
         .reset_index()
     )
 
@@ -197,13 +204,15 @@ def construir_cliente_unico(detalle: pd.DataFrame) -> pd.DataFrame:
             kind="stable",
         )
         conversiones = conversiones.drop_duplicates(subset=["codigo_cliente"], keep="first")
+        conversiones["campana_conversion"] = conversiones["campaign_id"].map(
+            {"47516": "Oferta Inicial", "47619": "Recordatorio 1"}
+        )
         conversiones = conversiones[[
             "codigo_cliente",
-            "campaign_id",
+            "campana_conversion",
             "fecha_aplica",
             "fecha_conversion_password",
         ]].rename(columns={
-            "campaign_id": "campana_conversion",
             "fecha_aplica": "fecha_ultima_comunicacion",
             "fecha_conversion_password": "fecha_conversion",
         })
@@ -215,10 +224,15 @@ def construir_cliente_unico(detalle: pd.DataFrame) -> pd.DataFrame:
             "fecha_conversion",
         ])
 
-    cliente_unico = clientes.merge(fechas, on="codigo_cliente", how="left").merge(conversiones, on="codigo_cliente", how="left")
+    cliente_unico = (
+        clientes
+        .merge(total_comms, on="codigo_cliente", how="left")
+        .merge(fechas, on="codigo_cliente", how="left")
+        .merge(conversiones, on="codigo_cliente", how="left")
+    )
 
-    cliente_unico["convirtio_por_47516"] = cliente_unico["campana_conversion"].eq("47516").astype(int)
-    cliente_unico["convirtio_por_47619"] = cliente_unico["campana_conversion"].eq("47619").astype(int)
+    cliente_unico["convirtio_por_oferta_inicial"] = cliente_unico["campana_conversion"].eq("Oferta Inicial").astype(int)
+    cliente_unico["convirtio_por_recordatorio_1"] = cliente_unico["campana_conversion"].eq("Recordatorio 1").astype(int)
     cliente_unico["convirtio_total"] = cliente_unico["campana_conversion"].notna().astype(int)
 
     fecha_conv_dt = pd.to_datetime(cliente_unico["fecha_conversion"], errors="coerce")
@@ -227,16 +241,18 @@ def construir_cliente_unico(detalle: pd.DataFrame) -> pd.DataFrame:
 
     columnas = [
         "codigo_cliente",
-        "fecha_47516",
-        "fecha_47619",
-        "convirtio_por_47516",
-        "convirtio_por_47619",
+        "total_comunicaciones",
+        "fecha_oferta_inicial",
+        "fecha_recordatorio_1",
+        "convirtio_por_oferta_inicial",
+        "convirtio_por_recordatorio_1",
         "convirtio_total",
+        "campana_conversion",
         "fecha_ultima_comunicacion",
         "fecha_conversion",
         "dias_desde_ultima_comunicacion",
     ]
-    for col in ["fecha_47516", "fecha_47619", "fecha_ultima_comunicacion", "fecha_conversion"]:
+    for col in ["fecha_oferta_inicial", "fecha_recordatorio_1", "fecha_ultima_comunicacion", "fecha_conversion"]:
         if col not in cliente_unico.columns:
             cliente_unico[col] = pd.NaT
 
@@ -295,7 +311,7 @@ def validar_cliente_unico(cliente_unico: pd.DataFrame, detalle: pd.DataFrame) ->
 
     inconsistente_total = cliente_unico[
         cliente_unico["convirtio_total"]
-        != ((cliente_unico["convirtio_por_47516"] == 1) | (cliente_unico["convirtio_por_47619"] == 1)).astype(int)
+        != ((cliente_unico["convirtio_por_oferta_inicial"] == 1) | (cliente_unico["convirtio_por_recordatorio_1"] == 1)).astype(int)
     ]
     if not inconsistente_total.empty:
         print("[AVISO] Cliente_Unico tiene filas con convirtio_total inconsistente.")
