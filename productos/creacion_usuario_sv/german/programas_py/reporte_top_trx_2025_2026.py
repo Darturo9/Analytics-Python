@@ -105,7 +105,8 @@ def preparar_trx(df_journal: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
         .replace("", "SIN_DESCRIPCION")
     )
-    return out[["fecha_transaccion", "codigo_cliente", "nombre_transaccion", "valor"]].copy()
+    out["moneda"] = out["moneda"].fillna("SIN_MONEDA").astype(str).str.strip().replace("", "SIN_MONEDA")
+    return out[["fecha_transaccion", "codigo_cliente", "nombre_transaccion", "valor", "moneda"]].copy()
 
 
 def calcular_top5(merged: pd.DataFrame, con_monto: bool) -> pd.DataFrame:
@@ -167,6 +168,16 @@ def reporte_cohorte(
     print(f"  Total trx:             {total_trx:>10,}")
     print(f"    Con monto:           {trx_con_monto:>10,}")
     print(f"    Sin monto:           {trx_sin_monto:>10,}")
+
+    trx_con = merged[merged["valor"].notna() & (merged["valor"] > 0)].copy()
+    if not trx_con.empty:
+        monto_por_moneda = (
+            trx_con.groupby("moneda")["valor"].sum().reset_index()
+            .sort_values("valor", ascending=False)
+        )
+        print(f"  Monto total por moneda:")
+        for _, row in monto_por_moneda.iterrows():
+            print(f"    {row['moneda']:10} {row['valor']:>18,.2f}")
 
     return calcular_top5(merged, con_monto=True), calcular_top5(merged, con_monto=False)
 
