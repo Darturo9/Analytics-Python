@@ -153,10 +153,20 @@ def reporte_cohorte(
 
     merged = cohort_anio.merge(trx_anio, how="inner", on="codigo_cliente")
 
-    print(
-        f"\nCohorte {anio}: {cohort_anio['id_usuario'].nunique():,} usuarios | "
-        f"{len(merged):,} trx apareadas"
-    )
+    total_trx = len(merged)
+    trx_con_monto = int((merged["valor"].notna() & (merged["valor"] > 0)).sum())
+    trx_sin_monto = total_trx - trx_con_monto
+    clientes_unicos = cohort_anio["id_usuario"].nunique()
+    clientes_con_trx = merged["id_usuario"].nunique()
+
+    print(f"\n{'='*55}")
+    print(f"COHORTE {anio}")
+    print(f"{'='*55}")
+    print(f"  Usuarios cohorte:      {clientes_unicos:>10,}")
+    print(f"  Usuarios con trx:      {clientes_con_trx:>10,}")
+    print(f"  Total trx:             {total_trx:>10,}")
+    print(f"    Con monto:           {trx_con_monto:>10,}")
+    print(f"    Sin monto:           {trx_sin_monto:>10,}")
 
     return calcular_top5(merged, con_monto=True), calcular_top5(merged, con_monto=False)
 
