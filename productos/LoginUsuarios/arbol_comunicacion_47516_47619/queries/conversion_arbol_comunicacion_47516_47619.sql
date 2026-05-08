@@ -1,48 +1,135 @@
--- ============================================================
--- Árbol de Comunicación Sin Login — Conversión por Cliente
--- Campaña 47516: Oferta Inicial
--- Campaña 47619: Recordatorio 1
+-- =====================================================================
+-- Árbol de Comunicación Sin Login — Conversión por envío (FechaAplica)
+-- Campañas:
+--   47516 = Oferta Inicial
+--   47619 = Recordatorio 1
 --
--- KPI primario : cambio de contraseña (meta_cumplida)
--- KPI secundario: login (tuvo_login)
--- ============================================================
+-- Reglas implementadas:
+-- 1) Unidad de análisis: cada envío (cliente + campaña + FechaAplica)
+-- 2) Si cliente cae en ambas campañas el mismo día: prioriza 47619
+-- 3) Ventana de conversión: día 0, 1 y 2 desde FechaAplica
+-- 4) Si hay un nuevo envío antes de convertir, se corta la ventana del envío previo
+-- 5) KPI de conversión: cambio de contraseña (sin login)
+--
+-- Parámetros esperados (desde Python):
+--   fecha_inicio (DATE) obligatorio
+--   fecha_fin    (DATE) opcional (NULL = sin tope)
+-- =====================================================================
 
-WITH campana AS (
+WITH campana_raw AS (
 
     SELECT DISTINCT
         RIGHT('00000000' + LEFT(RTRIM(LTRIM(h.Codigo_Cliente)),
-              LEN(RTRIM(LTRIM(h.Codigo_Cliente))) - 1), 8)  AS padded_codigo_cliente,
-        CAST(h.FechaAplica AS DATE)                         AS fecha_comunicacion,
+              LEN(RTRIM(LTRIM(h.Codigo_Cliente))) - 1), 8) AS padded_codigo_cliente,
+        CAST(h.FechaAplica AS DATE) AS fecha_comunicacion,
         h.CampaignID,
         CASE h.CampaignID
             WHEN '47516' THEN 'Oferta Inicial'
             WHEN '47619' THEN 'Recordatorio 1'
-        END AS tipo_campana
+        END AS tipo_campana,
+        CASE h.CampaignID
+            WHEN '47619' THEN 2
+            WHEN '47516' THEN 1
+            ELSE 0
+        END AS prioridad_campana
     FROM dwhbi.dbo.DW_RTM_APP_CAMPAIGN c
-    INNER JOIN dwhbi.dbo.DW_RTM_APP_HISCAMPAIGNUNIVERSO h ON c.CampaignID = h.CampaignID
+    INNER JOIN dwhbi.dbo.DW_RTM_APP_HISCAMPAIGNUNIVERSO h
+        ON c.CampaignID = h.CampaignID
     WHERE c.CampaignID IN ('47516', '47619')
+      AND CAST(h.FechaAplica AS DATE) >= CAST(:fecha_inicio AS DATE)
+      AND CAST(h.FechaAplica AS DATE) <= COALESCE(CAST(:fecha_fin AS DATE), CAST(h.FechaAplica AS DATE))
 
 ),
 
-logins AS (
+campana_dedup_mismo_dia AS (
 
     SELECT
-        RIGHT('00000000' + RTRIM(LTRIM(b.CLCCLI)), 8) AS padded_codigo_cliente,
-        CAST(b.dw_fecha_trx AS DATE)                   AS fecha_login
-    FROM dw_bel_IBSTTRA_VIEW b
-    WHERE b.SECODE IN ('app-login', 'web-login', 'login')
-      AND b.CLCCLI IS NOT NULL
+        padded_codigo_cliente,
+        fecha_comunicacion,
+        CampaignID,
+        tipo_campana,
+        prioridad_campana
+    FROM (
+        SELECT
+            r.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY r.padded_codigo_cliente, r.fecha_comunicacion
+                ORDER BY r.prioridad_campana DESC, r.CampaignID DESC
+            ) AS rn
+        FROM campana_raw r
+    ) x
+    WHERE x.rn = 1
+
+),
+
+envios AS (
+
+    SELECT
+        d.padded_codigo_cliente,
+        d.fecha_comunicacion,
+        d.CampaignID,
+        d.tipo_campana,
+        d.prioridad_campana,
+        LEAD(d.fecha_comunicacion) OVER (
+            PARTITION BY d.padded_codigo_cliente
+            ORDER BY d.fecha_comunicacion, d.prioridad_campana DESC, d.CampaignID DESC
+        ) AS siguiente_envio_cliente
+    FROM campana_dedup_mismo_dia d
+
+),
+
+envios_con_ventana AS (
+
+    SELECT
+        e.padded_codigo_cliente,
+        e.CampaignID,
+        e.tipo_campana,
+        e.fecha_comunicacion,
+        e.siguiente_envio_cliente,
+        CASE
+            WHEN e.siguiente_envio_cliente IS NULL
+                THEN DATEADD(DAY, 2, e.fecha_comunicacion)
+            WHEN DATEADD(DAY, -1, e.siguiente_envio_cliente) < DATEADD(DAY, 2, e.fecha_comunicacion)
+                THEN DATEADD(DAY, -1, e.siguiente_envio_cliente)
+            ELSE DATEADD(DAY, 2, e.fecha_comunicacion)
+        END AS fecha_fin_ventana
+    FROM envios e
 
 ),
 
 cambios_pass AS (
 
     SELECT
-        RIGHT('00000000' + RTRIM(LTRIM(u.CLCCLI)), 8)  AS padded_codigo_cliente,
-        CAST(u.dw_fecha_cambio_pass AS DATE)            AS fecha_cambio_pass
+        RIGHT('00000000' + RTRIM(LTRIM(u.CLCCLI)), 8) AS padded_codigo_cliente,
+        CAST(u.dw_fecha_cambio_pass AS DATE) AS fecha_cambio_pass
     FROM DW_BEL_IBUSER u
     WHERE u.CLCCLI IS NOT NULL
       AND u.dw_fecha_cambio_pass IS NOT NULL
+
+),
+
+conversion_por_envio AS (
+
+    SELECT
+        w.padded_codigo_cliente,
+        w.CampaignID,
+        w.tipo_campana,
+        w.fecha_comunicacion,
+        w.siguiente_envio_cliente,
+        w.fecha_fin_ventana,
+        MIN(p.fecha_cambio_pass) AS fecha_conversion_password
+    FROM envios_con_ventana w
+    LEFT JOIN cambios_pass p
+        ON w.padded_codigo_cliente = p.padded_codigo_cliente
+       AND p.fecha_cambio_pass >= w.fecha_comunicacion
+       AND p.fecha_cambio_pass <= w.fecha_fin_ventana
+    GROUP BY
+        w.padded_codigo_cliente,
+        w.CampaignID,
+        w.tipo_campana,
+        w.fecha_comunicacion,
+        w.siguiente_envio_cliente,
+        w.fecha_fin_ventana
 
 )
 
@@ -51,47 +138,20 @@ SELECT
     c.CampaignID,
     c.tipo_campana,
     c.fecha_comunicacion,
-
-    -- KPI primario: cambio de contraseña
-    MIN(p.fecha_cambio_pass)                                        AS fecha_primer_cambio_pass,
-    DATEDIFF(DAY, c.fecha_comunicacion, MIN(p.fecha_cambio_pass))   AS dias_cambio_pass,
-    CASE WHEN MIN(p.fecha_cambio_pass) IS NOT NULL THEN 1 ELSE 0 END AS meta_cumplida,
-
-    -- KPI secundario: login
-    MIN(l.fecha_login)                                              AS fecha_primer_login,
-    DATEDIFF(DAY, c.fecha_comunicacion, MIN(l.fecha_login))         AS dias_login,
-    CASE WHEN MIN(l.fecha_login) IS NOT NULL THEN 1 ELSE 0 END      AS tuvo_login,
-
-    -- Detalle de qué acción(es) realizó el cliente
+    c.siguiente_envio_cliente,
+    c.fecha_fin_ventana,
+    c.fecha_conversion_password,
     CASE
-        WHEN MIN(p.fecha_cambio_pass) IS NOT NULL AND MIN(l.fecha_login) IS NOT NULL THEN 'Cambio Pass + Login'
-        WHEN MIN(p.fecha_cambio_pass) IS NOT NULL                                     THEN 'Solo Cambio Password'
-        WHEN MIN(l.fecha_login)       IS NOT NULL                                     THEN 'Solo Login'
-        ELSE                                                                               'No convirtio'
-    END AS tipo_conversion,
-
-    -- Días hasta el primer evento (lo que ocurra primero; 0 = mismo día de comunicación)
-    DATEDIFF(DAY, c.fecha_comunicacion,
-        CASE
-            WHEN MIN(l.fecha_login) IS NULL                                 THEN MIN(p.fecha_cambio_pass)
-            WHEN MIN(p.fecha_cambio_pass) IS NULL                           THEN MIN(l.fecha_login)
-            WHEN MIN(l.fecha_login) <= MIN(p.fecha_cambio_pass)             THEN MIN(l.fecha_login)
-            ELSE                                                                  MIN(p.fecha_cambio_pass)
-        END
-    ) AS dias_primer_evento
-
-FROM campana c
-LEFT JOIN logins l
-    ON  c.padded_codigo_cliente = l.padded_codigo_cliente
-    AND l.fecha_login       >= c.fecha_comunicacion
-LEFT JOIN cambios_pass p
-    ON  c.padded_codigo_cliente = p.padded_codigo_cliente
-    AND p.fecha_cambio_pass >= c.fecha_comunicacion
-GROUP BY
-    c.padded_codigo_cliente,
-    c.CampaignID,
-    c.tipo_campana,
-    c.fecha_comunicacion
+        WHEN c.fecha_conversion_password IS NOT NULL
+            THEN DATEDIFF(DAY, c.fecha_comunicacion, c.fecha_conversion_password)
+        ELSE NULL
+    END AS dias_a_conversion,
+    CASE
+        WHEN c.fecha_conversion_password IS NOT NULL THEN 1
+        ELSE 0
+    END AS convirtio_password
+FROM conversion_por_envio c
 ORDER BY
-    c.tipo_campana,
-    c.padded_codigo_cliente
+    c.fecha_comunicacion,
+    c.CampaignID,
+    c.padded_codigo_cliente;

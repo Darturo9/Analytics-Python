@@ -1,96 +1,234 @@
 """
-Árbol de Comunicación Sin Login — Conversión Campañas 47516 / 47619
+Árbol de Comunicación Sin Login — Conversión por FechaAplica (47516/47619)
 
-KPI primario : cambio de contraseña (meta_cumplida)
-KPI secundario: login (tuvo_login)
+KPI primario: cambio de contraseña.
+Ventana: día 0, 1 y 2 desde FechaAplica.
+Si hay nuevo envío del cliente antes de convertir, se corta la ventana del envío previo.
 
 Uso:
-    python reporte_conversion_arbol_47516_47619.py
+    python3 reporte_conversion_arbol_47516_47619.py
+    python3 reporte_conversion_arbol_47516_47619.py --fecha-inicio 2026-03-16
+    python3 reporte_conversion_arbol_47516_47619.py --fecha-inicio 2026-03-16 --fecha-fin 2026-03-31
+    python3 reporte_conversion_arbol_47516_47619.py --output exports/mi_reporte.xlsx
 """
 
+import argparse
 import sys
-import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 
-# Raíz del proyecto (3 niveles arriba de este archivo)
+# Raíz del proyecto
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 
 from core.db import run_query_file
+from core.utils import exportar_excel_multi
 
-QUERY_PATH  = Path(__file__).resolve().parents[1] / "queries" / "conversion_arbol_comunicacion_47516_47619.sql"
+QUERY_PATH = Path(__file__).resolve().parents[1] / "queries" / "conversion_arbol_comunicacion_47516_47619.sql"
 EXPORTS_DIR = Path(__file__).resolve().parents[1] / "exports"
 EXPORTS_DIR.mkdir(exist_ok=True)
 
+DEFAULT_FECHA_INICIO = "2026-03-16"
 
-def imprimir_resumen(df: pd.DataFrame) -> None:
-    total       = len(df)
-    convertidos = df["meta_cumplida"].sum()
-    tasa        = convertidos / total * 100 if total else 0
 
-    print("\n" + "=" * 60)
-    print("  ÁRBOL DE COMUNICACIÓN SIN LOGIN — CONVERSIÓN")
-    print("=" * 60)
-    print(f"  Clientes en campaña        : {total:,}")
-    print(f"  Cambiaron contraseña        : {convertidos:,}  ({tasa:.1f}%)")
-    print(f"  Solo hicieron login         : {df['tuvo_login'].sum() - (df['meta_cumplida'] & df['tuvo_login']).sum():,}")
-    print(f"  No convirtieron             : {(df['meta_cumplida'] == 0).sum():,}")
-    print("-" * 60)
+def build_output_path(output_arg: str) -> Path:
+    if output_arg.strip():
+        out = Path(output_arg.strip())
+        if out.suffix.lower() == ".xlsx":
+            return out
+        return out.with_suffix(".xlsx")
 
-    print("\n  Por tipo de campaña:\n")
-    resumen = (
-        df.groupby("tipo_campana")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return EXPORTS_DIR / f"conversion_arbol_47516_47619_{timestamp}.xlsx"
+
+
+def preparar_detalle(df: pd.DataFrame) -> pd.DataFrame:
+    detalle = df.copy()
+    detalle["CampaignID"] = detalle["CampaignID"].astype(str)
+
+    for col in [
+        "fecha_comunicacion",
+        "siguiente_envio_cliente",
+        "fecha_fin_ventana",
+        "fecha_conversion_password",
+    ]:
+        detalle[col] = pd.to_datetime(detalle[col], errors="coerce").dt.date
+
+    detalle["dias_a_conversion"] = pd.to_numeric(detalle["dias_a_conversion"], errors="coerce")
+    detalle["convirtio_password"] = pd.to_numeric(detalle["convirtio_password"], errors="coerce").fillna(0).astype(int)
+
+    detalle["tipo_conversion"] = detalle["dias_a_conversion"].apply(
+        lambda x: f"Dia {int(x)}" if pd.notna(x) else "No convirtio"
+    )
+
+    detalle = detalle.rename(
+        columns={
+            "padded_codigo_cliente": "codigo_cliente",
+            "CampaignID": "campaign_id",
+            "tipo_campana": "campana",
+            "fecha_comunicacion": "fecha_aplica",
+            "siguiente_envio_cliente": "siguiente_envio_cliente",
+            "fecha_fin_ventana": "fecha_fin_ventana",
+            "fecha_conversion_password": "fecha_conversion_password",
+            "dias_a_conversion": "dias_a_conversion",
+        }
+    )
+
+    columnas = [
+        "codigo_cliente",
+        "campaign_id",
+        "campana",
+        "fecha_aplica",
+        "siguiente_envio_cliente",
+        "fecha_fin_ventana",
+        "fecha_conversion_password",
+        "dias_a_conversion",
+        "convirtio_password",
+        "tipo_conversion",
+    ]
+
+    detalle = detalle[columnas].sort_values(
+        by=["fecha_aplica", "campaign_id", "codigo_cliente"],
+        kind="stable",
+    )
+
+    return detalle.reset_index(drop=True)
+
+
+def _agregar_metricas(df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+    agg = (
+        df.groupby(group_cols, dropna=False)
         .agg(
-            clientes=("padded_codigo_cliente", "count"),
-            meta_cumplida=("meta_cumplida", "sum"),
-            tuvo_login=("tuvo_login", "sum"),
-            dias_cambio_pass_promedio=("dias_cambio_pass", "mean"),
-            dias_login_promedio=("dias_login", "mean"),
+            enviados=("codigo_cliente", "count"),
+            conv_dia_0=("conv_dia_0", "sum"),
+            conv_dia_1=("conv_dia_1", "sum"),
+            conv_dia_2=("conv_dia_2", "sum"),
+            conv_3d_total=("convirtio_password", "sum"),
         )
         .reset_index()
     )
-    resumen["tasa_conversion_%"] = (resumen["meta_cumplida"] / resumen["clientes"] * 100).round(1)
-    resumen["dias_cambio_pass_promedio"] = resumen["dias_cambio_pass_promedio"].round(1)
-    resumen["dias_login_promedio"] = resumen["dias_login_promedio"].round(1)
-
-    with pd.option_context("display.max_columns", None, "display.width", 120):
-        print(resumen.to_string(index=False))
-
-    print("\n  Distribución por tipo de conversión:\n")
-    dist = df["tipo_conversion"].value_counts().reset_index()
-    dist.columns = ["tipo_conversion", "clientes"]
-    print(dist.to_string(index=False))
-    print("=" * 60 + "\n")
+    agg["tasa_conv_3d"] = (agg["conv_3d_total"] / agg["enviados"] * 100).round(2)
+    return agg
 
 
-def exportar_json(df: pd.DataFrame) -> Path:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path  = EXPORTS_DIR / f"conversion_arbol_47516_47619_{timestamp}.json"
+def construir_resumen_diario(detalle: pd.DataFrame) -> pd.DataFrame:
+    base = detalle.copy()
+    base["campaign_id"] = base["campaign_id"].astype(str)
+    base["campana"] = base["campana"].astype(str)
+    base["conv_dia_0"] = (base["dias_a_conversion"] == 0).astype(int)
+    base["conv_dia_1"] = (base["dias_a_conversion"] == 1).astype(int)
+    base["conv_dia_2"] = (base["dias_a_conversion"] == 2).astype(int)
 
-    registros = json.loads(
-        df.to_json(orient="records", date_format="iso", force_ascii=False)
+    total = _agregar_metricas(base, ["fecha_aplica"])
+    total["segmento"] = "TOTAL"
+    total["campaign_id"] = "TOTAL"
+
+    por_campana = _agregar_metricas(base, ["fecha_aplica", "campaign_id", "campana"])
+    por_campana["segmento"] = por_campana["campaign_id"] + " - " + por_campana["campana"]
+
+    total = total[[
+        "fecha_aplica",
+        "segmento",
+        "campaign_id",
+        "enviados",
+        "conv_dia_0",
+        "conv_dia_1",
+        "conv_dia_2",
+        "conv_3d_total",
+        "tasa_conv_3d",
+    ]]
+
+    por_campana = por_campana[[
+        "fecha_aplica",
+        "segmento",
+        "campaign_id",
+        "enviados",
+        "conv_dia_0",
+        "conv_dia_1",
+        "conv_dia_2",
+        "conv_3d_total",
+        "tasa_conv_3d",
+    ]]
+
+    resumen = pd.concat([total, por_campana], ignore_index=True)
+    resumen["orden_segmento"] = resumen["segmento"].eq("TOTAL").map({True: 0, False: 1})
+    resumen = resumen.sort_values(
+        by=["fecha_aplica", "orden_segmento", "campaign_id"],
+        kind="stable",
+    ).drop(columns=["orden_segmento"])
+
+    return resumen.reset_index(drop=True)
+
+
+def imprimir_resumen_consola(resumen: pd.DataFrame, detalle: pd.DataFrame) -> None:
+    total_envios = len(detalle)
+    total_conv = int(detalle["convirtio_password"].sum())
+    tasa_global = (total_conv / total_envios * 100) if total_envios else 0.0
+
+    print("\n" + "=" * 72)
+    print("  ARBOL SIN LOGIN — CONVERSION POR FECHAAPLICA (PASSWORD, VENTANA 3 DIAS)")
+    print("=" * 72)
+    print(f"  Envios analizados           : {total_envios:,}")
+    print(f"  Conversiones (password)     : {total_conv:,}")
+    print(f"  Tasa global                 : {tasa_global:.2f}%")
+    print("-" * 72)
+
+    preview = resumen.head(18)
+    with pd.option_context("display.max_columns", None, "display.width", 160):
+        print("\n  Resumen diario (primeras filas):\n")
+        print(preview.to_string(index=False))
+    print("=" * 72 + "\n")
+
+
+def validar_consistencia(resumen: pd.DataFrame) -> None:
+    inconsistencias = resumen[
+        (resumen["conv_dia_0"] + resumen["conv_dia_1"] + resumen["conv_dia_2"]) != resumen["conv_3d_total"]
+    ]
+    if not inconsistencias.empty:
+        print("[AVISO] Se detectaron filas con inconsistencia conv_dia_0+1+2 != conv_3d_total")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Reporte de conversion por FechaAplica (campanas 47516/47619)."
     )
-
-    payload = {
-        "generado_en": datetime.now().isoformat(),
-        "campanas": ["47516 - Oferta Inicial", "47619 - Recordatorio 1"],
-        "total_registros": len(df),
-        "datos": registros,
-    }
-
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return out_path
+    parser.add_argument(
+        "--fecha-inicio",
+        default=DEFAULT_FECHA_INICIO,
+        help=f"Fecha inicio (YYYY-MM-DD). Default: {DEFAULT_FECHA_INICIO}",
+    )
+    parser.add_argument(
+        "--fecha-fin",
+        default="",
+        help="Fecha fin (YYYY-MM-DD). Opcional.",
+    )
+    parser.add_argument(
+        "--output",
+        default="",
+        help="Ruta de salida del Excel (opcional).",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
-    print(f"\nEjecutando query: {QUERY_PATH.name} ...")
+    args = parse_args()
+    fecha_fin_param = args.fecha_fin.strip() or None
+
+    print(f"\nEjecutando query: {QUERY_PATH.name}")
+    print(f"- fecha_inicio: {args.fecha_inicio}")
+    print(f"- fecha_fin   : {fecha_fin_param if fecha_fin_param else 'NULL (sin tope)'}")
 
     try:
-        df = run_query_file(str(QUERY_PATH))
+        df = run_query_file(
+            str(QUERY_PATH),
+            params={
+                "fecha_inicio": args.fecha_inicio,
+                "fecha_fin": fecha_fin_param,
+            },
+        )
     except SQLAlchemyError as exc:
         msg = str(exc).lower()
         if "permission was denied" in msg:
@@ -102,13 +240,26 @@ def main() -> None:
         sys.exit(1)
 
     if df.empty:
-        print("[AVISO] La query no retornó filas. Verifica los IDs de campaña.")
+        print("[AVISO] La query no retorno filas para el rango indicado.")
         sys.exit(0)
 
-    imprimir_resumen(df)
+    detalle = preparar_detalle(df)
+    resumen = construir_resumen_diario(detalle)
+    validar_consistencia(resumen)
+    imprimir_resumen_consola(resumen, detalle)
 
-    out_path = exportar_json(df)
-    print(f"  Archivo JSON exportado: {out_path}\n")
+    output_path = build_output_path(args.output)
+    exportar_excel_multi(
+        {
+            "Resumen_Diario": resumen,
+            "Detalle_Envios": detalle,
+        },
+        str(output_path),
+    )
+
+    print(f"- Archivo generado: {output_path}")
+    print(f"- Total filas detalle: {len(detalle):,}")
+    print(f"- Total filas resumen: {len(resumen):,}\n")
 
 
 if __name__ == "__main__":
