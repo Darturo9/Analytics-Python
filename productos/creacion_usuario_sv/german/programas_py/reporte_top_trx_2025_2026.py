@@ -128,7 +128,7 @@ def calcular_top5(merged: pd.DataFrame, con_monto: bool) -> pd.DataFrame:
             monto_total=("valor", "sum"),
         )
         .sort_values("total_trx", ascending=False)
-        .head(5)
+        .head(6)
         .reset_index(drop=True)
     )
 
