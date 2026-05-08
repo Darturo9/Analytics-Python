@@ -65,7 +65,7 @@ def exportar_excel_multi(sheets: dict, path: str) -> None:
             for i, col in enumerate(df.columns):
                 # Usar iloc por posicion evita problemas con columnas duplicadas.
                 serie = df.iloc[:, i].astype(str)
-                ancho = max(serie.map(len).max(), len(str(col))) + 2
+                ancho = max(int(serie.str.len().fillna(0).max()), len(str(col))) + 2
                 worksheet.set_column(i, i, ancho)
     print(f"[OK] Excel multi-hoja exportado: {path}")
 
