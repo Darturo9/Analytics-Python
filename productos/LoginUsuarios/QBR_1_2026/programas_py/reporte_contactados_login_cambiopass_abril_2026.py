@@ -28,8 +28,10 @@ WITH campanas_abril AS (
 ),
 logins_abril AS (
     SELECT
-        RIGHT('00000000' + RTRIM(LTRIM(t.clccli)), 8) AS padded_codigo_cliente,
-        COUNT(*)                                        AS total_logins
+        RIGHT('00000000' + RTRIM(LTRIM(t.clccli)), 8)                          AS padded_codigo_cliente,
+        COUNT(*)                                                                 AS total_logins,
+        SUM(CASE WHEN t.secode = 'app-login'                    THEN 1 ELSE 0 END) AS logins_app,
+        SUM(CASE WHEN t.secode IN ('web-login', 'login')        THEN 1 ELSE 0 END) AS logins_web
     FROM dw_bel_IBSTTRA_VIEW t
     WHERE t.dw_fecha_trx >= '2026-04-01'
       AND t.dw_fecha_trx <  '2026-05-01'
@@ -56,6 +58,10 @@ SELECT
         AS clientes_unicos_login,
     COALESCE(SUM(l.total_logins), 0)
         AS total_logins,
+    COALESCE(SUM(l.logins_app), 0)
+        AS total_logins_app,
+    COALESCE(SUM(l.logins_web), 0)
+        AS total_logins_web,
     COUNT(DISTINCT CASE WHEN cp.padded_codigo_cliente IS NOT NULL
         THEN cam.padded_codigo_cliente END)
         AS clientes_unicos_cambio_pass,
@@ -90,8 +96,10 @@ WITH campanas_abril AS (
 ),
 logins_abril AS (
     SELECT
-        RIGHT('00000000' + RTRIM(LTRIM(t.clccli)), 8) AS padded_codigo_cliente,
-        COUNT(*)                                        AS total_logins
+        RIGHT('00000000' + RTRIM(LTRIM(t.clccli)), 8)                          AS padded_codigo_cliente,
+        COUNT(*)                                                                 AS total_logins,
+        SUM(CASE WHEN t.secode = 'app-login'                    THEN 1 ELSE 0 END) AS logins_app,
+        SUM(CASE WHEN t.secode IN ('web-login', 'login')        THEN 1 ELSE 0 END) AS logins_web
     FROM dw_bel_IBSTTRA_VIEW t
     WHERE t.dw_fecha_trx >= '2026-04-01'
       AND t.dw_fecha_trx <  '2026-05-01'
@@ -117,6 +125,10 @@ SELECT
         AS clientes_unicos_login,
     COALESCE(SUM(l.total_logins), 0)
         AS total_logins,
+    COALESCE(SUM(l.logins_app), 0)
+        AS total_logins_app,
+    COALESCE(SUM(l.logins_web), 0)
+        AS total_logins_web,
     COUNT(DISTINCT CASE WHEN cp.padded_codigo_cliente IS NOT NULL
         THEN cam.padded_codigo_cliente END)
         AS clientes_unicos_cambio_pass,
@@ -144,12 +156,14 @@ def construir_error_amigable(exc: Exception) -> str:
     return f"[ERROR] Fallo ejecutando la consulta: {raw}"
 
 
-def imprimir_bloque(campana_id, contactados, unicos_login, tot_logins, unicos_pass, tot_pass):
+def imprimir_bloque(campana_id, contactados, unicos_login, tot_logins, tot_logins_app, tot_logins_web, unicos_pass, tot_pass):
     print(f"\n  Campaña {campana_id}")
     print(f"    Clientes contactados             : {contactados:>8,}")
     print(f"    LOGIN")
     print(f"      Clientes únicos                : {unicos_login:>8,}  ({pct(unicos_login, contactados):.2f}%)")
     print(f"      Total eventos de login         : {tot_logins:>8,}")
+    print(f"        → App                        : {tot_logins_app:>8,}  ({pct(tot_logins_app, tot_logins):.2f}%)")
+    print(f"        → Web                        : {tot_logins_web:>8,}  ({pct(tot_logins_web, tot_logins):.2f}%)")
     print(f"    CAMBIO DE CONTRASEÑA")
     print(f"      Clientes únicos                : {unicos_pass:>8,}  ({pct(unicos_pass, contactados):.2f}%)")
     print(f"      Total cambios de contraseña    : {tot_pass:>8,}")
@@ -174,12 +188,14 @@ def main() -> None:
 
         for _, row in df_camp.iterrows():
             imprimir_bloque(
-                campana_id   = int(row["CampaignID"]),
-                contactados  = int(row["clientes_contactados"]),
-                unicos_login = int(row["clientes_unicos_login"]),
-                tot_logins   = int(row["total_logins"]),
-                unicos_pass  = int(row["clientes_unicos_cambio_pass"]),
-                tot_pass     = int(row["total_cambios_pass"]),
+                campana_id      = int(row["CampaignID"]),
+                contactados     = int(row["clientes_contactados"]),
+                unicos_login    = int(row["clientes_unicos_login"]),
+                tot_logins      = int(row["total_logins"]),
+                tot_logins_app  = int(row["total_logins_app"]),
+                tot_logins_web  = int(row["total_logins_web"]),
+                unicos_pass     = int(row["clientes_unicos_cambio_pass"]),
+                tot_pass        = int(row["total_cambios_pass"]),
             )
 
         print("\n" + "=" * 58)
@@ -189,12 +205,14 @@ def main() -> None:
         if not df_total.empty:
             t = df_total.iloc[0]
             imprimir_bloque(
-                campana_id   = "TOTAL",
-                contactados  = int(t["clientes_contactados"]),
-                unicos_login = int(t["clientes_unicos_login"]),
-                tot_logins   = int(t["total_logins"]),
-                unicos_pass  = int(t["clientes_unicos_cambio_pass"]),
-                tot_pass     = int(t["total_cambios_pass"]),
+                campana_id      = "TOTAL",
+                contactados     = int(t["clientes_contactados"]),
+                unicos_login    = int(t["clientes_unicos_login"]),
+                tot_logins      = int(t["total_logins"]),
+                tot_logins_app  = int(t["total_logins_app"]),
+                tot_logins_web  = int(t["total_logins_web"]),
+                unicos_pass     = int(t["clientes_unicos_cambio_pass"]),
+                tot_pass        = int(t["total_cambios_pass"]),
             )
 
         print("\n" + "=" * 58)
