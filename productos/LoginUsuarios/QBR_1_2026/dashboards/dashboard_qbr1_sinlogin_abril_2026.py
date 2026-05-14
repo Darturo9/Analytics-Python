@@ -310,7 +310,24 @@ def construir_dashboard() -> Dash:
                 children=[
                     html.H4("% Conversión por campaña (vs contactados)",
                             style={"color": COLORES["azul_experto"], "margin": "0 0 4px 0", "fontSize": "15px"}),
-                    dcc.Graph(id="graf-conversion", figure=fig_conversion, config={"displayModeBar": False}),
+                    dcc.Graph(
+                        id="graf-conversion",
+                        figure=fig_conversion,
+                        config={
+                            "displayModeBar": True,
+                            "modeBarButtonsToRemove": [
+                                "zoom2d", "pan2d", "select2d", "lasso2d",
+                                "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d",
+                            ],
+                            "toImageButtonOptions": {
+                                "format":   "png",
+                                "filename": "conversion_por_campana_sinlogin_abril2026",
+                                "height":   520,
+                                "width":    900,
+                                "scale":    3,
+                            },
+                        },
+                    ),
                 ],
             ),
         ],
