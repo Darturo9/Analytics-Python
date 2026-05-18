@@ -9,8 +9,20 @@ DECLARE @fecha_inicio DATE = '2026-01-01';
 		COUNT(USCODE) AS CantidadUsuario
 	FROM DW_BEL_IBUSER
 	GROUP BY LTRIM(RTRIM(CLCCLI))
+),
+tipos_cambio AS (
+    SELECT
+        DW_MONCOD,
+        dw_fecha AS fecha_desde,
+        ISNULL(
+            DATEADD(DAY, -1, LEAD(dw_fecha) OVER (PARTITION BY DW_MONCOD ORDER BY dw_fecha)),
+            '9999-12-31'
+        ) AS fecha_hasta,
+        CMVALT
+    FROM DWHBP.dbo.DW_CON_TIPOS_CAMBIO
+    WHERE DW_MONCOD IN ('US$', 'EUR')
 )
-SELECT 
+SELECT
 	Transacciones.Fecha,
 	Transacciones.Usuario,
 	Transacciones.Modulo,
@@ -198,187 +210,126 @@ FROM (
 
 UNION ALL
 
-SELECT 
-	Fecha,
-	Usuario,
-	Modulo,
-	Codigo_Cliente,
-	Moneda,
-	Valor,
+---- TRX JOURNAL
+SELECT
+	j.Fecha,
+	j.Usuario,
+	j.Modulo,
+	j.Codigo_Cliente,
+	j.Moneda,
+	j.Valor,
 	CASE
-		WHEN Moneda in ( 'EUR', 'US$' ) THEN
-			Valor *
-				(
-				SELECT TOP 1
-				t.CMVALT
-				FROM DWHBP.dbo.DW_CON_TIPOS_CAMBIO t
-				WHERE t.DW_MONCOD = Moneda
-				AND t.dw_fecha <= Fecha
-				ORDER BY t.dw_fecha DESC
-				)
-	ELSE Valor
+		WHEN j.Moneda IN ('EUR', 'US$') THEN j.Valor * ISNULL(tc_lem.CMVALT, 1)
+		ELSE j.Valor
 	END AS ValorLempirizado,
 	CASE
-		WHEN Moneda in ('L','001' ) THEN
-			Valor /
-				(
-				SELECT TOP 1
-				t.CMVALT
-				FROM DWHBP.dbo.DW_CON_TIPOS_CAMBIO t
-				WHERE t.DW_MONCOD = 'US$'
-				AND t.dw_fecha <= Fecha
-				ORDER BY t.dw_fecha DESC
-				)
-	ELSE Valor
+		WHEN j.Moneda IN ('L', '001') THEN j.Valor / NULLIF(tc_dol.CMVALT, 0)
+		ELSE j.Valor
 	END AS ValorDolarizado,
-	Canal,
-	Operación,
-	Cuenta,
-	Hora,
-	NULL [Es Reversa],
-	[Cantidad]
-FROM
-(
----- TRX JOURNAL
-	SELECT 
-		dw_BEL_IBJOUR.dw_fecha_journal Fecha,
-		'n/a' Usuario,
-		'Trx Journal' Modulo,
-		LTRIM(RTRIM(dw_BEL_IBJOUR.CLCCLI)) Codigo_Cliente,
-		dw_BEL_IBJOUR.JOMONT Moneda,
-		dw_BEL_IBJOUR.JOVAOR Valor,
+	j.Canal,
+	j.Operación,
+	j.Cuenta,
+	j.Hora,
+	NULL AS [Es Reversa],
+	j.[Cantidad]
+FROM (
+	SELECT
+		dw_BEL_IBJOUR.dw_fecha_journal AS Fecha,
+		'n/a' AS Usuario,
+		'Trx Journal' AS Modulo,
+		LTRIM(RTRIM(dw_BEL_IBJOUR.CLCCLI)) AS Codigo_Cliente,
+		dw_BEL_IBJOUR.JOMONT AS Moneda,
+		dw_BEL_IBJOUR.JOVAOR AS Valor,
 		CASE
 			WHEN CACODE = 'AP' THEN 'App'
 			WHEN CACODE = 'IB' THEN 'Web'
-		ELSE CACODE
+			ELSE CACODE
 		END AS Canal,
-		DW_BEL_IBSERV_ALIAS.SEDESC + ' - ' + dw_BEL_IBJOUR.SECODE Operación,
-		'n/a' Cuenta,
-		dw_BEL_IBJOUR.JOTIM Hora,
+		DW_BEL_IBSERV_ALIAS.SEDESC + ' - ' + dw_BEL_IBJOUR.SECODE AS Operación,
+		'n/a' AS Cuenta,
+		dw_BEL_IBJOUR.JOTIM AS Hora,
 		0 AS [Cantidad]
-	FROM 
-		dw_BEL_IBJOUR
-			LEFT JOIN DW_BEL_IBSERV DW_BEL_IBSERV_ALIAS ON (DW_BEL_IBSERV_ALIAS.SECODE = dw_BEL_IBJOUR.SECODE)
-	WHERE 
-	(
+	FROM dw_BEL_IBJOUR
+		LEFT JOIN DW_BEL_IBSERV DW_BEL_IBSERV_ALIAS ON DW_BEL_IBSERV_ALIAS.SECODE = dw_BEL_IBJOUR.SECODE
+	WHERE
 		dw_BEL_IBJOUR.dw_fecha_journal >= @fecha_inicio
 		AND dw_BEL_IBJOUR.JOSTAT = 1
-		AND dw_BEL_IBJOUR.JOSECU = CASE WHEN dw_BEL_IBJOUR.SECODE = 'ope-cmpdiv' AND dw_BEL_IBJOUR.dw_fecha_journal >'06-17-2023'  THEN 2 ELSE 1 END
-		AND dw_BEL_IBJOUR.CACODE IN  ('IB','AP')
-		AND dw_BEL_IBJOUR.SECODE NOT IN 
-		( 'mpg-cpago',
-		'cns-cdv',
-		'cns-pcit',
-		'cns-vdv',
-		'app-cpago', 
-		'app-cnspci',
-		'app-debtar',
-		'app-cnscdv'--,
-		--'ope-cmpdiv' 
-		) -- Excluyo Multipagos y se excluyen consultas por migracion
-	)
-	
-) Transacciones
+		AND dw_BEL_IBJOUR.JOSECU = CASE WHEN dw_BEL_IBJOUR.SECODE = 'ope-cmpdiv' AND dw_BEL_IBJOUR.dw_fecha_journal > '06-17-2023' THEN 2 ELSE 1 END
+		AND dw_BEL_IBJOUR.CACODE IN ('IB', 'AP')
+		AND dw_BEL_IBJOUR.SECODE NOT IN (
+			'mpg-cpago', 'cns-cdv', 'cns-pcit', 'cns-vdv',
+			'app-cpago', 'app-cnspci', 'app-debtar', 'app-cnscdv'
+		) -- Excluyo Multipagos y consultas por migracion
+) j
+LEFT JOIN tipos_cambio tc_lem
+	ON j.Moneda IN ('EUR', 'US$')
+	AND tc_lem.DW_MONCOD = j.Moneda
+	AND j.Fecha BETWEEN tc_lem.fecha_desde AND tc_lem.fecha_hasta
+LEFT JOIN tipos_cambio tc_dol
+	ON j.Moneda IN ('L', '001')
+	AND tc_dol.DW_MONCOD = 'US$'
+	AND j.Fecha BETWEEN tc_dol.fecha_desde AND tc_dol.fecha_hasta
 
-UNION ALL 
+UNION ALL
 ------------------ Multipagos ------------------
 	SELECT
-		DW_FECHA_OPERACION_SP AS Fecha,
-		ClientesBel.USCODE Usuario,
+		DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP AS Fecha,
+		ClientesBel.USCODE AS Usuario,
 		'Multipagos' AS Modulo,
-		ClientesBel.CLCCLI Codigo_Cliente,
-		CLMOCO Moneda,
+		ClientesBel.CLCCLI AS Codigo_Cliente,
+		DW_MUL_SPPADAT.CLMOCO AS Moneda,
 		DW_MUL_SPPADAT.SPPAVA AS Valor,
-		DW_MUL_SPPADAT.SPPAVA * 
-			CASE 
-			WHEN CLMOCO='US$' THEN  
-			(
-			SELECT TOP 1 DW_CON_TIPOS_CAMBIO.CMVALT 
-			FROM DW_CON_TIPOS_CAMBIO
-			WHERE 'US$'=DW_CON_TIPOS_CAMBIO.DW_MONCOD AND 
-			DW_CON_TIPOS_CAMBIO.dw_fecha<= DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP
-			ORDER BY DW_CON_TIPOS_CAMBIO.dw_fecha DESC
-			) 
-		ELSE 1 END ValorLempirizado,
-		DW_MUL_SPPADAT.SPPAVA / 
-			CASE 
-			WHEN CLMOCO='US$' THEN  
-			(
-			SELECT TOP 1 DW_CON_TIPOS_CAMBIO.CMVALT 
-			FROM 
-			DW_CON_TIPOS_CAMBIO
-			WHERE 'US$'=DW_CON_TIPOS_CAMBIO.DW_MONCOD AND 
-			DW_CON_TIPOS_CAMBIO.dw_fecha<= DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP
-			ORDER BY DW_CON_TIPOS_CAMBIO.dw_fecha DESC
-			) 
-		ELSE 1 END AS ValorDolarizado,
+		DW_MUL_SPPADAT.SPPAVA * CASE WHEN DW_MUL_SPPADAT.CLMOCO = 'US$' THEN ISNULL(tc_mp.CMVALT, 1) ELSE 1 END AS ValorLempirizado,
+		DW_MUL_SPPADAT.SPPAVA / NULLIF(CASE WHEN DW_MUL_SPPADAT.CLMOCO = 'US$' THEN tc_mp.CMVALT ELSE 1 END, 0) AS ValorDolarizado,
 		DW_MUL_SPPADAT.SPCPDE AS Canal,
 		DW_MUL_SPMACO.SPNOMC AS Operación,
-		NULL Cuenta,
-		DW_MUL_SPPADAT.SPPAHR Hora,
+		NULL AS Cuenta,
+		DW_MUL_SPPADAT.SPPAHR AS Hora,
 		DW_MUL_SPPADAT.SPPAFR AS [Es Reversa],
 		0 AS [Cantidad]
-	FROM
-	DW_MUL_SPMACO 
-		INNER JOIN DW_MUL_SPPADAT ON (DW_MUL_SPMACO.SPCODC=DW_MUL_SPPADAT.SPCODC)
+	FROM DW_MUL_SPMACO
+		INNER JOIN DW_MUL_SPPADAT ON DW_MUL_SPMACO.SPCODC = DW_MUL_SPPADAT.SPCODC
 		LEFT JOIN (
 			SELECT
-				LTRIM(RTRIM(DW_BEL_IBUSER.CLCCLI)) CLCCLI,
-				LTRIM(RTRIM(DW_BEL_IBUSER.USCODE)) USCODE
-			FROM
-				DW_BEL_IBUSER 
-			) ClientesBel ON LTRIM(RTRIM(DW_MUL_SPPADAT.SPINUS)) = (ClientesBel.CLCCLI+ClientesBel.USCODE)
+				LTRIM(RTRIM(DW_BEL_IBUSER.CLCCLI)) AS CLCCLI,
+				LTRIM(RTRIM(DW_BEL_IBUSER.USCODE)) AS USCODE
+			FROM DW_BEL_IBUSER
+		) ClientesBel ON LTRIM(RTRIM(DW_MUL_SPPADAT.SPINUS)) = (ClientesBel.CLCCLI + ClientesBel.USCODE)
+		LEFT JOIN tipos_cambio tc_mp
+			ON DW_MUL_SPPADAT.CLMOCO = 'US$'
+			AND tc_mp.DW_MONCOD = 'US$'
+			AND DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP BETWEEN tc_mp.fecha_desde AND tc_mp.fecha_hasta
 	WHERE
-		(
 		DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP >= @fecha_inicio
-		AND DW_MUL_SPPADAT.SPCPCO  IN  ( 1, 7  )
-		)
-		
+		AND DW_MUL_SPPADAT.SPCPCO IN (1, 7)
+
 UNION ALL
 
 	------Dividelo Todo App
-	SELECT 
+	SELECT
 		DW_BEL_IBLOGDTO.DW_FECHA AS Fecha,
 		DW_BEL_IBUSER.USCODE AS Usuario,
 		'Dividelo Todo' AS Modulo,
 		LTRIM(RTRIM(DW_BEL_IBCLIE.CLCCLI)) AS Codigo_Cliente,
 		DW_BEL_IBLOGDTO.LOMONEDA AS Moneda,
-		DW_BEL_IBLOGDTO.LOIMPORT AS Valor ,
-		DW_BEL_IBLOGDTO.LOIMPORT  * 
-			CASE 
-			WHEN DW_BEL_IBLOGDTO.LOMONEDA='US$' OR DW_BEL_IBLOGDTO.LOMONEDA='USD' THEN 
-			(
-			SELECT TOP 1 DW_CON_TIPOS_CAMBIO.CMVALT 
-			FROM DW_CON_TIPOS_CAMBIO
-			WHERE 'US$'=DW_CON_TIPOS_CAMBIO.DW_MONCOD AND 
-			DW_CON_TIPOS_CAMBIO.dw_fecha<= DW_BEL_IBLOGDTO.DW_FECHA 
-			ORDER BY DW_CON_TIPOS_CAMBIO.dw_fecha DESC
-			)
-		ELSE 1 END AS ValorLempirizado,
-		DW_BEL_IBLOGDTO.LOIMPORT / 
-			CASE 
-			WHEN DW_BEL_IBLOGDTO.LOMONEDA='L' THEN 
-			(
-			SELECT TOP 1 DW_CON_TIPOS_CAMBIO.CMVALT 
-			FROM DW_CON_TIPOS_CAMBIO
-			WHERE 'US$'=DW_CON_TIPOS_CAMBIO.DW_MONCOD AND 
-			DW_CON_TIPOS_CAMBIO.dw_fecha<= DW_BEL_IBLOGDTO.DW_FECHA 
-			ORDER BY DW_CON_TIPOS_CAMBIO.dw_fecha DESC
-			)
-		ELSE 1 END AS ValorDolarizado,
+		DW_BEL_IBLOGDTO.LOIMPORT AS Valor,
+		DW_BEL_IBLOGDTO.LOIMPORT * CASE WHEN DW_BEL_IBLOGDTO.LOMONEDA IN ('US$', 'USD') THEN ISNULL(tc_dto.CMVALT, 1) ELSE 1 END AS ValorLempirizado,
+		DW_BEL_IBLOGDTO.LOIMPORT / NULLIF(CASE WHEN DW_BEL_IBLOGDTO.LOMONEDA = 'L' THEN tc_dto.CMVALT ELSE 1 END, 0) AS ValorDolarizado,
 		'APP' AS Canal,
 		'Dividelo Todo App' AS Operación,
 		DW_BEL_IBLOGDTO.LONUMTAR AS Cuenta,
 		DW_BEL_IBLOGDTO.LOGHOR AS Hora,
-		NULL [Es Reversa],
+		NULL AS [Es Reversa],
 		1 AS Cantidad
-	FROM
-		DW_BEL_IBCLIE 
-			INNER JOIN DW_BEL_IBUSER ON (DW_BEL_IBCLIE.CLCCLI=DW_BEL_IBUSER.CLCCLI)
-			INNER JOIN DW_BEL_IBLOGDTO ON (DW_BEL_IBUSER.USCODE=DW_BEL_IBLOGDTO.LOGUSR)
+	FROM DW_BEL_IBCLIE
+		INNER JOIN DW_BEL_IBUSER ON DW_BEL_IBCLIE.CLCCLI = DW_BEL_IBUSER.CLCCLI
+		INNER JOIN DW_BEL_IBLOGDTO ON DW_BEL_IBUSER.USCODE = DW_BEL_IBLOGDTO.LOGUSR
+		LEFT JOIN tipos_cambio tc_dto
+			ON tc_dto.DW_MONCOD = 'US$'
+			AND DW_BEL_IBLOGDTO.DW_FECHA BETWEEN tc_dto.fecha_desde AND tc_dto.fecha_hasta
 	WHERE
 		DW_BEL_IBLOGDTO.DW_FECHA >= @fecha_inicio
-		and DW_BEL_IBLOGDTO.LOCODERR = 0
+		AND DW_BEL_IBLOGDTO.LOCODERR = 0
 
 UNION ALL
 
