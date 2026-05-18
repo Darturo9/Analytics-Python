@@ -1,4 +1,6 @@
 -------- Login web, App y nuevas consultas
+DECLARE @fecha_inicio DATE = '2026-01-01';
+
 ;WITH conteo_usuarios AS (
 	SELECT
 		LTRIM(RTRIM(CLCCLI)) AS CLCCLI,
@@ -73,7 +75,7 @@ FROM (
 			LEFT JOIN DW_BEL_IBSERV ON DW_BEL_IBSERV.SECODE= dw_bel_IBSTTRA_VIEW.SECODE
 	WHERE 
 		(
-		dw_bel_IBSTTRA_VIEW.dw_fecha_trx >= '2026-01-01'
+		dw_bel_IBSTTRA_VIEW.dw_fecha_trx >= @fecha_inicio
 		--BETWEEN '02/01/2025 00:00:00' AND '02/28/2025 23:59:59' 
 		
 		AND dw_bel_IBSTTRA_VIEW.SECODE IN 
@@ -139,7 +141,7 @@ FROM (
 		FROM 
 			DWHBI..WF_Incidente
 		WHERE 
-			Fecha_hora_entrada >= '2026-01-01'
+			Fecha_hora_entrada >= @fecha_inicio
 			--BETWEEN '02/01/2025 00:00:00' AND '02/28/2025 23:59:59' 
 			AND Proceso IN
 				(
@@ -167,7 +169,7 @@ FROM (
 		FROM 
 			DWHBI..WF_Incidente
 		WHERE 
-			Fecha_hora_entrada >= '2026-01-01'
+			Fecha_hora_entrada >= @fecha_inicio
 			--BETWEEN '02/01/2025 00:00:00' AND '02/28/2025 23:59:59' 
 			AND Proceso IN
 			(
@@ -259,7 +261,7 @@ FROM
 			LEFT JOIN DW_BEL_IBSERV DW_BEL_IBSERV_ALIAS ON (DW_BEL_IBSERV_ALIAS.SECODE = dw_BEL_IBJOUR.SECODE)
 	WHERE 
 	(
-		dw_BEL_IBJOUR.dw_fecha_journal >= '2026-01-01'
+		dw_BEL_IBJOUR.dw_fecha_journal >= @fecha_inicio
 		AND dw_BEL_IBJOUR.JOSTAT = 1
 		AND dw_BEL_IBJOUR.JOSECU = CASE WHEN dw_BEL_IBJOUR.SECODE = 'ope-cmpdiv' AND dw_BEL_IBJOUR.dw_fecha_journal >'06-17-2023'  THEN 2 ELSE 1 END
 		AND dw_BEL_IBJOUR.CACODE IN  ('IB','AP')
@@ -328,7 +330,7 @@ UNION ALL
 			) ClientesBel ON LTRIM(RTRIM(DW_MUL_SPPADAT.SPINUS)) = (ClientesBel.CLCCLI+ClientesBel.USCODE)
 	WHERE
 		(
-		DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP >= '2026-01-01'
+		DW_MUL_SPPADAT.DW_FECHA_OPERACION_SP >= @fecha_inicio
 		AND DW_MUL_SPPADAT.SPCPCO  IN  ( 1, 7  )
 		)
 		
@@ -375,7 +377,7 @@ UNION ALL
 			INNER JOIN DW_BEL_IBUSER ON (DW_BEL_IBCLIE.CLCCLI=DW_BEL_IBUSER.CLCCLI)
 			INNER JOIN DW_BEL_IBLOGDTO ON (DW_BEL_IBUSER.USCODE=DW_BEL_IBLOGDTO.LOGUSR)
 	WHERE
-		DW_BEL_IBLOGDTO.DW_FECHA >= '2026-01-01'
+		DW_BEL_IBLOGDTO.DW_FECHA >= @fecha_inicio
 		and DW_BEL_IBLOGDTO.LOCODERR = 0
 
 UNION ALL
@@ -406,7 +408,7 @@ UNION ALL
 			INNER JOIN DWH_MaestroTarjetas MT WITH (NOLOCK) ON (DW_BEL_IBLOGBDT.LONUMTAR=MT.NumeroTarjeta)
 	WHERE
 		(
-		DW_BEL_IBLOGBDT.DW_FECHA >= '2026-01-01'
+		DW_BEL_IBLOGBDT.DW_FECHA >= @fecha_inicio
 		AND	DW_BEL_IBLOGBDT.LOCODERR  =  0
 		)
 	
@@ -438,7 +440,7 @@ UNION ALL
 						DW_BEL_IBUSER 
 				) ClientesBel ON (DW_BEL_IBLGLXUS.USCODE = ClientesBel.USCODE)
 	WHERE   
-		DW_BEL_IBLGLXUS.DW_FECHA_CONTROL >= '2026-01-01'
+		DW_BEL_IBLGLXUS.DW_FECHA_CONTROL >= @fecha_inicio
 
 UNION ALL
 
@@ -468,12 +470,12 @@ UNION ALL
 					DW_BEL_IBUSER 
 				) ClientesBel ON (DW_BEL_IBLGAPPY.IBBUSR = ClientesBel.USCODE)
 	WHERE   
-		DW_BEL_IBLGAPPY.DW_FECHA_CONTROL >= '2026-01-01'
+		DW_BEL_IBLGAPPY.DW_FECHA_CONTROL >= @fecha_inicio
 		
 	) TransaccionesBase
 	WHERE
 		TransaccionesBase.Canal in ( 'App nueva','AP','APP')
-		AND TransaccionesBase.Fecha >= '2026-01-01'
+		AND TransaccionesBase.Fecha >= @fecha_inicio
 ) Transacciones
 
 LEFT JOIN 
