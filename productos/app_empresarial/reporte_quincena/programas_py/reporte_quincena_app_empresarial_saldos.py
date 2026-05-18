@@ -21,6 +21,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 
@@ -28,7 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.db import run_query, run_query_file
+from core.db import get_engine, run_query_file
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -273,16 +274,9 @@ def construir_resumen_modulos(df: pd.DataFrame) -> pd.DataFrame:
     return resumen
 
 
-def construir_query_perfil_clientes_chunk(clientes_chunk: list[str]) -> str:
-    values_sql = ",\n            ".join(f"('{c}')" for c in clientes_chunk)
-    return f"""
-WITH clientes AS (
-    SELECT v.padded_codigo_cliente
-    FROM (VALUES
-            {values_sql}
-    ) v(padded_codigo_cliente)
-),
-clientes_empresariales AS (
+def construir_query_perfil_clientes_tmp() -> str:
+    return """
+WITH clientes_empresariales AS (
     SELECT
         x.padded_codigo_cliente,
         x.cldoc,
@@ -299,7 +293,7 @@ clientes_empresariales AS (
                 ORDER BY c.dw_fecha_informacion DESC
             ) AS rn
         FROM DW_CIF_CLIENTES c
-        INNER JOIN clientes cli
+        INNER JOIN #tmp_clientes cli
             ON cli.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(c.CLDOC)), 8)
     ) x
     WHERE x.rn = 1
@@ -371,10 +365,6 @@ LEFT JOIN direccion_cliente dc
 """
 
 
-def chunked(seq: list[str], size: int) -> list[list[str]]:
-    return [seq[i : i + size] for i in range(0, len(seq), size)]
-
-
 def cargar_perfil_financiero_clientes(
     clientes_objetivo: list[str],
     fecha_inicio: date,
@@ -392,25 +382,34 @@ def cargar_perfil_financiero_clientes(
         )
 
     fecha_corte = fecha_fin_exclusiva - timedelta(days=1)
-    frames: list[pd.DataFrame] = []
+    sql = construir_query_perfil_clientes_tmp()
+    engine = get_engine()
 
-    for bloque in chunked(clientes_objetivo, CONFIG_CHUNK_SIZE_CLIENTES):
-        sql = construir_query_perfil_clientes_chunk(bloque)
-        df_chunk = run_query(
-            sql,
+    with engine.connect() as conn:
+        conn.execute(text("IF OBJECT_ID('tempdb..#tmp_clientes') IS NOT NULL DROP TABLE #tmp_clientes;"))
+        conn.execute(text("CREATE TABLE #tmp_clientes (padded_codigo_cliente VARCHAR(8) NOT NULL PRIMARY KEY);"))
+
+        registros = [{"codigo": c} for c in clientes_objetivo]
+        for i in range(0, len(registros), CONFIG_CHUNK_SIZE_CLIENTES):
+            bloque = registros[i : i + CONFIG_CHUNK_SIZE_CLIENTES]
+            conn.execute(
+                text("INSERT INTO #tmp_clientes (padded_codigo_cliente) VALUES (:codigo)"),
+                bloque,
+            )
+
+        df = pd.read_sql(
+            text(sql),
+            conn,
             params={
                 "fecha_inicio": fecha_inicio.isoformat(),
                 "fecha_fin_exclusiva": fecha_fin_exclusiva.isoformat(),
                 "fecha_corte": fecha_corte.isoformat(),
             },
         )
-        df_chunk.columns = [str(c).strip() for c in df_chunk.columns]
-        frames.append(df_chunk)
+        conn.execute(text("DROP TABLE #tmp_clientes;"))
 
-    if not frames:
-        return pd.DataFrame()
-
-    df = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["padded_codigo_cliente"]).copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    df = df.drop_duplicates(subset=["padded_codigo_cliente"]).copy()
     df["padded_codigo_cliente"] = df["padded_codigo_cliente"].apply(normalizar_codigo_cliente)
     df["saldo_promedio_periodo"] = pd.to_numeric(df["saldo_promedio_periodo"], errors="coerce").fillna(0.0)
     df["saldo_corte_periodo"] = pd.to_numeric(df["saldo_corte_periodo"], errors="coerce").fillna(0.0)
