@@ -41,13 +41,17 @@ RUTA_EXPORTS = BASE_DIR / "exports"
 CONFIG_NOMBRE_ARCHIVO_ENTRADA = "BDD_DEPURADA_CLIENTES_WIFI"
 CONFIG_HOJA_CORREOS = "Hoja1"
 CONFIG_HOJA_TELEFONOS = "Hoja2"
-CONFIG_COL_CORREO = "Email"
-CONFIG_COL_TELEFONO = "Telefono"
+CONFIG_COL_CORREO = "Correo"
+CONFIG_COL_TELEFONO = "Telefono Formateado"
 
 # Si True: usa query SQL para cargar cuentas digitales.
 # Si False: usa archivo Excel local.
 CONFIG_USAR_SQL = True
 CONFIG_ARCHIVO_CUENTAS_LOCAL = BASE_DIR / "cuenta_digital_2026.xlsx"
+
+# Filtro obligatorio de aperturas (inicio inclusivo, fin exclusivo).
+CONFIG_FECHA_INICIO_APERTURA = "2026-05-01"
+CONFIG_FECHA_FIN_EXCLUSIVA_APERTURA = "2026-06-01"
 
 CONFIG_ARCHIVO_SALIDA = "Resultado_Validacion_ClientesWifi_2Hojas.xlsx"
 # ============================================================================
@@ -151,7 +155,7 @@ def cargar_cuentas_digitales() -> pd.DataFrame:
             raise FileNotFoundError(f"No se encontro la query de cuentas: {RUTA_QUERY_CUENTAS}")
         df = run_query_file(str(RUTA_QUERY_CUENTAS))
         df.columns = [str(c) for c in df.columns]
-        return df
+        return filtrar_aperturas(df)
 
     if not CONFIG_ARCHIVO_CUENTAS_LOCAL.exists():
         raise FileNotFoundError(
@@ -160,7 +164,25 @@ def cargar_cuentas_digitales() -> pd.DataFrame:
         )
     df = pd.read_excel(CONFIG_ARCHIVO_CUENTAS_LOCAL, dtype=str)
     df.columns = [str(c) for c in df.columns]
-    return df
+    return filtrar_aperturas(df)
+
+
+def filtrar_aperturas(df_cuentas: pd.DataFrame) -> pd.DataFrame:
+    if df_cuentas.empty:
+        return df_cuentas
+    if "fecha_apertura" not in df_cuentas.columns:
+        raise ValueError("La base de cuentas debe incluir 'fecha_apertura' para filtrar mayo.")
+
+    inicio = pd.to_datetime(CONFIG_FECHA_INICIO_APERTURA, errors="coerce")
+    fin_exclusiva = pd.to_datetime(CONFIG_FECHA_FIN_EXCLUSIVA_APERTURA, errors="coerce")
+    if pd.isna(inicio) or pd.isna(fin_exclusiva):
+        raise ValueError("Configuracion de fechas invalida en CONFIG_FECHA_INICIO_APERTURA/CONFIG_FECHA_FIN_EXCLUSIVA_APERTURA.")
+    if fin_exclusiva <= inicio:
+        raise ValueError("CONFIG_FECHA_FIN_EXCLUSIVA_APERTURA debe ser mayor que CONFIG_FECHA_INICIO_APERTURA.")
+
+    fechas = pd.to_datetime(df_cuentas["fecha_apertura"], errors="coerce")
+    mask = (fechas >= inicio) & (fechas < fin_exclusiva)
+    return df_cuentas.loc[mask].copy()
 
 
 def construir_indices_contacto(
