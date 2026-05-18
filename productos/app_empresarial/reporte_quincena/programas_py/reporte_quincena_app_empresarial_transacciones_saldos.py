@@ -2,11 +2,10 @@
 Reporte quincenal configurable de saldos - App Empresarial (solo Transacción).
 
 Flujo de datos:
-1) Actividad desde query1_quincena.sql
+1) Actividad Transacción desde query1_quincena_transacciones_filtrada.sql
 2) Universo de clientes contactados desde clientes_rtm_quincena.sql
 3) Regla de cruce tipo Tableau: cliente y fecha_q1 >= fecha_q2
-4) Filtro exclusivo al modulo Transacción
-5) Perfil financiero del universo Transacción: saldo de cierre, saldo promedio, clientes con saldo y top deptos
+4) Perfil financiero del universo Transacción: saldo de cierre, saldo promedio, clientes con saldo y top deptos
 
 Ejecucion:
     python3 productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena_app_empresarial_transacciones_saldos.py
@@ -16,7 +15,6 @@ from __future__ import annotations
 
 import re
 import sys
-import unicodedata
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -33,7 +31,7 @@ from core.db import get_engine, run_query_file
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-QUERY1_PATH = BASE_DIR / "queries" / "query1_quincena.sql"
+QUERY1_PATH = BASE_DIR / "queries" / "query1_quincena_transacciones_filtrada.sql"
 QUERY2_PATH = BASE_DIR / "queries" / "clientes_rtm_quincena.sql"
 
 # Configuracion editable desde codigo.
@@ -44,80 +42,6 @@ CONFIG_DIA_FIN = 15
 CONFIG_RTM_FECHA_INICIO = "2025-05-01"
 CONFIG_CHUNK_SIZE_CLIENTES = 400
 CONFIG_TOP_DEPTOS = 5
-
-MODULO_OBJETIVO = "Transacción"
-
-CONSULTA_CODIGOS = {
-    "app-hisptm",
-    "app-edocta",
-    "app-extcns",
-    "app-cnsdiv",
-    "adq-cnstrx",
-    "ptr-cnssal",
-    "cns-chqtrc",
-    "chp-cnschq",
-    "con-sal",
-    "dei-cnpag",
-    "mpg-ccnhp",
-    "mpg-ccnspg",
-    "con-sal2",
-    "dei-cnsapg",
-    "ptr-cnsptm",
-    "cpr-lincre",
-    "ptr-cnspar",
-    "adq-edocta",
-    "estado-cta",
-    "res-ctacor",
-    "seg-cnhtrx",
-    "pym-cnsinf",
-    "pym-cnsmov",
-    "adq-cnsrec",
-    "res-edoct2",
-    "adq-voltrx",
-    "app-cnasps",
-    "app-cnshte",
-    "app-cntigo",
-    "app-cnenee",
-    "app-ccnspg",
-    "app-grptmo",
-    "cns-ptmcap",
-    "cns-ptmos",
-    "adm-cnsamn",
-    "cns-cdv2",
-    "cns-asps",
-    "cns-enee",
-    "cns-tigo",
-    "cns-hndtl",
-    "adm-cnsilp",
-    "ptr-grptmo",
-    "cns-ptmos2",
-    "cns-vdv2",
-    "pym-desemb",
-}
-
-GESTIONES_CODIGOS = {
-    "transf-int",
-    "prf-recosm",
-    "prf-receml",
-    "app-traint",
-}
-
-MODULOS_TRANSACCION = {
-    "ach",
-    "ach qr",
-    "dividelo todo",
-    "limites de transferencia",
-    "limite por usuario y categoria",
-    "planilla",
-    "proveedores",
-    "multipagos",
-}
-
-MODULOS_GESTIONES = {
-    "aprovisionamiento tc-td",
-    "bloqueo y desbloqueo tc",
-}
-
 
 def validar_rango(anio: int, mes: int, dia_inicio: int, dia_fin: int) -> tuple[date, date]:
     if mes < 1 or mes > 12:
@@ -156,29 +80,9 @@ def normalizar_codigo_cliente(valor: object) -> str:
 
 
 def normalizar_texto(valor: object) -> str:
-    if valor is None or pd.isna(valor):
+    if valor is None:
         return ""
-    texto = str(valor).strip()
-    if texto.lower() == "nan":
-        return ""
-    texto = unicodedata.normalize("NFKD", texto)
-    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
-    texto = texto.lower()
-    texto = re.sub(r"\s+", " ", texto)
-    return texto.strip()
-
-
-def extraer_codigo_operacion(operacion: object) -> str:
-    op = normalizar_texto(operacion)
-    if not op:
-        return ""
-    partes = [p.strip() for p in op.split(" - ") if p.strip()]
-    if not partes:
-        return ""
-    candidato = partes[-1]
-    if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", candidato):
-        return candidato
-    return ""
+    return str(valor).strip().lower()
 
 
 def buscar_columna(df: pd.DataFrame, *candidatos: str) -> str:
@@ -190,27 +94,6 @@ def buscar_columna(df: pd.DataFrame, *candidatos: str) -> str:
     raise ValueError(f"No se encontro ninguna columna candidata {candidatos}. Columnas: {list(df.columns)}")
 
 
-def clasificar_modulo(modulo: object, operacion: object) -> str:
-    modulo_norm = normalizar_texto(modulo)
-    codigo_op = extraer_codigo_operacion(operacion)
-
-    if modulo_norm == "login":
-        return "Login"
-    if codigo_op in CONSULTA_CODIGOS:
-        return "Consulta"
-    if modulo_norm in MODULOS_TRANSACCION:
-        return "Transacción"
-    if modulo_norm in MODULOS_GESTIONES or codigo_op in GESTIONES_CODIGOS:
-        return "Gestiones"
-    if modulo_norm == "gestiones crm":
-        return "Gestiones CRM"
-    if modulo_norm == "trx journal":
-        return "Transacción"
-    if normalizar_texto(operacion) == "":
-        return "Transacción"
-    return "Sin clasificar"
-
-
 def cargar_query(path_sql: Path, params: dict | None = None) -> pd.DataFrame:
     df = run_query_file(str(path_sql), params=params)
     df.columns = [str(c).strip() for c in df.columns]
@@ -220,23 +103,15 @@ def cargar_query(path_sql: Path, params: dict | None = None) -> pd.DataFrame:
 def preparar_query1(df1: pd.DataFrame) -> pd.DataFrame:
     col_cliente = buscar_columna(df1, "padded_codigo_cliente", "codigo_cliente", "clccli")
     col_fecha = buscar_columna(df1, "fecha")
-    col_modulo = buscar_columna(df1, "modulo", "modulo (grupo) (grupo)", "modulo (grupo)")
-    col_operacion = buscar_columna(df1, "operación", "operacion", "operación (consulta sql personalizada)")
 
     out = pd.DataFrame(
         {
             "padded_codigo_cliente": df1[col_cliente].apply(normalizar_codigo_cliente),
             "fecha_q1": pd.to_datetime(df1[col_fecha], errors="coerce"),
-            "modulo_original": df1[col_modulo],
-            "operacion_original": df1[col_operacion],
         }
     )
     out = out[out["padded_codigo_cliente"] != ""].copy()
     out = out.dropna(subset=["fecha_q1"]).copy()
-    out["modulo_regla"] = out.apply(
-        lambda r: clasificar_modulo(r["modulo_original"], r["operacion_original"]),
-        axis=1,
-    )
     return out
 
 
@@ -253,11 +128,6 @@ def preparar_query2(df2: pd.DataFrame) -> pd.DataFrame:
     out = out[(out["padded_codigo_cliente"] != "") & (out["fecha_q2"].notna())].copy()
     out = out.drop_duplicates(subset=["padded_codigo_cliente"], keep="first")
     return out
-
-
-def construir_resumen_transaccion(df: pd.DataFrame) -> tuple[int, int]:
-    sub = df[df["modulo_regla"] == MODULO_OBJETIVO]
-    return int(len(sub)), int(sub["padded_codigo_cliente"].nunique())
 
 
 def construir_query_perfil_clientes_tmp() -> str:
@@ -319,8 +189,9 @@ direccion_cliente AS (
                 ORDER BY d.dw_fecha DESC
             ) AS rn
         FROM clientes_empresariales ce
-        LEFT JOIN dw_cif_direcciones_principal d
-            ON LTRIM(RTRIM(ce.cltdoc)) = LTRIM(RTRIM(d.cldoc))
+        LEFT JOIN DW_CIF_DIRECCIONES d
+            ON LTRIM(RTRIM(ce.cldoc)) = LTRIM(RTRIM(d.cldoc))
+           AND d.CLDICO = 1
     ) y
     WHERE y.rn = 1
 )
@@ -455,26 +326,24 @@ def imprimir_resumen(
 
     total_match = len(df_match)
     clientes_match = df_match["padded_codigo_cliente"].nunique()
-    trx_q1, clientes_trx_q1 = construir_resumen_transaccion(df_q1_rango)
-    trx_match, clientes_trx_match = construir_resumen_transaccion(df_match)
 
     print("=" * 92)
     print("APP EMPRESARIAL - REPORTE QUINCENAL (SOLO TRANSACCIÓN)")
     print("=" * 92)
-    print(f"Rango actividad Query1:      {fecha_inicio.isoformat()} a {fecha_fin_inclusiva.isoformat()}")
+    print(f"Rango actividad Query1 SQL:  {fecha_inicio.isoformat()} a {fecha_fin_inclusiva.isoformat()}")
     print(f"Inicio universo RTM Query2: {CONFIG_RTM_FECHA_INICIO}")
     print("-" * 92)
-    print(f"Registros Query1 en rango:                    {total_q1:>12,}")
-    print(f"Clientes unicos Query1 en rango:              {clientes_q1:>12,}")
+    print(f"Registros Query1 (solo Transacción):          {total_q1:>12,}")
+    print(f"Clientes unicos Query1 (solo Transacción):    {clientes_q1:>12,}")
     print(f"Clientes unicos en Query2 (universo RTM):     {clientes_q2:>12,}")
     print(f"Registros con match (cliente y fecha_q1>=q2): {total_match:>12,}")
     print(f"Clientes unicos con match:                    {clientes_match:>12,}")
     print("=" * 92)
     print("\nResumen Transacción:")
-    print(f"- TRX en Query1 (rango):                      {trx_q1:>12,}")
-    print(f"- Clientes unicos Transacción en Query1:      {clientes_trx_q1:>12,}")
-    print(f"- TRX Transacción con match q2:               {trx_match:>12,}")
-    print(f"- Clientes unicos Transacción con match q2:   {clientes_trx_match:>12,}")
+    print(f"- TRX en Query1 (solo Transacción):           {total_q1:>12,}")
+    print(f"- Clientes unicos en Query1:                  {clientes_q1:>12,}")
+    print(f"- TRX con match q2:                           {total_match:>12,}")
+    print(f"- Clientes unicos con match q2:               {clientes_match:>12,}")
 
 
 def main() -> None:
@@ -491,22 +360,27 @@ def main() -> None:
             f"rtm_inicio={CONFIG_RTM_FECHA_INICIO}, exportar=0"
         )
 
-        raw_q1 = cargar_query(QUERY1_PATH)
+        raw_q1 = cargar_query(
+            QUERY1_PATH,
+            params={
+                "fecha_inicio": fecha_inicio.isoformat(),
+                "fecha_fin_exclusiva": fecha_fin_exclusiva.isoformat(),
+            },
+        )
         raw_q2 = cargar_query(QUERY2_PATH, params={"fecha_rtm_inicio": CONFIG_RTM_FECHA_INICIO})
 
         df1 = preparar_query1(raw_q1)
         df2 = preparar_query2(raw_q2)
 
-        df_q1_rango = df1[(df1["fecha_q1"] >= pd.Timestamp(fecha_inicio)) & (df1["fecha_q1"] < pd.Timestamp(fecha_fin_exclusiva))].copy()
+        df_q1_rango = df1.copy()
 
         cruce = df_q1_rango.merge(df2, on="padded_codigo_cliente", how="left")
         cruce["match_q2"] = cruce["fecha_q2"].notna() & (cruce["fecha_q1"] >= cruce["fecha_q2"])
         df_match = cruce[cruce["match_q2"]].copy()
-        df_match_obj = df_match[df_match["modulo_regla"] == MODULO_OBJETIVO].copy()
 
         imprimir_resumen(df_q1_rango, df2, df_match, fecha_inicio, fecha_fin_exclusiva)
 
-        clientes_objetivo = sorted(df_match_obj["padded_codigo_cliente"].dropna().astype(str).unique().tolist())
+        clientes_objetivo = sorted(df_match["padded_codigo_cliente"].dropna().astype(str).unique().tolist())
         df_financiero = cargar_perfil_financiero_clientes(clientes_objetivo, fecha_inicio, fecha_fin_exclusiva)
         imprimir_resumen_financiero(df_financiero, fecha_inicio, fecha_fin_exclusiva)
 
