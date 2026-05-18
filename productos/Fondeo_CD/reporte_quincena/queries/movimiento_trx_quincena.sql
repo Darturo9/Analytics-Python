@@ -2,11 +2,11 @@
 Movimiento y transacciones para universo de Cuenta Digital en rango configurable.
 
 Parametros esperados:
-- :fecha_inicio_universo            (YYYY-MM-DD, inclusiva)
-- :fecha_fin_universo_exclusiva     (YYYY-MM-DD, exclusiva)
-- :fecha_inicio_transacciones       (YYYY-MM-DD, inclusiva)
-- :fecha_fin_transacciones_exclusiva(YYYY-MM-DD, exclusiva)
--- :solo_fondeadas                   (1 = solo clientes fondeados en el rango, 0 = todo el universo)
+- fecha_inicio_universo             (YYYY-MM-DD, inclusiva)
+- fecha_fin_universo_exclusiva      (YYYY-MM-DD, exclusiva)
+- fecha_inicio_transacciones        (YYYY-MM-DD, inclusiva)
+- fecha_fin_transacciones_exclusiva (YYYY-MM-DD, exclusiva)
+- solo_fondeadas                    (1 = solo clientes fondeados en el rango, 0 = todo el universo)
 */
 
 WITH cuentas_rango AS (
