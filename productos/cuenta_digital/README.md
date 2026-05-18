@@ -20,3 +20,8 @@ Incluye segmentación por generaciones, campañas RTM y validación con Tableau.
 ├── dashboards/   → Apps Dash/Plotly para visualización
 └── exports/      → Archivos Excel/CSV generados (no se suben a git)
 ```
+
+## Módulo reutilizable
+
+- `reporte_quincena/` → Conteo parametrizable de cuentas creadas por rango de días
+  (por defecto 1 al 15 de cada mes).
