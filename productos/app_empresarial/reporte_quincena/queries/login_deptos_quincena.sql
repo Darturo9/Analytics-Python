@@ -56,7 +56,7 @@ direccion_cliente AS (
             ) AS rn
         FROM clientes_empresariales ce
         LEFT JOIN DW_CIF_DIRECCIONES d
-            ON LTRIM(RTRIM(ce.cldoc)) = LTRIM(RTRIM(d.CLDOC))
+            ON ce.cldoc = d.CLDOC
            AND d.CLDICO = 1
     ) y
     WHERE y.rn = 1
