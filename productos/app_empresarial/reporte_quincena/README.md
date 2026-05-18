@@ -11,7 +11,8 @@ reporte_quincena/
 │   └── clientes_rtm_quincena.sql
 └── programas_py/
     ├── reporte_quincena_app_empresarial.py
-    └── reporte_quincena_app_empresarial_saldos.py
+    ├── reporte_quincena_app_empresarial_saldos.py
+    └── reporte_quincena_app_empresarial_transacciones_saldos.py
 ```
 
 ## Reglas aplicadas en el script
@@ -55,6 +56,10 @@ python3 productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena
 python3 productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena_app_empresarial_saldos.py
 ```
 
+```bash
+python3 productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena_app_empresarial_transacciones_saldos.py
+```
+
 ## Salida
 
 - Resumen de volumen en rango (query1).
@@ -65,3 +70,8 @@ python3 productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena
 Salida adicional del script `reporte_quincena_app_empresarial_saldos.py`:
 - Perfil financiero de clientes del match (saldo al cierre, saldo promedio y clientes con saldo).
 - Top departamentos (depto) por cantidad de clientes del match.
+
+Salida del script `reporte_quincena_app_empresarial_transacciones_saldos.py`:
+- Universo exclusivo de clientes del modulo `Transacción` con match q2.
+- Total trx y clientes unicos de Transacción (rango y match).
+- Perfil financiero y top deptos solo para ese universo Transacción.
