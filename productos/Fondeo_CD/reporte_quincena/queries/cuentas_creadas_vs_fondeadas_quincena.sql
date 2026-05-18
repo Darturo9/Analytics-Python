@@ -10,11 +10,11 @@ WITH cuentas_quincena AS (
 )
 SELECT
     :periodo_quincena AS periodo_quincena,
-    :periodo_mes_fondeo AS periodo_mes_fondeo,
+    :periodo_fondeo AS periodo_fondeo,
     COUNT(DISTINCT q.DW_CUENTA_CORPORATIVA) AS cuentas_creadas_quincena,
-    COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN q.DW_CUENTA_CORPORATIVA END) AS cuentas_fondeadas_mes,
+    COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN q.DW_CUENTA_CORPORATIVA END) AS cuentas_fondeadas_periodo,
     COUNT(DISTINCT q.DW_CUENTA_CORPORATIVA)
-        - COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN q.DW_CUENTA_CORPORATIVA END) AS cuentas_sin_fondear_mes,
+        - COUNT(DISTINCT CASE WHEN h.ctt001 > 0 THEN q.DW_CUENTA_CORPORATIVA END) AS cuentas_sin_fondear_periodo,
     CAST(
         CASE
             WHEN COUNT(DISTINCT q.DW_CUENTA_CORPORATIVA) = 0 THEN 0
@@ -28,5 +28,5 @@ SELECT
 FROM cuentas_quincena q
 LEFT JOIN HIS_DEP_DEPOSITOS_VIEW h
     ON q.DW_CUENTA_CORPORATIVA = h.DW_CUENTA_CORPORATIVA
-   AND h.dw_fecha_informacion >= :fecha_inicio_mes
-   AND h.dw_fecha_informacion <  :fecha_fin_mes_exclusiva;
+   AND h.dw_fecha_informacion >= :fecha_inicio_fondeo
+   AND h.dw_fecha_informacion <  :fecha_fin_fondeo_exclusiva;

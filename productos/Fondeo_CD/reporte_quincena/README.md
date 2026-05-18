@@ -1,12 +1,12 @@
 # Reporte Quincena - Fondeo CD
 
 Este módulo calcula el fondeo de cuentas de `CUENTA DIGITAL` creadas en una quincena,
-permitiendo que el fondeo ocurra en **cualquier día del mes analizado**.
+usando el **mismo rango de fechas** tanto para creación como para fondeo.
 
 ## Regla de negocio
 
-- Universo base: cuentas creadas en el rango de quincena configurado.
-- Fondeada: cuenta con `ctt001 > 0` al menos una vez dentro del mes analizado.
+- Universo base: cuentas creadas en el rango configurado.
+- Fondeada: cuenta con `ctt001 > 0` al menos una vez dentro del mismo rango configurado.
 
 ## Estructura
 

@@ -56,22 +56,13 @@ def validar_rango_quincena(anio: int, mes: int, dia_inicio: int, dia_fin: int) -
     return fecha_inicio, fecha_fin_quincena_exclusiva
 
 
-def obtener_rango_mes(anio: int, mes: int) -> tuple[date, date]:
-    inicio_mes = date(anio, mes, 1)
-    if mes == 12:
-        fin_mes_exclusiva = date(anio + 1, 1, 1)
-    else:
-        fin_mes_exclusiva = date(anio, mes + 1, 1)
-    return inicio_mes, fin_mes_exclusiva
-
-
 def cargar_datos(params: dict) -> pd.DataFrame:
     df = run_query_file(str(RUTA_QUERY), params=params)
     df.columns = [str(c) for c in df.columns]
     for col in [
         "cuentas_creadas_quincena",
-        "cuentas_fondeadas_mes",
-        "cuentas_sin_fondear_mes",
+        "cuentas_fondeadas_periodo",
+        "cuentas_sin_fondear_periodo",
         "tasa_fondeo_pct",
     ]:
         if col in df.columns:
@@ -86,17 +77,17 @@ def imprimir_reporte(df: pd.DataFrame) -> None:
 
     row = df.iloc[0]
     periodo_quincena = str(row.get("periodo_quincena", "N/D"))
-    periodo_mes_fondeo = str(row.get("periodo_mes_fondeo", "N/D"))
+    periodo_fondeo = str(row.get("periodo_fondeo", "N/D"))
     creadas = int(row.get("cuentas_creadas_quincena", 0) or 0)
-    fondeadas = int(row.get("cuentas_fondeadas_mes", 0) or 0)
-    sin_fondear = int(row.get("cuentas_sin_fondear_mes", 0) or 0)
+    fondeadas = int(row.get("cuentas_fondeadas_periodo", 0) or 0)
+    sin_fondear = int(row.get("cuentas_sin_fondear_periodo", 0) or 0)
     tasa = float(row.get("tasa_fondeo_pct", 0.0) or 0.0)
 
     print("=" * 84)
     print("FONDEO CUENTA DIGITAL - REPORTE QUINCENAL CONFIGURABLE")
     print("=" * 84)
     print(f"Periodo quincena (creacion):                          {periodo_quincena}")
-    print(f"Periodo mes fondeo (cualquier dia):                   {periodo_mes_fondeo}")
+    print(f"Periodo fondeo (mismo rango):                         {periodo_fondeo}")
     print(f"Cuentas creadas en quincena:                          {creadas:>10,}")
     print(f"Cuentas fondeadas >=1 vez en el mes:                  {fondeadas:>10,}")
     print(f"Cuentas sin fondear en el mes:                        {sin_fondear:>10,}")
@@ -109,20 +100,21 @@ def main() -> None:
         fecha_inicio_quincena, fecha_fin_quincena_exclusiva = validar_rango_quincena(
             CONFIG_ANIO, CONFIG_MES, CONFIG_DIA_INICIO, CONFIG_DIA_FIN
         )
-        fecha_inicio_mes, fecha_fin_mes_exclusiva = obtener_rango_mes(CONFIG_ANIO, CONFIG_MES)
+        fecha_inicio_fondeo = fecha_inicio_quincena
+        fecha_fin_fondeo_exclusiva = fecha_fin_quincena_exclusiva
 
         params = {
             "fecha_inicio_quincena": fecha_inicio_quincena.isoformat(),
             "fecha_fin_quincena_exclusiva": fecha_fin_quincena_exclusiva.isoformat(),
-            "fecha_inicio_mes": fecha_inicio_mes.isoformat(),
-            "fecha_fin_mes_exclusiva": fecha_fin_mes_exclusiva.isoformat(),
+            "fecha_inicio_fondeo": fecha_inicio_fondeo.isoformat(),
+            "fecha_fin_fondeo_exclusiva": fecha_fin_fondeo_exclusiva.isoformat(),
             "periodo_quincena": (
                 f"{fecha_inicio_quincena.isoformat()} a "
                 f"{(fecha_fin_quincena_exclusiva - timedelta(days=1)).isoformat()}"
             ),
-            "periodo_mes_fondeo": (
-                f"{fecha_inicio_mes.isoformat()} a "
-                f"{(fecha_fin_mes_exclusiva - timedelta(days=1)).isoformat()}"
+            "periodo_fondeo": (
+                f"{fecha_inicio_fondeo.isoformat()} a "
+                f"{(fecha_fin_fondeo_exclusiva - timedelta(days=1)).isoformat()}"
             ),
         }
 
