@@ -121,6 +121,20 @@ MODULOS_GESTIONES = {
 }
 
 
+def coerce_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in {"1", "true", "t", "si", "sí", "yes", "y"}:
+            return True
+        if v in {"0", "false", "f", "no", "n", ""}:
+            return False
+    return bool(value)
+
+
 def validar_rango(anio: int, mes: int, dia_inicio: int, dia_fin: int) -> tuple[date, date]:
     if mes < 1 or mes > 12:
         raise ValueError("CONFIG_MES debe estar entre 1 y 12.")
@@ -546,10 +560,11 @@ def main() -> None:
 
         print(f"Cargando Query1: {QUERY1_PATH}")
         print(f"Cargando Query2: {QUERY2_PATH}")
+        exportar_clientes_habilitado = coerce_bool(CONFIG_EXPORTAR_CLIENTES)
         print(
             "Configuracion -> "
             f"anio={CONFIG_ANIO}, mes={CONFIG_MES}, dia_inicio={CONFIG_DIA_INICIO}, dia_fin={CONFIG_DIA_FIN}, "
-            f"rtm_inicio={CONFIG_RTM_FECHA_INICIO}, exportar={int(CONFIG_EXPORTAR_CLIENTES)}"
+            f"rtm_inicio={CONFIG_RTM_FECHA_INICIO}, exportar={1 if exportar_clientes_habilitado else 0}"
         )
 
         raw_q1 = cargar_query(QUERY1_PATH)
@@ -571,7 +586,7 @@ def main() -> None:
         df_financiero = cargar_perfil_financiero_clientes(clientes_objetivo, fecha_inicio, fecha_fin_exclusiva)
         imprimir_resumen_financiero(df_financiero, fecha_inicio, fecha_fin_exclusiva)
 
-        if CONFIG_EXPORTAR_CLIENTES:
+        if exportar_clientes_habilitado:
             exportar_clientes(df_match, fecha_inicio, fecha_fin_exclusiva)
 
     except SQLAlchemyError as exc:
