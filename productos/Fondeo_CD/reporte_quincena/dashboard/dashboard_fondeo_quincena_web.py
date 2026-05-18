@@ -393,10 +393,19 @@ def main() -> None:
             if(!n_clicks){ return window.dash_clientside.no_update; }
             var node = document.getElementById('dashboard-root');
             if(!node || typeof html2canvas === 'undefined'){ return 'no-captura'; }
-            html2canvas(node, {scale: 2, backgroundColor: '#f4f7fb'}).then(function(canvas){
+            var maxScale = 4;
+            var deviceScale = window.devicePixelRatio || 2;
+            var exportScale = Math.min(maxScale, Math.max(2, deviceScale * 2));
+            html2canvas(node, {
+                scale: exportScale,
+                backgroundColor: '#f4f7fb',
+                useCORS: true,
+                allowTaint: true,
+                imageTimeout: 0
+            }).then(function(canvas){
                 var link = document.createElement('a');
                 link.download = 'fondeo_cd_quincena.png';
-                link.href = canvas.toDataURL('image/png');
+                link.href = canvas.toDataURL('image/png', 1.0);
                 link.click();
             });
             return 'captura-' + n_clicks;
