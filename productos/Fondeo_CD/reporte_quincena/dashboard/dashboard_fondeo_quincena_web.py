@@ -30,7 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.colors import COLORES
+from core.colors import COLORES, PALETA
 from core.db import run_query_file
 
 
@@ -98,7 +98,12 @@ def cargar_datos(params: dict) -> pd.DataFrame:
     df["saldo_max_periodo"] = pd.to_numeric(df.get("saldo_max_periodo"), errors="coerce").fillna(0.0)
     df["fondeada"] = pd.to_numeric(df.get("fondeada"), errors="coerce").fillna(0).astype(int)
     df["genero"] = df.get("genero", "SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
-    df["departamento"] = df.get("departamento", "SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
+    df["departamento_nivel_1"] = (
+        df.get("departamento_nivel_1", "SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
+    )
+    df["departamento_nivel_2"] = (
+        df.get("departamento_nivel_2", "SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
+    )
     df["generacion"] = clasificar_generacion(df.get("fecha_nac"))
     return df
 
@@ -174,7 +179,17 @@ def grafico_genero(df_fondeadas: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def grafico_generacion(df_fondeadas: pd.DataFrame) -> go.Figure:
+def mapa_colores_generacion(etiquetas: list[str]) -> list[str]:
+    base = {
+        "Generation X (1965-1980)": COLORES["azul_experto"],
+        "Gen Y - Millennials (1981-1996)": COLORES["aqua_digital"],
+        "Generacion Z (1997-2012)": COLORES["amarillo_opt"],
+        "Otra Generacion / Sin dato": COLORES["azul_financiero"],
+    }
+    return [base.get(lbl, PALETA[i % len(PALETA)]) for i, lbl in enumerate(etiquetas)]
+
+
+def grafico_generacion_barras(df_fondeadas: pd.DataFrame) -> go.Figure:
     if df_fondeadas.empty:
         return figura_vacia("Sin cuentas fondeadas en el rango")
 
@@ -184,13 +199,15 @@ def grafico_generacion(df_fondeadas: pd.DataFrame) -> go.Figure:
         .rename(columns={"numero_cuenta": "cuentas"})
         .sort_values("cuentas", ascending=False)
     )
+    etiquetas = resumen["generacion"].tolist()
+    colores = mapa_colores_generacion(etiquetas)
 
     fig = go.Figure(
         data=[
             go.Bar(
                 x=resumen["generacion"],
                 y=resumen["cuentas"],
-                marker_color=COLORES["aqua_digital"],
+                marker_color=colores,
                 text=[f"{v:,}" for v in resumen["cuentas"]],
                 textposition="outside",
                 hovertemplate="Generacion: %{x}<br>Cuentas: %{y:,}<extra></extra>",
@@ -209,16 +226,52 @@ def grafico_generacion(df_fondeadas: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def top3_departamentos(df_fondeadas: pd.DataFrame) -> pd.DataFrame:
+def grafico_generacion_pastel(df_fondeadas: pd.DataFrame) -> go.Figure:
+    if df_fondeadas.empty:
+        return figura_vacia("Sin cuentas fondeadas en el rango")
+
+    resumen = (
+        df_fondeadas.groupby("generacion", as_index=False)["numero_cuenta"]
+        .nunique()
+        .rename(columns={"numero_cuenta": "cuentas"})
+        .sort_values("cuentas", ascending=False)
+    )
+    etiquetas = resumen["generacion"].tolist()
+    colores = mapa_colores_generacion(etiquetas)
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=etiquetas,
+                values=resumen["cuentas"],
+                hole=0.45,
+                marker=dict(colors=colores),
+                textinfo="label+percent",
+                hovertemplate="%{label}<br>Cuentas: %{value:,}<br>Participacion: %{percent}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Cuentas fondeadas por generacion (pastel)",
+        plot_bgcolor=COLORES["blanco"],
+        paper_bgcolor=COLORES["blanco"],
+        font=dict(color=COLORES["azul_experto"]),
+        margin=dict(t=50, b=20, l=20, r=20),
+    )
+    return fig
+
+
+def top3_departamentos(df_fondeadas: pd.DataFrame, col_departamento: str) -> pd.DataFrame:
     if df_fondeadas.empty:
         return pd.DataFrame(columns=["departamento", "cuentas_fondeadas", "monto_max_fondeado"])
 
     top = (
-        df_fondeadas.groupby("departamento", as_index=False)
+        df_fondeadas.groupby(col_departamento, as_index=False)
         .agg(
             cuentas_fondeadas=("numero_cuenta", "nunique"),
             monto_max_fondeado=("saldo_max_periodo", "sum"),
         )
+        .rename(columns={col_departamento: "departamento"})
         .sort_values(["monto_max_fondeado", "cuentas_fondeadas"], ascending=[False, False])
         .head(3)
         .reset_index(drop=True)
@@ -226,7 +279,7 @@ def top3_departamentos(df_fondeadas: pd.DataFrame) -> pd.DataFrame:
     return top
 
 
-def grafico_top_deptos(top3: pd.DataFrame) -> go.Figure:
+def grafico_top_deptos(top3: pd.DataFrame, titulo: str) -> go.Figure:
     if top3.empty:
         return figura_vacia("Sin cuentas fondeadas en el rango")
 
@@ -247,7 +300,7 @@ def grafico_top_deptos(top3: pd.DataFrame) -> go.Figure:
         ]
     )
     fig.update_layout(
-        title="Top 3 departamentos por monto maximo fondeado",
+        title=titulo,
         plot_bgcolor=COLORES["blanco"],
         paper_bgcolor=COLORES["blanco"],
         font=dict(color=COLORES["azul_experto"]),
@@ -264,22 +317,28 @@ def construir_layout(df: pd.DataFrame, periodo: str) -> html.Div:
     total_fondeadas = int(df_fondeadas["numero_cuenta"].nunique()) if not df_fondeadas.empty else 0
     sin_fondear = total_cuentas - total_fondeadas
     tasa = (total_fondeadas / total_cuentas * 100.0) if total_cuentas > 0 else 0.0
-    top3 = top3_departamentos(df_fondeadas)
+    top3_nivel_1 = top3_departamentos(df_fondeadas, "departamento_nivel_1")
+    top3_nivel_2 = top3_departamentos(df_fondeadas, "departamento_nivel_2")
 
-    table_rows = []
-    if not top3.empty:
-        for _, r in top3.iterrows():
-            table_rows.append(
-                html.Tr(
-                    [
-                        html.Td(r["departamento"]),
-                        html.Td(f"{int(r['cuentas_fondeadas']):,}", style={"textAlign": "right"}),
-                        html.Td(f"{float(r['monto_max_fondeado']):,.2f}", style={"textAlign": "right"}),
-                    ]
+    def construir_filas_tabla(top3_df: pd.DataFrame) -> list[html.Tr]:
+        filas = []
+        if not top3_df.empty:
+            for _, r in top3_df.iterrows():
+                filas.append(
+                    html.Tr(
+                        [
+                            html.Td(r["departamento"]),
+                            html.Td(f"{int(r['cuentas_fondeadas']):,}", style={"textAlign": "right"}),
+                            html.Td(f"{float(r['monto_max_fondeado']):,.2f}", style={"textAlign": "right"}),
+                        ]
+                    )
                 )
-            )
-    else:
-        table_rows.append(html.Tr([html.Td("Sin datos", colSpan=3, style={"textAlign": "center"})]))
+        else:
+            filas.append(html.Tr([html.Td("Sin datos", colSpan=3, style={"textAlign": "center"})]))
+        return filas
+
+    table_rows_n1 = construir_filas_tabla(top3_nivel_1)
+    table_rows_n2 = construir_filas_tabla(top3_nivel_2)
 
     return html.Div(
         id="dashboard-root",
@@ -324,29 +383,80 @@ def construir_layout(df: pd.DataFrame, periodo: str) -> html.Div:
                 style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px"},
                 children=[
                     dcc.Graph(figure=grafico_genero(df_fondeadas)),
-                    dcc.Graph(figure=grafico_generacion(df_fondeadas)),
+                    dcc.Graph(figure=grafico_generacion_pastel(df_fondeadas)),
                 ],
             ),
-            dcc.Graph(figure=grafico_top_deptos(top3)),
-            html.H4("Top 3 departamentos (resumen)", style={"color": COLORES["azul_experto"], "marginBottom": "8px"}),
-            html.Table(
-                style={
-                    "width": "100%",
-                    "backgroundColor": COLORES["blanco"],
-                    "borderCollapse": "collapse",
-                    "boxShadow": "0 1px 6px rgba(0, 56, 101, 0.12)",
-                },
+            dcc.Graph(figure=grafico_generacion_barras(df_fondeadas)),
+            html.Div(
+                style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px"},
                 children=[
-                    html.Thead(
-                        html.Tr(
-                            [
-                                html.Th("Departamento", style={"textAlign": "left", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
-                                html.Th("Cuentas fondeadas", style={"textAlign": "right", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
-                                html.Th("Monto maximo fondeado", style={"textAlign": "right", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
-                            ]
+                    dcc.Graph(
+                        figure=grafico_top_deptos(
+                            top3_nivel_1,
+                            "Top 3 deptos nivel 1 por monto maximo fondeado",
                         )
                     ),
-                    html.Tbody(table_rows),
+                    dcc.Graph(
+                        figure=grafico_top_deptos(
+                            top3_nivel_2,
+                            "Top 3 deptos nivel 2 por monto maximo fondeado",
+                        )
+                    ),
+                ],
+            ),
+            html.Div(
+                style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px"},
+                children=[
+                    html.Div(
+                        children=[
+                            html.H4("Top 3 deptos nivel 1 (resumen)", style={"color": COLORES["azul_experto"], "marginBottom": "8px"}),
+                            html.Table(
+                                style={
+                                    "width": "100%",
+                                    "backgroundColor": COLORES["blanco"],
+                                    "borderCollapse": "collapse",
+                                    "boxShadow": "0 1px 6px rgba(0, 56, 101, 0.12)",
+                                },
+                                children=[
+                                    html.Thead(
+                                        html.Tr(
+                                            [
+                                                html.Th("Departamento", style={"textAlign": "left", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
+                                                html.Th("Cuentas fondeadas", style={"textAlign": "right", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
+                                                html.Th("Monto maximo fondeado", style={"textAlign": "right", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
+                                            ]
+                                        )
+                                    ),
+                                    html.Tbody(table_rows_n1),
+                                ],
+                            ),
+                        ]
+                    ),
+                    html.Div(
+                        children=[
+                            html.H4("Top 3 deptos nivel 2 (resumen)", style={"color": COLORES["azul_experto"], "marginBottom": "8px"}),
+                            html.Table(
+                                style={
+                                    "width": "100%",
+                                    "backgroundColor": COLORES["blanco"],
+                                    "borderCollapse": "collapse",
+                                    "boxShadow": "0 1px 6px rgba(0, 56, 101, 0.12)",
+                                },
+                                children=[
+                                    html.Thead(
+                                        html.Tr(
+                                            [
+                                                html.Th("Departamento", style={"textAlign": "left", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
+                                                html.Th("Cuentas fondeadas", style={"textAlign": "right", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
+                                                html.Th("Monto maximo fondeado", style={"textAlign": "right", "padding": "8px", "borderBottom": "1px solid #d9e2ec"}),
+                                            ]
+                                        )
+                                    ),
+                                    html.Tbody(table_rows_n2),
+                                ],
+                            ),
+                        ]
+                    ),
                 ],
             ),
         ],

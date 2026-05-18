@@ -30,7 +30,8 @@ base AS (
             ELSE 0
         END AS fondeada,
         COALESCE(NULLIF(LTRIM(RTRIM(cli.clisex)), ''), 'SIN DATO') AS genero,
-        COALESCE(NULLIF(LTRIM(RTRIM(dir.dw_nivel_geo1)), ''), 'SIN DATO') AS departamento,
+        COALESCE(NULLIF(LTRIM(RTRIM(dir.dw_nivel_geo1)), ''), 'SIN DATO') AS departamento_nivel_1,
+        COALESCE(NULLIF(LTRIM(RTRIM(dir.dw_nivel_geo2)), ''), 'SIN DATO') AS departamento_nivel_2,
         CAST(cli.DW_FECHA_NACIMIENTO AS DATE) AS fecha_nac,
         ROW_NUMBER() OVER (
             PARTITION BY q.numero_cuenta
@@ -55,7 +56,8 @@ SELECT
     saldo_max_periodo,
     fondeada,
     genero,
-    departamento,
+    departamento_nivel_1,
+    departamento_nivel_2,
     fecha_nac
 FROM base
 WHERE rn = 1;
