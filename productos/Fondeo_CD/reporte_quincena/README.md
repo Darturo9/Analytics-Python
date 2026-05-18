@@ -17,8 +17,10 @@ reporte_quincena/
 ├── queries/
 │   └── cuentas_creadas_vs_fondeadas_quincena.sql
 │   └── detalle_fondeo_quincena_dashboard.sql
+│   └── movimiento_trx_quincena.sql
 └── analysis/
     └── reporte_fondeo_quincena_configurable.py
+    └── reporte_movimiento_trx_quincena.py
 ```
 
 ## Configuración (en el `.py`)
@@ -43,6 +45,21 @@ Ejemplo:
 
 ```bash
 python3 productos/Fondeo_CD/reporte_quincena/analysis/reporte_fondeo_quincena_configurable.py
+```
+
+## Reporte de movimiento / trx (consola)
+
+Imprime:
+- Cuentas con movimiento
+- Total trx
+- Monto trx
+- Top trx mas realizadas por esos clientes en 3 bloques:
+  - BXI
+  - MULTIPAGO
+  - CONSOLIDADO
+
+```bash
+python3 productos/Fondeo_CD/reporte_quincena/analysis/reporte_movimiento_trx_quincena.py
 ```
 
 ## Dashboard web
