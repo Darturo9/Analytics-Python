@@ -2,8 +2,8 @@
 Login App Empresarial por rango parametrizable con depto nivel 2.
 
 Parametros esperados:
-- :fecha_inicio (YYYY-MM-DD, inclusiva)
-- :fecha_fin_exclusiva (YYYY-MM-DD, exclusiva)
+- fecha_inicio (YYYY-MM-DD, inclusiva)
+- fecha_fin_exclusiva (YYYY-MM-DD, exclusiva)
 */
 
 WITH login_base AS (
