@@ -96,11 +96,39 @@ def clasificar_generacion(fecha_nac) -> str:
     if 1981 <= anio <= 1996:
         return "Gen Y - Millennials (1981-1996)"
     if 1997 <= anio <= 2012:
-        return "Generación Z (1997-2012)"
+        return "Generacion Z (1997-2012)"
     return "OTRA GENERACION"
 
 
-def cargar_bases(fecha_inicio: date, fecha_fin_exclusiva: date) -> tuple[pd.DataFrame, pd.DataFrame]:
+def normalizar_genero(valor) -> str:
+    if pd.isna(valor):
+        return "Sin dato"
+    texto = str(valor).strip().upper()
+    if texto in {"F", "FEMENINO", "MUJER"}:
+        return "Mujer"
+    if texto in {"M", "MASCULINO", "HOMBRE"}:
+        return "Hombre"
+    return "Sin dato"
+
+
+def es_usuario_activo(valor) -> bool:
+    if pd.isna(valor):
+        return False
+
+    estado = str(valor).strip().upper()
+    if estado.endswith(".0") and estado[:-2].isdigit():
+        estado = estado[:-2]
+
+    if "INACT" in estado:
+        return False
+
+    activos = {"A", "ACTIVO", "ACTIVE", "1", "TRUE", "T", "HABILITADO", "VIGENTE"}
+    return estado in activos or ("ACT" in estado and "INACT" not in estado)
+
+
+def cargar_bases(
+    fecha_inicio: date, fecha_fin_exclusiva: date
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     fecha_rtm_inicio = pd.to_datetime(CONFIG_RTM_FECHA_INICIO)
     fecha_rtm_fin_exclusiva = pd.to_datetime(fecha_fin_exclusiva)
 
@@ -119,20 +147,39 @@ def cargar_bases(fecha_inicio: date, fecha_fin_exclusiva: date) -> tuple[pd.Data
             "fecha_rtm_fin_exclusiva": fecha_rtm_fin_exclusiva.isoformat(),
         },
     )
+    logins = run_query_file_hsv(
+        BASE_DIR / "queries" / "logins_quincena.sql",
+        params={
+            "fecha_inicio": fecha_inicio.isoformat(),
+            "fecha_fin_exclusiva": fecha_fin_exclusiva.isoformat(),
+        },
+    )
+    trx = run_query_file_hsv(
+        BASE_DIR / "queries" / "trx_quincena.sql",
+        params={
+            "fecha_inicio": fecha_inicio.isoformat(),
+            "fecha_fin_exclusiva": fecha_fin_exclusiva.isoformat(),
+        },
+    )
 
     print(f"  {len(conversion):,} registros conversion")
     print(f"  {len(rtm):,} registros RTM")
-    return conversion, rtm
+    print(f"  {len(logins):,} registros logins")
+    print(f"  {len(trx):,} registros trx")
+    return conversion, rtm, logins, trx
 
 
-def preparar_datos(conversion: pd.DataFrame, rtm: pd.DataFrame) -> pd.DataFrame:
+def preparar_cohorte(conversion: pd.DataFrame, rtm: pd.DataFrame) -> pd.DataFrame:
     conv = conversion.copy()
     camp = rtm.copy()
 
     conv["fecha_creacion_usuario"] = pd.to_datetime(conv["fecha_creacion_usuario"], errors="coerce")
     conv["fecha_nacimiento_usuario"] = pd.to_datetime(conv["fecha_nacimiento_usuario"], errors="coerce")
     conv = conv[conv["fecha_creacion_usuario"].notna()].copy()
+
     conv["generacion"] = conv["fecha_nacimiento_usuario"].apply(clasificar_generacion)
+    conv["genero"] = conv["genero_cliente"].apply(normalizar_genero)
+    conv["es_usuario_activo"] = conv["estado_usuario"].apply(es_usuario_activo)
 
     conv["id_usuario"] = conv["nombre_usuario"].astype("string").str.strip()
     conv.loc[conv["nombre_usuario"].isna(), "id_usuario"] = pd.NA
@@ -175,8 +222,10 @@ def preparar_datos(conversion: pd.DataFrame, rtm: pd.DataFrame) -> pd.DataFrame:
         .agg(
             dia=("dia", "min"),
             fecha_creacion_usuario=("fecha_creacion_usuario", "min"),
-            fecha_nacimiento_usuario=("fecha_nacimiento_usuario", "first"),
+            codigo_cliente_usuario_creado=("codigo_cliente_usuario_creado", "first"),
             generacion=("generacion", "first"),
+            genero=("genero", "first"),
+            es_usuario_activo=("es_usuario_activo", lambda s: bool(s.fillna(False).any())),
             direccion_lvl_1=("direccion_lvl_1", "first"),
             direccion_lvl_2=("direccion_lvl_2", "first"),
             estado_usuario=("estado_usuario", "first"),
@@ -191,57 +240,125 @@ def preparar_datos(conversion: pd.DataFrame, rtm: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def imprimir_resumen(df: pd.DataFrame, fecha_inicio: date, fecha_fin_exclusiva: date) -> None:
-    total_usuarios = int(df["id_usuario"].nunique()) if not df.empty else 0
+def preparar_logins(logins_df: pd.DataFrame) -> pd.DataFrame:
+    logins = logins_df.copy()
+    if logins.empty:
+        return logins
+
+    logins["codigo_cliente_login"] = logins["codigo_cliente_login"].apply(normalizar_codigo_cliente)
+    logins = logins[logins["codigo_cliente_login"] != ""].copy()
+    logins["fecha_login"] = pd.to_datetime(logins["fecha_login"], errors="coerce")
+    logins = logins[logins["fecha_login"].notna()].copy()
+    return logins
+
+
+def preparar_trx(trx_df: pd.DataFrame) -> pd.DataFrame:
+    trx = trx_df.copy()
+    if trx.empty:
+        return trx
+
+    trx["codigo_cliente_transaccion"] = trx["codigo_cliente_transaccion"].apply(normalizar_codigo_cliente)
+    trx = trx[trx["codigo_cliente_transaccion"] != ""].copy()
+    trx["fecha_transaccion"] = pd.to_datetime(trx["fecha_transaccion"], errors="coerce")
+    trx = trx[trx["fecha_transaccion"].notna()].copy()
+    trx["monto_transaccion"] = pd.to_numeric(trx["monto_transaccion"], errors="coerce").fillna(0.0)
+    trx["transaccion"] = trx["transaccion"].fillna("SIN DATO").astype(str).str.strip().replace("", "SIN DATO")
+    return trx
+
+
+def calcular_metricas_eventos(
+    cohorte: pd.DataFrame,
+    logins: pd.DataFrame,
+    trx: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    mapa_cod_usuario = (
+        cohorte[["codigo_cliente_usuario_creado", "id_usuario"]]
+        .dropna(subset=["codigo_cliente_usuario_creado", "id_usuario"])
+        .drop_duplicates()
+    )
+
+    logins_match = logins.merge(
+        mapa_cod_usuario,
+        how="inner",
+        left_on="codigo_cliente_login",
+        right_on="codigo_cliente_usuario_creado",
+    )
+
+    trx_match = trx.merge(
+        mapa_cod_usuario,
+        how="inner",
+        left_on="codigo_cliente_transaccion",
+        right_on="codigo_cliente_usuario_creado",
+    )
+
+    return logins_match, trx_match
+
+
+def imprimir_resumen(
+    cohorte: pd.DataFrame,
+    logins_match: pd.DataFrame,
+    trx_match: pd.DataFrame,
+    fecha_inicio: date,
+    fecha_fin_exclusiva: date,
+) -> None:
+    total_usuarios = int(cohorte["id_usuario"].nunique()) if not cohorte.empty else 0
     fecha_fin_inclusiva = fecha_fin_exclusiva - timedelta(days=1)
 
-    print("=" * 78)
+    usuarios_activos = int(cohorte.loc[cohorte["es_usuario_activo"] == True, "id_usuario"].nunique())
+    usuarios_con_login = int(logins_match["id_usuario"].nunique()) if not logins_match.empty else 0
+    total_logins = int(len(logins_match))
+    usuarios_con_trx = int(trx_match["id_usuario"].nunique()) if not trx_match.empty else 0
+    total_trx = int(len(trx_match))
+
+    print("=" * 88)
     print("CREACION DE USUARIO SV - REPORTE QUINCENAL (CONSOLA)")
-    print("=" * 78)
+    print("=" * 88)
     print(f"Rango: {fecha_inicio.isoformat()} a {fecha_fin_inclusiva.isoformat()}")
     print(f"Total usuarios unicos creados (RECDIST nombre_usuario): {total_usuarios:,}")
+    print(f"Usuarios activos:                                      {usuarios_activos:,}")
+    print(f"Usuarios con login:                                   {usuarios_con_login:,}")
+    print(f"Total logins:                                         {total_logins:,}")
+    print(f"Usuarios con trx:                                     {usuarios_con_trx:,}")
+    print(f"Total trx:                                            {total_trx:,}")
 
     print("\n--- Distribucion por medio ---")
-    if df.empty:
+    if cohorte.empty:
         print("Sin datos.")
     else:
-        medio_counts = df.groupby("medio")["id_usuario"].nunique().sort_values(ascending=False)
+        medio_counts = cohorte.groupby("medio")["id_usuario"].nunique().sort_values(ascending=False)
         for medio, val in medio_counts.items():
             pct = (val / total_usuarios * 100) if total_usuarios else 0
             print(f"{medio:15} {val:>8,}  ({pct:5.2f}%)")
 
-    print("\n--- Creaciones por dia ---")
-    if df.empty:
+    print("\n--- Distribucion por genero ---")
+    if cohorte.empty:
         print("Sin datos.")
     else:
-        diario = df.groupby("fecha")["id_usuario"].nunique().sort_index()
-        for fecha, val in diario.items():
-            print(f"{fecha}  {val:>8,}")
+        genero_counts = (
+            cohorte["genero"]
+            .fillna("Sin dato")
+            .astype(str)
+            .str.strip()
+            .replace("", "Sin dato")
+            .value_counts()
+            .reindex(["Mujer", "Hombre", "Sin dato"], fill_value=0)
+        )
+        for genero, val in genero_counts.items():
+            pct = (val / total_usuarios * 100) if total_usuarios else 0
+            print(f"{genero:10} {val:>8,}  ({pct:5.2f}%)")
 
-    print("\n--- Top 10 direccion_lvl_1 ---")
-    if df.empty:
+    print("\n--- Generaciones ---")
+    if cohorte.empty:
         print("Sin datos.")
     else:
-        top_geo1 = (
-            df["direccion_lvl_1"].fillna("SIN_DATO").astype(str).str.strip().replace("", "SIN_DATO")
-        ).value_counts().head(10)
-        for geo, val in top_geo1.items():
-            print(f"{geo[:30]:30} {val:>8,}")
-
-    print("\n--- Generaciones (solo Medios propios) ---")
-    if df.empty:
-        print("Sin datos.")
-    else:
-        df_medios_propios = df[df["medio"] == "Medios propios"].copy()
-        total_medios_propios = int(df_medios_propios["id_usuario"].nunique())
         orden_generaciones = [
             "Generation X (1965-1980)",
             "Gen Y - Millennials (1981-1996)",
-            "Generación Z (1997-2012)",
+            "Generacion Z (1997-2012)",
             "OTRA GENERACION",
         ]
         gen_counts = (
-            df_medios_propios["generacion"]
+            cohorte["generacion"]
             .fillna("OTRA GENERACION")
             .astype(str)
             .str.strip()
@@ -250,8 +367,26 @@ def imprimir_resumen(df: pd.DataFrame, fecha_inicio: date, fecha_fin_exclusiva: 
             .reindex(orden_generaciones, fill_value=0)
         )
         for generacion, val in gen_counts.items():
-            pct = (val / total_medios_propios * 100) if total_medios_propios else 0
+            pct = (val / total_usuarios * 100) if total_usuarios else 0
             print(f"{generacion:32} {val:>8,}  ({pct:5.2f}%)")
+
+    print("\n--- Creaciones por dia ---")
+    if cohorte.empty:
+        print("Sin datos.")
+    else:
+        diario = cohorte.groupby("fecha")["id_usuario"].nunique().sort_index()
+        for fecha, val in diario.items():
+            print(f"{fecha}  {val:>8,}")
+
+    print("\n--- Top 10 direccion_lvl_1 ---")
+    if cohorte.empty:
+        print("Sin datos.")
+    else:
+        top_geo1 = (
+            cohorte["direccion_lvl_1"].fillna("SIN_DATO").astype(str).str.strip().replace("", "SIN_DATO")
+        ).value_counts().head(10)
+        for geo, val in top_geo1.items():
+            print(f"{geo[:30]:30} {val:>8,}")
 
 
 def main() -> None:
@@ -265,9 +400,13 @@ def main() -> None:
             f"rtm_inicio={CONFIG_RTM_FECHA_INICIO}, db={CONFIG_DB_NAME}, ventana_meses={CONFIG_VENTANA_CAMPANIA_MESES}"
         )
 
-        conversion_df, rtm_df = cargar_bases(fecha_inicio, fecha_fin_exclusiva)
-        data = preparar_datos(conversion_df, rtm_df)
-        imprimir_resumen(data, fecha_inicio, fecha_fin_exclusiva)
+        conversion_df, rtm_df, logins_df, trx_df = cargar_bases(fecha_inicio, fecha_fin_exclusiva)
+        cohorte = preparar_cohorte(conversion_df, rtm_df)
+        logins = preparar_logins(logins_df)
+        trx = preparar_trx(trx_df)
+        logins_match, trx_match = calcular_metricas_eventos(cohorte, logins, trx)
+
+        imprimir_resumen(cohorte, logins_match, trx_match, fecha_inicio, fecha_fin_exclusiva)
 
     except SQLAlchemyError as exc:
         msg = " ".join(str(exc).split())

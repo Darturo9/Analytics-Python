@@ -23,5 +23,5 @@ validaciones y métricas del proceso de onboarding.
 
 ## Módulo reutilizable
 
-- `reporte_quincena/` → Reporte de resultados quincenales configurable desde código
-  (fechas y ventana RTM editables en el `.py`).
+- `reporte_quincena/` → Reporte de resultados quincenales configurable desde codigo
+  (consola + dashboard web, fechas y ventana RTM editables en el `.py`).
