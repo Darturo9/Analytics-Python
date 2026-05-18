@@ -20,3 +20,8 @@ validaciones y métricas del proceso de onboarding.
 ├── dashboards/   → Apps Dash/Plotly para visualización
 └── exports/      → Archivos Excel/CSV generados (no se suben a git)
 ```
+
+## Módulo reutilizable
+
+- `reporte_quincena/` → Reporte de resultados quincenales configurable desde código
+  (fechas y ventana RTM editables en el `.py`).
