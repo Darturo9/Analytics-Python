@@ -12,8 +12,11 @@ usando el **mismo rango de fechas** tanto para creación como para fondeo.
 
 ```text
 reporte_quincena/
+├── dashboard/
+│   └── dashboard_fondeo_quincena_web.py
 ├── queries/
 │   └── cuentas_creadas_vs_fondeadas_quincena.sql
+│   └── detalle_fondeo_quincena_dashboard.sql
 └── analysis/
     └── reporte_fondeo_quincena_configurable.py
 ```
@@ -40,4 +43,17 @@ Ejemplo:
 
 ```bash
 python3 productos/Fondeo_CD/reporte_quincena/analysis/reporte_fondeo_quincena_configurable.py
+```
+
+## Dashboard web
+
+Incluye:
+- KPIs de cuentas creadas/fondeadas/sin fondear/tasa.
+- Genero de clientes fondeados.
+- Generacion de clientes fondeados.
+- Top 3 departamentos por monto maximo fondeado.
+- Boton para descargar captura PNG del dashboard.
+
+```bash
+python3 productos/Fondeo_CD/reporte_quincena/dashboard/dashboard_fondeo_quincena_web.py
 ```
