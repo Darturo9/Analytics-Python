@@ -35,7 +35,6 @@ from core.db import get_engine, run_query_file
 BASE_DIR = Path(__file__).resolve().parents[1]
 QUERY1_PATH = BASE_DIR / "queries" / "query1_quincena.sql"
 QUERY2_PATH = BASE_DIR / "queries" / "clientes_rtm_quincena.sql"
-EXPORTS_DIR = BASE_DIR / "exports"
 
 # Configuracion editable desde codigo.
 CONFIG_ANIO = 2026
@@ -43,7 +42,6 @@ CONFIG_MES = 5
 CONFIG_DIA_INICIO = 1
 CONFIG_DIA_FIN = 15
 CONFIG_RTM_FECHA_INICIO = "2025-05-01"
-CONFIG_EXPORTAR_CLIENTES = True
 CONFIG_CHUNK_SIZE_CLIENTES = 400
 CONFIG_TOP_DEPTOS = 5
 
@@ -119,20 +117,6 @@ MODULOS_GESTIONES = {
     "aprovisionamiento tc-td",
     "bloqueo y desbloqueo tc",
 }
-
-
-def coerce_bool(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        v = value.strip().lower()
-        if v in {"1", "true", "t", "si", "sí", "yes", "y"}:
-            return True
-        if v in {"0", "false", "f", "no", "n", ""}:
-            return False
-    return bool(value)
 
 
 def validar_rango(anio: int, mes: int, dia_inicio: int, dia_fin: int) -> tuple[date, date]:
@@ -510,34 +494,6 @@ def imprimir_resumen(
     print(f"- Clientes unicos Transacción con match q2:   {clientes_trx_match:>12,}")
 
 
-def exportar_clientes(df_match: pd.DataFrame, fecha_inicio: date, fecha_fin_exclusiva: date) -> None:
-    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    fecha_fin_inclusiva = fecha_fin_exclusiva - timedelta(days=1)
-    sufijo = f"{fecha_inicio.strftime('%Y%m%d')}_{fecha_fin_inclusiva.strftime('%Y%m%d')}"
-
-    clientes = (
-        df_match[df_match["modulo_regla"] == MODULO_OBJETIVO][["padded_codigo_cliente"]]
-        .drop_duplicates()
-        .sort_values("padded_codigo_cliente")
-        .rename(columns={"padded_codigo_cliente": "codigo_cliente"})
-    )
-
-    txt_path = EXPORTS_DIR / f"Clientes_Quincena_{sufijo}_Transacciones.txt"
-    xlsx_path = EXPORTS_DIR / f"Clientes_Quincena_{sufijo}_Transacciones.xlsx"
-
-    clientes["codigo_cliente"].to_csv(txt_path, index=False, header=False, encoding="utf-8")
-    try:
-        clientes.to_excel(xlsx_path, index=False)
-        excel_msg = str(xlsx_path)
-    except Exception:
-        excel_msg = "No se pudo generar (motor Excel no disponible)."
-
-    print("\nExportables:")
-    print(f"- Clientes unicos exportados: {len(clientes):,}")
-    print(f"- TXT:   {txt_path}")
-    print(f"- Excel: {excel_msg}")
-
-
 def main() -> None:
     try:
         fecha_inicio, fecha_fin_exclusiva = validar_rango(
@@ -546,11 +502,10 @@ def main() -> None:
 
         print(f"Cargando Query1: {QUERY1_PATH}")
         print(f"Cargando Query2: {QUERY2_PATH}")
-        exportar_clientes_habilitado = coerce_bool(CONFIG_EXPORTAR_CLIENTES)
         print(
             "Configuracion -> "
             f"anio={CONFIG_ANIO}, mes={CONFIG_MES}, dia_inicio={CONFIG_DIA_INICIO}, dia_fin={CONFIG_DIA_FIN}, "
-            f"rtm_inicio={CONFIG_RTM_FECHA_INICIO}, exportar={1 if exportar_clientes_habilitado else 0}"
+            f"rtm_inicio={CONFIG_RTM_FECHA_INICIO}, exportar=0"
         )
 
         raw_q1 = cargar_query(QUERY1_PATH)
@@ -571,9 +526,6 @@ def main() -> None:
         clientes_objetivo = sorted(df_match_obj["padded_codigo_cliente"].dropna().astype(str).unique().tolist())
         df_financiero = cargar_perfil_financiero_clientes(clientes_objetivo, fecha_inicio, fecha_fin_exclusiva)
         imprimir_resumen_financiero(df_financiero, fecha_inicio, fecha_fin_exclusiva)
-
-        if exportar_clientes_habilitado:
-            exportar_clientes(df_match, fecha_inicio, fecha_fin_exclusiva)
 
     except SQLAlchemyError as exc:
         print(f"[ERROR] No se pudo ejecutar la query en SQL Server: {exc}")
