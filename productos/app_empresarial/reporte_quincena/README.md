@@ -10,7 +10,8 @@ reporte_quincena/
 │   ├── query1_quincena.sql
 │   └── clientes_rtm_quincena.sql
 └── programas_py/
-    └── reporte_quincena_app_empresarial.py
+    ├── reporte_quincena_app_empresarial.py
+    └── reporte_quincena_app_empresarial_saldos.py
 ```
 
 ## Reglas aplicadas en el script
@@ -36,10 +37,22 @@ Editar en:
 - `CONFIG_RTM_FECHA_INICIO`
 - `CONFIG_EXPORTAR_CLIENTES` (True/False)
 
+Para el reporte de saldos:
+
+`productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena_app_empresarial_saldos.py`
+
+- mismas variables anteriores
+- `CONFIG_CHUNK_SIZE_CLIENTES`
+- `CONFIG_TOP_DEPTOS`
+
 ## Ejecucion
 
 ```bash
 python3 productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena_app_empresarial.py
+```
+
+```bash
+python3 productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena_app_empresarial_saldos.py
 ```
 
 ## Salida
@@ -48,3 +61,7 @@ python3 productos/app_empresarial/reporte_quincena/programas_py/reporte_quincena
 - Resumen de volumen con match contra RTM (cliente + fecha).
 - Tabla de modulos antes y despues del match.
 - Export opcional de clientes unicos del resultado final.
+
+Salida adicional del script `reporte_quincena_app_empresarial_saldos.py`:
+- Perfil financiero de clientes del match (saldo al cierre, saldo promedio y clientes con saldo).
+- Top departamentos (depto) por cantidad de clientes del match.
