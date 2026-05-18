@@ -20,3 +20,7 @@ transacciones, conversiones y uso de la app por clientes empresariales.
 ├── dashboards/   → Apps Dash/Plotly para visualización
 └── exports/      → Archivos Excel/CSV generados (no se suben a git)
 ```
+
+## Módulo reutilizable
+
+- `reporte_quincena/` → Reporte quincenal configurable desde codigo (fechas editables en el `.py`).
