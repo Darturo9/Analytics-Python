@@ -289,31 +289,18 @@ WITH clientes_empresariales AS (
 saldos_dia AS (
     SELECT
         ce.padded_codigo_cliente,
-        CAST(h.dw_fecha_informacion AS DATE) AS fecha_saldo,
-        SUM(CAST(COALESCE(h.ctt001, 0) AS DECIMAL(18, 2))) AS saldo_total_dia
-    FROM HIS_DEP_DEPOSITOS_VIEW h
+        SUM(CAST(COALESCE(h.ctt001, 0) AS DECIMAL(18, 2))) AS saldo_total_actual
+    FROM DW_DEP_DEPOSITOS h
     INNER JOIN clientes_empresariales ce
         ON ce.padded_codigo_cliente = RIGHT('00000000' + LTRIM(RTRIM(h.CLDOC)), 8)
-    WHERE h.PRCODP = 1
-      AND h.PRSUBP = 51
-      AND h.DW_PRODUCTO = 'CUENTA DIGITAL'
-      AND h.dw_fecha_informacion >= :fecha_inicio
-      AND h.dw_fecha_informacion <  :fecha_fin_exclusiva
-    GROUP BY
-        ce.padded_codigo_cliente,
-        CAST(h.dw_fecha_informacion AS DATE)
+    GROUP BY ce.padded_codigo_cliente
 ),
 saldo_cliente AS (
     SELECT
         ce.padded_codigo_cliente,
-        AVG(COALESCE(sd.saldo_total_dia, 0)) AS saldo_promedio_periodo,
-        SUM(
-            CASE WHEN sd.fecha_saldo = :fecha_corte
-                 THEN COALESCE(sd.saldo_total_dia, 0)
-                 ELSE 0
-            END
-        ) AS saldo_corte_periodo,
-        MAX(CASE WHEN COALESCE(sd.saldo_total_dia, 0) > 0 THEN 1 ELSE 0 END) AS con_saldo_positivo
+        AVG(COALESCE(sd.saldo_total_actual, 0)) AS saldo_promedio_periodo,
+        SUM(COALESCE(sd.saldo_total_actual, 0)) AS saldo_corte_periodo,
+        MAX(CASE WHEN COALESCE(sd.saldo_total_actual, 0) > 0 THEN 1 ELSE 0 END) AS con_saldo_positivo
     FROM clientes_empresariales ce
     LEFT JOIN saldos_dia sd
         ON sd.padded_codigo_cliente = ce.padded_codigo_cliente
@@ -367,7 +354,6 @@ def cargar_perfil_financiero_clientes(
             ]
         )
 
-    fecha_corte = fecha_fin_exclusiva - timedelta(days=1)
     sql = construir_query_perfil_clientes_tmp()
     engine = get_engine()
 
@@ -386,11 +372,7 @@ def cargar_perfil_financiero_clientes(
         df = pd.read_sql(
             text(sql),
             conn,
-            params={
-                "fecha_inicio": fecha_inicio.isoformat(),
-                "fecha_fin_exclusiva": fecha_fin_exclusiva.isoformat(),
-                "fecha_corte": fecha_corte.isoformat(),
-            },
+            params={},
         )
         conn.execute(text("DROP TABLE #tmp_clientes;"))
 
@@ -426,7 +408,8 @@ def imprimir_resumen_financiero(
     print("\n" + "=" * 92)
     print("PERFIL FINANCIERO - CLIENTES MATCHED (SOLO TRANSACCIÓN)")
     print("=" * 92)
-    print(f"Periodo saldos evaluado:                    {fecha_inicio.isoformat()} a {fecha_fin_inclusiva.isoformat()}")
+    print("Fuente saldos:                              DW_DEP_DEPOSITOS (maestro)")
+    print(f"Rango para universo de transacciones:       {fecha_inicio.isoformat()} a {fecha_fin_inclusiva.isoformat()}")
     print(f"Clientes empresariales evaluados:            {total_clientes:>12,}")
     print(f"Clientes con saldo positivo en periodo:      {clientes_con_saldo:>12,}")
     print(f"% clientes con saldo positivo:               {pct_con_saldo:>11.2f}%")
