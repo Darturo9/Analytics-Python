@@ -39,8 +39,8 @@ RUTA_EXPORTS = BASE_DIR / "exports"
 # ============================================================================
 # Nombre base o nombre completo (ej: "BDD_DEPURADA_CLIENTES_WIFI" o "BDD_DEPURADA_CLIENTES_WIFI.xlsx")
 CONFIG_NOMBRE_ARCHIVO_ENTRADA = "BDD_DEPURADA_CLIENTES_WIFI"
-CONFIG_HOJA_CORREOS = "Correos"
-CONFIG_HOJA_TELEFONOS = "Telefonos"
+CONFIG_HOJA_CORREOS = "Hoja1"
+CONFIG_HOJA_TELEFONOS = "Hoja2"
 CONFIG_COL_CORREO = "Email"
 CONFIG_COL_TELEFONO = "Telefono"
 
