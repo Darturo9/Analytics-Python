@@ -53,7 +53,7 @@ SELECT
     COUNT(DISTINCT t.padded_codigo_cliente) AS clientes_unicos
 FROM trx t
 LEFT JOIN (
-    SELECT DISTINCT LTRIM(RTRIM(CLDOC)) AS CLDOC
+    SELECT DISTINCT RIGHT('00000000' + LTRIM(RTRIM(CLDOC)), 8) AS CLDOC
     FROM DW_CIF_CLIENTES
     WHERE CLTIPE = 'J'
 ) jur ON jur.CLDOC = t.padded_codigo_cliente
