@@ -278,10 +278,6 @@ def validar_consistencia(resumen: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    print(f"\nEjecutando query: {QUERY_PATH.name}")
-    print(f"- fecha_inicio: {FECHA_INICIO}")
-    print(f"- fecha_fin   : {FECHA_FIN}")
-
     try:
         df = run_query_file(
             str(QUERY_PATH),
@@ -307,9 +303,6 @@ def main() -> None:
     detalle = preparar_detalle(df)
     resumen = construir_resumen_diario(detalle)
     cliente_unico = construir_cliente_unico(detalle)
-    validar_consistencia(resumen)
-    validar_cliente_unico(cliente_unico, detalle)
-    imprimir_resumen_consola(resumen, detalle)
 
     output_path = build_output_path()
     exportar_excel_multi(
@@ -320,9 +313,7 @@ def main() -> None:
         str(output_path),
     )
 
-    print(f"- Archivo generado: {output_path}")
-    print(f"- Total filas detalle: {len(detalle):,}")
-    print(f"- Total filas resumen: {len(resumen):,}\n")
+    print(f"Listo, archivo exportado: {output_path}")
 
 
 if __name__ == "__main__":
