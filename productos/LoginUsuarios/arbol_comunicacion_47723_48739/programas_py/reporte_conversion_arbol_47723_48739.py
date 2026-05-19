@@ -142,6 +142,112 @@ def construir_resumen_diario(detalle: pd.DataFrame) -> pd.DataFrame:
     return resumen.reset_index(drop=True)
 
 
+CAMPANAS_LABEL = {
+    "47723": "Recordatorio 2",
+    "47955": "Recordatorio 3",
+    "48101": "Recordatorio 4",
+    "48311": "Recordatorio 5",
+    "48514": "Recordatorio 6",
+    "48739": "Recordatorio 7",
+}
+
+
+def construir_cliente_unico(detalle: pd.DataFrame) -> pd.DataFrame:
+    base = detalle.copy()
+    base["campaign_id"] = base["campaign_id"].astype(str)
+    base["convirtio_login"] = pd.to_numeric(base["convirtio_login"], errors="coerce").fillna(0).astype(int)
+    base["fecha_aplica"] = pd.to_datetime(base["fecha_aplica"], errors="coerce").dt.date
+    base["fecha_conversion_login"] = pd.to_datetime(base["fecha_conversion_login"], errors="coerce").dt.date
+
+    clientes = pd.DataFrame({"codigo_cliente": base["codigo_cliente"].drop_duplicates().sort_values()})
+
+    total_comms = (
+        base.groupby("codigo_cliente", as_index=False)
+        .size()
+        .rename(columns={"size": "total_comunicaciones"})
+    )
+
+    fechas = (
+        base.pivot_table(
+            index="codigo_cliente",
+            columns="campaign_id",
+            values="fecha_aplica",
+            aggfunc="max",
+        )
+        .rename(columns={cid: f"fecha_{label.lower().replace(' ', '_')}" for cid, label in CAMPANAS_LABEL.items()})
+        .reset_index()
+    )
+
+    conversiones = base[base["convirtio_login"] == 1].copy()
+    if not conversiones.empty:
+        conversiones["fecha_aplica_dt"] = pd.to_datetime(conversiones["fecha_aplica"], errors="coerce")
+        conversiones["fecha_conversion_dt"] = pd.to_datetime(conversiones["fecha_conversion_login"], errors="coerce")
+        # Por cliente: priorizar campaña con ID mayor (más reciente), luego conversión más temprana
+        conversiones = conversiones.sort_values(
+            by=["codigo_cliente", "campaign_id", "fecha_aplica_dt", "fecha_conversion_dt"],
+            ascending=[True, False, False, True],
+            kind="stable",
+        )
+        conversiones = conversiones.drop_duplicates(subset=["codigo_cliente"], keep="first")
+        conversiones["campana_conversion"] = conversiones["campaign_id"].map(CAMPANAS_LABEL)
+        conversiones = conversiones[[
+            "codigo_cliente",
+            "campana_conversion",
+            "fecha_aplica",
+            "fecha_conversion_login",
+        ]].rename(columns={
+            "fecha_aplica": "fecha_ultima_comunicacion",
+            "fecha_conversion_login": "fecha_conversion",
+        })
+    else:
+        conversiones = pd.DataFrame(columns=[
+            "codigo_cliente",
+            "campana_conversion",
+            "fecha_ultima_comunicacion",
+            "fecha_conversion",
+        ])
+
+    cliente_unico = (
+        clientes
+        .merge(total_comms, on="codigo_cliente", how="left")
+        .merge(fechas, on="codigo_cliente", how="left")
+        .merge(conversiones, on="codigo_cliente", how="left")
+    )
+
+    cliente_unico["convirtio_total"] = cliente_unico["campana_conversion"].notna().astype(int)
+
+    fecha_conv_dt = pd.to_datetime(cliente_unico["fecha_conversion"], errors="coerce")
+    fecha_ult_dt = pd.to_datetime(cliente_unico["fecha_ultima_comunicacion"], errors="coerce")
+    cliente_unico["dias_desde_ultima_comunicacion"] = (fecha_conv_dt - fecha_ult_dt).dt.days
+
+    fecha_cols = [f"fecha_{label.lower().replace(' ', '_')}" for label in CAMPANAS_LABEL.values()]
+    cols_existentes = [c for c in fecha_cols if c in cliente_unico.columns]
+    for col in fecha_cols:
+        if col not in cliente_unico.columns:
+            cliente_unico[col] = pd.NaT
+
+    columnas = (
+        ["codigo_cliente", "total_comunicaciones"]
+        + fecha_cols
+        + ["convirtio_total", "campana_conversion",
+           "fecha_ultima_comunicacion", "fecha_conversion",
+           "dias_desde_ultima_comunicacion"]
+    )
+
+    return cliente_unico[columnas].sort_values(by=["codigo_cliente"], kind="stable").reset_index(drop=True)
+
+
+def validar_cliente_unico(cliente_unico: pd.DataFrame, detalle: pd.DataFrame) -> None:
+    esperados = detalle["codigo_cliente"].nunique()
+    reales = cliente_unico["codigo_cliente"].nunique()
+    if esperados != reales:
+        print(f"[AVISO] Cliente_Unico no coincide en clientes unicos. esperado={esperados:,}, real={reales:,}")
+
+    duplicados = int(cliente_unico.duplicated(subset=["codigo_cliente"]).sum())
+    if duplicados > 0:
+        print(f"[AVISO] Cliente_Unico tiene duplicados por codigo_cliente: {duplicados:,}")
+
+
 def imprimir_resumen_consola(resumen: pd.DataFrame, detalle: pd.DataFrame) -> None:
     total_envios = len(detalle)
     total_conv = int(detalle["convirtio_login"].sum())
@@ -200,7 +306,9 @@ def main() -> None:
 
     detalle = preparar_detalle(df)
     resumen = construir_resumen_diario(detalle)
+    cliente_unico = construir_cliente_unico(detalle)
     validar_consistencia(resumen)
+    validar_cliente_unico(cliente_unico, detalle)
     imprimir_resumen_consola(resumen, detalle)
 
     output_path = build_output_path()
@@ -208,6 +316,7 @@ def main() -> None:
         {
             "Resumen_Diario": resumen,
             "Detalle_Envios": detalle,
+            "Cliente_Unico": cliente_unico,
         },
         str(output_path),
     )
