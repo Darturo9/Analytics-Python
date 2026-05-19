@@ -50,7 +50,8 @@ SELECT
     t.canal_operacion_raw,
     t.canal_operacion_codigo,
     t.monto_operacion,
-    t.es_reversa
+    t.es_reversa,
+    t.hora_operacion
 FROM trx_superpack t
 LEFT JOIN (
     SELECT
