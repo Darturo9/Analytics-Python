@@ -17,7 +17,7 @@ from pathlib import Path
 import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 
-ROOT = Path(__file__).resolve().parents[5]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 
 from core.db import run_query_file
