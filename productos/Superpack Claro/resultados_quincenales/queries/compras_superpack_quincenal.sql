@@ -20,7 +20,13 @@ WITH trx_superpack AS (
         COALESCE(NULLIF(LTRIM(RTRIM(CAST(p.spcpde AS VARCHAR(60)))), ''), 'SIN_DATO') AS canal_operacion_raw,
         TRY_CONVERT(INT, p.spcpco)                                                    AS canal_operacion_codigo,
         CAST(p.sppava AS DECIMAL(18, 2))                                              AS monto_operacion,
-        p.sppafr                                                                      AS es_reversa
+        p.sppafr                                                                      AS es_reversa,
+        CASE
+            WHEN TRY_CONVERT(INT, p.SPPAHR) IS NULL THEN NULL
+            WHEN TRY_CONVERT(INT, p.SPPAHR) < 24    THEN TRY_CONVERT(INT, p.SPPAHR)
+            WHEN TRY_CONVERT(INT, p.SPPAHR) < 2400  THEN TRY_CONVERT(INT, p.SPPAHR) / 100
+            ELSE                                          TRY_CONVERT(INT, p.SPPAHR) / 10000
+        END                                                                           AS hora_operacion
     FROM dw_mul_sppadat p
     LEFT JOIN dw_mul_spmaco m
         ON m.spcodc = p.spcodc

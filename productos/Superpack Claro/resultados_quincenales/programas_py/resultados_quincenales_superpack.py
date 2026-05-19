@@ -218,6 +218,30 @@ def imprimir_consola(trx: pd.DataFrame, demo: pd.DataFrame) -> None:
     print(f"  Clientes con compras >120: {clientes_mayores_120:,}")
     print(f"{'-' * 56}")
 
+    # Top 5 dias
+    top_dias = (
+        compras.groupby("fecha_operacion")
+        .agg(trx=("padded_codigo_cliente", "count"))
+        .reset_index().rename(columns={"fecha_operacion": "fecha"})
+        .sort_values("trx", ascending=False).head(5)
+    )
+    print("\n  Top 5 dias de mas compras:")
+    for _, r in top_dias.iterrows():
+        print(f"    {str(r['fecha']):<14} {int(r['trx']):>7,} trx")
+
+    # Top 5 horas
+    if "hora_operacion" in compras.columns:
+        top_horas = (
+            compras.dropna(subset=["hora_operacion"])
+            .groupby("hora_operacion")
+            .agg(trx=("padded_codigo_cliente", "count"))
+            .reset_index().rename(columns={"hora_operacion": "hora"})
+            .sort_values("trx", ascending=False).head(5)
+        )
+        print("\n  Top 5 horas de mas compras:")
+        for _, r in top_horas.iterrows():
+            print(f"    {int(r['hora']):02d}:00        {int(r['trx']):>7,} trx")
+
     if not demo.empty:
         t_gen = tabla_conteo(demo, "genero", total_clientes)
         print("\n  Genero:")
