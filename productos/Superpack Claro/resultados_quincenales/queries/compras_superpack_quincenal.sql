@@ -60,17 +60,5 @@ SELECT
     t.es_reversa,
     t.hora_operacion
 FROM trx_superpack t
-LEFT JOIN (
-    SELECT
-        LTRIM(RTRIM(CLDOC)) AS CLDOC,
-        CLTIPE,
-        ROW_NUMBER() OVER (
-            PARTITION BY LTRIM(RTRIM(CLDOC))
-            ORDER BY CASE WHEN CLTIPE = 'N' THEN 1 WHEN CLTIPE IS NULL THEN 2 ELSE 3 END
-        ) AS RN
-    FROM DW_CIF_CLIENTES
-) CIF
-    ON CIF.CLDOC = t.padded_codigo_cliente AND CIF.RN = 1
 WHERE t.padded_codigo_cliente IS NOT NULL
-  AND (CIF.CLTIPE <> 'J' OR CIF.CLTIPE IS NULL)
 ORDER BY t.fecha_operacion, t.padded_codigo_cliente;
