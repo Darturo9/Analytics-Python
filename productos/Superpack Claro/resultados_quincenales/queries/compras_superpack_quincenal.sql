@@ -45,7 +45,6 @@ WITH trx_superpack AS (
       AND TRY_CONVERT(INT, p.spcodc) = 498
       AND p.spcpco IN (1, 7)
       AND m.CLMOCO IN ('001', 'L')
-      AND p.sppafr = 'N'
 ),
 clientes_unicos AS (
     SELECT DISTINCT padded_codigo_cliente

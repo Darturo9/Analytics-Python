@@ -47,7 +47,6 @@ WITH trx AS (
       AND TRY_CONVERT(INT, p.spcodc) = 498
       AND p.spcpco IN (1, 7)
       AND m.CLMOCO IN ('001', 'L')
-      AND p.sppafr = 'N'
 )
 SELECT
     COUNT(*)                            AS total_trx,
