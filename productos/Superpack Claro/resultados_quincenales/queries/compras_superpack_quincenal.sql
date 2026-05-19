@@ -7,6 +7,10 @@
 --   - Excluye juridicos: CLTIPE <> 'J'
 --   - Incluye reversas para calcular neto en Python (sppafr)
 --
+-- Nota de rendimiento:
+--   El codigo cliente se extrae directamente de SPINUS con funciones de
+--   string (sin JOIN a DW_BEL_IBUSER) para mayor velocidad.
+--
 -- Parametros esperados (desde Python):
 --   fecha_inicio        (DATE) obligatorio  — inicio de quincena (inclusivo)
 --   fecha_fin_exclusiva (DATE) obligatorio  — dia siguiente al fin de quincena
@@ -14,7 +18,17 @@
 
 WITH trx_superpack AS (
     SELECT
-        ClientesBel.CLCCLI                                                            AS padded_codigo_cliente,
+        RIGHT(
+            '00000000' + LTRIM(RTRIM(
+                CASE
+                    WHEN p.spinus IS NULL                          THEN NULL
+                    WHEN PATINDEX('%[A-Za-z]%', p.spinus) > 1     THEN LEFT(p.spinus, PATINDEX('%[A-Za-z]%', p.spinus) - 1)
+                    WHEN PATINDEX('%[A-Za-z]%', p.spinus) = 1     THEN NULL
+                    ELSE p.spinus
+                END
+            )),
+            8
+        )                                                                             AS padded_codigo_cliente,
         CONVERT(DATE, p.dw_fecha_operacion_sp)                                        AS fecha_operacion,
         TRY_CONVERT(INT, p.spcodc)                                                    AS codigo_superpack,
         COALESCE(NULLIF(LTRIM(RTRIM(CAST(p.spcpde AS VARCHAR(60)))), ''), 'SIN_DATO') AS canal_operacion_raw,
@@ -28,15 +42,8 @@ WITH trx_superpack AS (
             ELSE                                          TRY_CONVERT(INT, p.SPPAHR) / 10000
         END                                                                           AS hora_operacion
     FROM dw_mul_sppadat p
-    LEFT JOIN dw_mul_spmaco m
+    INNER JOIN dw_mul_spmaco m
         ON m.spcodc = p.spcodc
-    LEFT JOIN (
-        SELECT
-            LTRIM(RTRIM(u.CLCCLI)) AS CLCCLI,
-            LTRIM(RTRIM(u.USCODE)) AS USCODE
-        FROM DW_BEL_IBUSER u
-    ) ClientesBel
-        ON LTRIM(RTRIM(p.SPINUS)) = (ClientesBel.CLCCLI + ClientesBel.USCODE)
     WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
       AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
       AND TRY_CONVERT(INT, p.spcodc) = 498

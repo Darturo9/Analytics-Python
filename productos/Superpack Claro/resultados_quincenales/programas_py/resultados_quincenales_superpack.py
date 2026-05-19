@@ -37,7 +37,7 @@ FECHA_INICIO        = "2026-05-01"   # inclusivo
 FECHA_FIN_EXCLUSIVA = "2026-05-16"   # exclusivo (dia siguiente al ultimo dia de quincena)
 # ─────────────────────────────────────────────────────────────────────────────
 
-DEMOGRAFIA_BATCH_SIZE = 500
+DEMOGRAFIA_BATCH_SIZE = 2000
 
 SQL_DEMOGRAFIA_BATCH = """
 SELECT
