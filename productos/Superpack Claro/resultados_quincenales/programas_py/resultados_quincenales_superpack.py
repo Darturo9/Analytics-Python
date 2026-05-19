@@ -73,9 +73,7 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["fecha_operacion"]  = pd.to_datetime(out["fecha_operacion"], errors="coerce").dt.date
     out["monto_operacion"]  = pd.to_numeric(out["monto_operacion"], errors="coerce").fillna(0.0)
-    out["es_reversa"]       = out["es_reversa"].astype(str).str.strip().str.upper()
     out["canal"]            = out["canal_operacion_codigo"].apply(normalizar_canal)
-    out["es_compra"]        = out["es_reversa"] != "S"
     out["fecha_nacimiento"] = pd.to_datetime(out["fecha_nacimiento"], errors="coerce")
     out["genero"]           = out["genero_raw"].apply(normalizar_genero)
     out["generacion"]       = out["fecha_nacimiento"].apply(clasificar_generacion)
@@ -97,7 +95,7 @@ def tabla_conteo(df: pd.DataFrame, col: str, total: int, top_n: int | None = Non
 
 
 def imprimir_consola(trx: pd.DataFrame) -> None:
-    compras = trx[trx["es_compra"]].copy()
+    compras = trx.copy()
 
     total_trx      = len(compras)
     total_clientes = compras["padded_codigo_cliente"].nunique()

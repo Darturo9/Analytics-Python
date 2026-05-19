@@ -28,9 +28,8 @@ QUINCENAS = [
 # ─────────────────────────────────────────────────────────────────────────────
 
 SQL = """
-SELECT
-    COUNT(*)                                        AS total_trx,
-    COUNT(DISTINCT
+WITH trx AS (
+    SELECT
         RIGHT(
             '00000000' + LTRIM(RTRIM(
                 CASE
@@ -40,16 +39,27 @@ SELECT
                     ELSE p.spinus
                 END
             )), 8
-        )
-    )                                               AS clientes_unicos
-FROM dw_mul_sppadat p
-INNER JOIN dw_mul_spmaco m ON m.spcodc = p.spcodc
-WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
-  AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
-  AND TRY_CONVERT(INT, p.spcodc) = 498
-  AND p.spcpco IN (1, 7)
-  AND m.CLMOCO IN ('001', 'L')
-  AND p.sppafr = 'N'
+        ) AS padded_codigo_cliente
+    FROM dw_mul_sppadat p
+    INNER JOIN dw_mul_spmaco m ON m.spcodc = p.spcodc
+    WHERE p.dw_fecha_operacion_sp >= :fecha_inicio
+      AND p.dw_fecha_operacion_sp <  :fecha_fin_exclusiva
+      AND TRY_CONVERT(INT, p.spcodc) = 498
+      AND p.spcpco IN (1, 7)
+      AND m.CLMOCO IN ('001', 'L')
+      AND p.sppafr = 'N'
+)
+SELECT
+    COUNT(*)                            AS total_trx,
+    COUNT(DISTINCT t.padded_codigo_cliente) AS clientes_unicos
+FROM trx t
+LEFT JOIN (
+    SELECT DISTINCT LTRIM(RTRIM(CLDOC)) AS CLDOC
+    FROM DW_CIF_CLIENTES
+    WHERE CLTIPE = 'J'
+) jur ON jur.CLDOC = t.padded_codigo_cliente
+WHERE t.padded_codigo_cliente IS NOT NULL
+  AND jur.CLDOC IS NULL
 """
 
 
