@@ -327,6 +327,31 @@ def exportar_resultados(df_res_correo: pd.DataFrame, df_res_telefono: pd.DataFra
     return ruta_salida
 
 
+def exportar_sin_cuenta_digital(df_res_correo: pd.DataFrame, df_res_telefono: pd.DataFrame) -> Path:
+    RUTA_EXPORTS.mkdir(parents=True, exist_ok=True)
+    ruta_salida = RUTA_EXPORTS / "Clientes_Sin_Cuenta_Digital.xlsx"
+
+    cols_correo = [c for c in df_res_correo.columns if not c.startswith("_")]
+    cols_telefono = [c for c in df_res_telefono.columns if not c.startswith("_")]
+
+    df_sin_correo = df_res_correo[~df_res_correo["coincide"]].copy()[cols_correo]
+    df_sin_telefono = df_res_telefono[~df_res_telefono["coincide"]].copy()[cols_telefono]
+
+    # Columnas de contacto al frente
+    def reordenar(df: pd.DataFrame, col_contacto: str) -> pd.DataFrame:
+        otras = [c for c in df.columns if c != col_contacto]
+        return df[[col_contacto] + otras].copy()
+
+    df_sin_correo = reordenar(df_sin_correo, CONFIG_COL_CORREO)
+    df_sin_telefono = reordenar(df_sin_telefono, CONFIG_COL_TELEFONO)
+
+    with pd.ExcelWriter(ruta_salida, engine="xlsxwriter") as writer:
+        df_sin_correo.to_excel(writer, sheet_name="Sin_CuentaDigital_Correos", index=False)
+        df_sin_telefono.to_excel(writer, sheet_name="Sin_CuentaDigital_Telefonos", index=False)
+
+    return ruta_salida
+
+
 def imprimir_resumen(df_res_correo: pd.DataFrame, df_res_telefono: pd.DataFrame, ruta_salida: Path) -> None:
     res_correo = resumen_categoria("Correos", df_res_correo)
     res_telefono = resumen_categoria("Telefonos", df_res_telefono)
@@ -368,7 +393,9 @@ def main() -> None:
         df_res_telefono = evaluar_telefonos(df_telefonos, set_telefonos, mapa_fecha_telefono, mapa_codigo_telefono)
 
         ruta_salida = exportar_resultados(df_res_correo, df_res_telefono)
+        ruta_sin_cuenta = exportar_sin_cuenta_digital(df_res_correo, df_res_telefono)
         imprimir_resumen(df_res_correo, df_res_telefono, ruta_salida)
+        print(f"[OK] Clientes sin cuenta digital: {ruta_sin_cuenta}")
 
     except SQLAlchemyError as exc:
         print(f"[ERROR] No se pudo consultar SQL Server: {exc}")
