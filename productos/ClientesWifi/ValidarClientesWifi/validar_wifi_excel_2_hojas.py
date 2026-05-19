@@ -187,9 +187,9 @@ def filtrar_aperturas(df_cuentas: pd.DataFrame) -> pd.DataFrame:
 
 def construir_indices_contacto(
     df_cuentas: pd.DataFrame,
-) -> tuple[set[str], set[str], dict[str, pd.Timestamp], dict[str, pd.Timestamp]]:
+) -> tuple[set[str], set[str], dict[str, pd.Timestamp], dict[str, pd.Timestamp], dict[str, str], dict[str, str]]:
     if df_cuentas.empty:
-        return set(), set(), {}, {}
+        return set(), set(), {}, {}, {}, {}
 
     col_correo = "correo" if "correo" in df_cuentas.columns else "direccion_3"
     if col_correo not in df_cuentas.columns:
@@ -204,6 +204,7 @@ def construir_indices_contacto(
     df = df_cuentas.copy()
     df["_fecha_apertura"] = pd.to_datetime(df["fecha_apertura"], errors="coerce")
     df["_correo_norm"] = normalizar_correo(df[col_correo])
+    df["_codigo_cliente"] = df["padded_codigo_cliente"].astype(str).str.strip() if "padded_codigo_cliente" in df.columns else ""
 
     if "telefono_1" in df.columns:
         df["_telefono_1_norm"] = normalizar_telefono(df["telefono_1"])
@@ -219,31 +220,36 @@ def construir_indices_contacto(
     set_telefonos = set(df["_telefono_1_norm"].dropna()) | set(df["_telefono_2_norm"].dropna())
     set_telefonos.discard("")
 
-    mapa_fecha_correo = (
-        df[df["_correo_norm"].notna() & (df["_correo_norm"] != "") & df["_fecha_apertura"].notna()]
-        .groupby("_correo_norm")["_fecha_apertura"]
-        .min()
+    df_correo_valid = df[df["_correo_norm"].notna() & (df["_correo_norm"] != "") & df["_fecha_apertura"].notna()]
+    mapa_fecha_correo = df_correo_valid.groupby("_correo_norm")["_fecha_apertura"].min().to_dict()
+    mapa_codigo_correo = (
+        df_correo_valid.sort_values("_fecha_apertura")
+        .drop_duplicates(subset=["_correo_norm"], keep="first")
+        .set_index("_correo_norm")["_codigo_cliente"]
         .to_dict()
     )
 
-    tel1 = df[["_telefono_1_norm", "_fecha_apertura"]].rename(columns={"_telefono_1_norm": "_telefono_norm"})
-    tel2 = df[["_telefono_2_norm", "_fecha_apertura"]].rename(columns={"_telefono_2_norm": "_telefono_norm"})
+    tel1 = df[["_telefono_1_norm", "_fecha_apertura", "_codigo_cliente"]].rename(columns={"_telefono_1_norm": "_telefono_norm"})
+    tel2 = df[["_telefono_2_norm", "_fecha_apertura", "_codigo_cliente"]].rename(columns={"_telefono_2_norm": "_telefono_norm"})
     df_tels = pd.concat([tel1, tel2], ignore_index=True)
+    df_tels_valid = df_tels[df_tels["_telefono_norm"].notna() & (df_tels["_telefono_norm"] != "") & df_tels["_fecha_apertura"].notna()]
 
-    mapa_fecha_telefono = (
-        df_tels[df_tels["_telefono_norm"].notna() & (df_tels["_telefono_norm"] != "") & df_tels["_fecha_apertura"].notna()]
-        .groupby("_telefono_norm")["_fecha_apertura"]
-        .min()
+    mapa_fecha_telefono = df_tels_valid.groupby("_telefono_norm")["_fecha_apertura"].min().to_dict()
+    mapa_codigo_telefono = (
+        df_tels_valid.sort_values("_fecha_apertura")
+        .drop_duplicates(subset=["_telefono_norm"], keep="first")
+        .set_index("_telefono_norm")["_codigo_cliente"]
         .to_dict()
     )
 
-    return set_correos, set_telefonos, mapa_fecha_correo, mapa_fecha_telefono
+    return set_correos, set_telefonos, mapa_fecha_correo, mapa_fecha_telefono, mapa_codigo_correo, mapa_codigo_telefono
 
 
 def evaluar_correos(
     df_correos: pd.DataFrame,
     set_correos: set[str],
     mapa_fecha_correo: dict[str, pd.Timestamp],
+    mapa_codigo_correo: dict[str, str],
 ) -> pd.DataFrame:
     df = df_correos.copy()
     df["_correo_norm"] = normalizar_correo(df[CONFIG_COL_CORREO])
@@ -254,6 +260,7 @@ def evaluar_correos(
         .dt.strftime("%Y-%m-%d")
         .fillna("")
     )
+    df["codigo_cliente"] = df["_correo_norm"].map(mapa_codigo_correo).fillna("")
     return df
 
 
@@ -261,6 +268,7 @@ def evaluar_telefonos(
     df_telefonos: pd.DataFrame,
     set_telefonos: set[str],
     mapa_fecha_telefono: dict[str, pd.Timestamp],
+    mapa_codigo_telefono: dict[str, str],
 ) -> pd.DataFrame:
     df = df_telefonos.copy()
     df["_telefono_norm"] = normalizar_telefono(df[CONFIG_COL_TELEFONO])
@@ -271,6 +279,7 @@ def evaluar_telefonos(
         .dt.strftime("%Y-%m-%d")
         .fillna("")
     )
+    df["codigo_cliente"] = df["_telefono_norm"].map(mapa_codigo_telefono).fillna("")
     return df
 
 
@@ -354,9 +363,9 @@ def main() -> None:
         df_correos, df_telefonos = cargar_excel_2_hojas(ruta_entrada)
         df_cuentas = cargar_cuentas_digitales()
 
-        set_correos, set_telefonos, mapa_fecha_correo, mapa_fecha_telefono = construir_indices_contacto(df_cuentas)
-        df_res_correo = evaluar_correos(df_correos, set_correos, mapa_fecha_correo)
-        df_res_telefono = evaluar_telefonos(df_telefonos, set_telefonos, mapa_fecha_telefono)
+        set_correos, set_telefonos, mapa_fecha_correo, mapa_fecha_telefono, mapa_codigo_correo, mapa_codigo_telefono = construir_indices_contacto(df_cuentas)
+        df_res_correo = evaluar_correos(df_correos, set_correos, mapa_fecha_correo, mapa_codigo_correo)
+        df_res_telefono = evaluar_telefonos(df_telefonos, set_telefonos, mapa_fecha_telefono, mapa_codigo_telefono)
 
         ruta_salida = exportar_resultados(df_res_correo, df_res_telefono)
         imprimir_resumen(df_res_correo, df_res_telefono, ruta_salida)
