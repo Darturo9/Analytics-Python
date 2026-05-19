@@ -356,7 +356,6 @@ def main() -> None:
     exportar_excel_multi(
         {
             "Resumen_Diario": resumen,
-            "Detalle_Envios": detalle,
             "Cliente_Unico": cliente_unico,
         },
         str(output_path),
