@@ -60,5 +60,13 @@ SELECT
     t.es_reversa,
     t.hora_operacion
 FROM trx_superpack t
+LEFT JOIN (
+    SELECT DISTINCT
+        LTRIM(RTRIM(CLDOC)) AS CLDOC,
+        CLTIPE
+    FROM DW_CIF_CLIENTES
+    WHERE CLTIPE = 'J'
+) jur ON jur.CLDOC = t.padded_codigo_cliente
 WHERE t.padded_codigo_cliente IS NOT NULL
+  AND jur.CLDOC IS NULL
 ORDER BY t.fecha_operacion, t.padded_codigo_cliente;
