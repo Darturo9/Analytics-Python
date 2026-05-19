@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from core.db import run_query
 
 # ── Periodos a comparar ───────────────────────────────────────────────────────
+# Formato: ("Etiqueta", "YYYY-MM-DD inicio inclusivo", "YYYY-MM-DD fin exclusivo")
 QUINCENAS = [
     ("Mar 1-15",  "2026-03-01", "2026-03-16"),
     ("Abr 1-15",  "2026-04-01", "2026-04-16"),
