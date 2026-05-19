@@ -7,12 +7,10 @@ Si hay nuevo envío del cliente antes de convertir, se corta la ventana del env�
 
 Uso:
     python3 reporte_conversion_arbol_47516_47619.py
-    python3 reporte_conversion_arbol_47516_47619.py --fecha-inicio 2026-03-16
-    python3 reporte_conversion_arbol_47516_47619.py --fecha-inicio 2026-03-16 --fecha-fin 2026-03-31
-    python3 reporte_conversion_arbol_47516_47619.py --output exports/mi_reporte.xlsx
+
+Fechas configuradas en FECHA_INICIO / FECHA_FIN al inicio del archivo.
 """
 
-import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +29,10 @@ QUERY_PATH = Path(__file__).resolve().parents[1] / "queries" / "conversion_arbol
 EXPORTS_DIR = Path(__file__).resolve().parents[1] / "exports"
 EXPORTS_DIR.mkdir(exist_ok=True)
 
-DEFAULT_FECHA_INICIO = "2026-03-16"
+# ── Fechas a analizar ────────────────────────────────────────────────────────
+FECHA_INICIO = "2026-05-11"
+FECHA_FIN    = "2026-05-17"
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def build_output_path(output_arg: str) -> Path:
@@ -191,42 +192,17 @@ def validar_consistencia(resumen: pd.DataFrame) -> None:
         print("[AVISO] Se detectaron filas con inconsistencia conv_dia_0+1+2 != conv_3d_total")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Reporte de conversion por FechaAplica (campanas 47516/47619)."
-    )
-    parser.add_argument(
-        "--fecha-inicio",
-        default=DEFAULT_FECHA_INICIO,
-        help=f"Fecha inicio (YYYY-MM-DD). Default: {DEFAULT_FECHA_INICIO}",
-    )
-    parser.add_argument(
-        "--fecha-fin",
-        default="",
-        help="Fecha fin (YYYY-MM-DD). Opcional.",
-    )
-    parser.add_argument(
-        "--output",
-        default="",
-        help="Ruta de salida del Excel (opcional).",
-    )
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = parse_args()
-    fecha_fin_param = args.fecha_fin.strip() or None
-
     print(f"\nEjecutando query: {QUERY_PATH.name}")
-    print(f"- fecha_inicio: {args.fecha_inicio}")
-    print(f"- fecha_fin   : {fecha_fin_param if fecha_fin_param else 'NULL (sin tope)'}")
+    print(f"- fecha_inicio: {FECHA_INICIO}")
+    print(f"- fecha_fin   : {FECHA_FIN}")
 
     try:
         df = run_query_file(
             str(QUERY_PATH),
             params={
-                "fecha_inicio": args.fecha_inicio,
-                "fecha_fin": fecha_fin_param,
+                "fecha_inicio": FECHA_INICIO,
+                "fecha_fin": FECHA_FIN,
             },
         )
     except SQLAlchemyError as exc:
@@ -248,7 +224,7 @@ def main() -> None:
     validar_consistencia(resumen)
     imprimir_resumen_consola(resumen, detalle)
 
-    output_path = build_output_path(args.output)
+    output_path = build_output_path("")
     exportar_excel_multi(
         {
             "Resumen_Diario": resumen,
