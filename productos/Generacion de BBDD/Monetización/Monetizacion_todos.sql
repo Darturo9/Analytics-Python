@@ -9,7 +9,6 @@ Descripción: Generación de base de monetización de cuenta digital, los filtro
                 * Usuarios activos
                 * Clientes con cuenta digital activa
                 * Clientes que no sean empleados de Banpaís
-                * Clientes con notificaciones push activas
 ==============================================================================
 */
 
@@ -26,12 +25,8 @@ WITH clientes_cuenta_digital as (
 		SELECT RTRIM(LTRIM(usuarios.CLCCLI)) as cod_cliente,
 			ROW_NUMBER() OVER(PARTITION BY RTRIM(LTRIM(usuarios.CLCCLI)) ORDER BY usuarios.dw_fecha_creacion DESC) [cont]
 		FROM dw_bel_ibuser usuarios
-		INNER JOIN dw_bel_ibpnus notificaciones --Notificaciones Push
-		ON RTRIM(LTRIM(usuarios.uscode)) = RTRIM(LTRIM(notificaciones.usecode))
 		WHERE
 			 usuarios.usstat = 'A'
-			 AND notificaciones.uspnst = 1	  -- Notificaciones Push activo
-			 AND notificaciones.usbpst = 1	  -- Notificaciones BP Movil activo
 	)as rn
 	WHERE rn.cont = 1
 ), clientes_activos as (
